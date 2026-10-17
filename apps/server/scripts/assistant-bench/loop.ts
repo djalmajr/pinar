@@ -11,7 +11,7 @@
 //     are gathered (never executed) and the turn ends before the next
 //     request. Sequential writes across turns are out of scope for this
 //     bench: the bench does not simulate human confirmation;
-//   - f2 only: a step with a pinar_ask call ends the turn, like the
+//   - f2 and f3 only: a step with a pinar_ask call ends the turn, like the
 //     runtime's hasToolCall("pinar_ask") stop (turn.ts). A valid call
 //     ends as finalKind "ask" with the question as the final text, even
 //     next to a proposal of the same step (classifyTurnOutcome gives the
@@ -35,7 +35,7 @@
 
 import { assistantAskFrom } from "../../src/server/assistant/extra-tools";
 import { chatStream, redactSecret, type BenchClientOptions } from "./client";
-import { ASK_TOOL_LLM_NAME, isRecord, mcpToolName, toolArgProblems, toolByMcpName } from "./tools";
+import { ASK_TOOL_LLM_NAME, isRecord, mcpToolName, profileIncludes, toolArgProblems, toolByMcpName } from "./tools";
 import type { BenchProfile, ChatMessage, LoopResult, ToolCallRecord } from "./types";
 
 export const DEFAULT_MAX_STEPS = 8;
@@ -194,7 +194,7 @@ export async function runAgentLoop(options: BenchLoopOptions): Promise<LoopResul
       messages.push({ content, role: "tool", tool_call_id: assistantCalls[index].id });
       // Any pinar_ask call of the step stops the turn (invalid JSON or
       // arguments included); only a successful one carries the question.
-      if (profile === "f2" && call.name === ASK_TOOL_LLM_NAME) {
+      if (profileIncludes(profile, "f2") && call.name === ASK_TOOL_LLM_NAME) {
         askCalled = true;
         if (ask === null && record.error === null) ask = assistantAskFrom(call.args);
       }

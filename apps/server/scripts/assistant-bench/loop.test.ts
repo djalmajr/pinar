@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { collectionByName, FIXTURE, respond as fixtureRespond, sessionByTitle } from "./fixtures";
 import { runAgentLoop } from "./loop";
-import { BENCH_CASES } from "./cases";
-import { scoreCase } from "./score";
+import { BENCH_CASES, expectFor } from "./cases";
+import { benchGates, loopToRun, scoreCase } from "./score";
 import { llmToolDefs } from "./tools";
 import { makeFakeFetch, type ScriptedResponse } from "./test-utils";
 
@@ -663,4 +663,181 @@ test("f2 (P3): texto livre segue com a regra da frase (marcador de pedido obriga
   // Com marcador, o texto livre passa como antes.
   const { loop: marked } = await runLoopF2([{ chunks: [textChunk("Para qual coleção devo mover a sessão?"), stop()] }]);
   expect(scoreCase(a02.expect, marked, "f2").pass).toBe(true);
+});
+
+// ---------- perfil f3 (pinar_pins_search) ----------
+
+async function runLoopF3(script: ScriptedResponse[], profile: "f2" | "f3" = "f3") {
+  const fake = makeFakeFetch(script);
+  const loop = await runAgentLoop({
+    casePrompt: "caso de teste",
+    client: {
+      apiKey: "sk-test-NAO-VAZAR",
+      baseUrl: "https://appliance.example/v1",
+      conversationId: "conv-loop-f3",
+      delayImpl: () => Promise.resolve(),
+      fetchImpl: fake.fetchImpl,
+      model: "modelo-teste",
+      tools: llmToolDefs(false, profile),
+    },
+    profile,
+    respond: fixtureRespond,
+    systemPrompt: "sistema de teste",
+  });
+  return { fake, loop };
+}
+
+const CONTRAST_ANSWER = "Você comentou sobre contraste em Configurações do Cinzel e na Tela de checkout da loja.";
+
+test("f3: a busca é oferecida, o respond volta como tool result e o caso de busca passa", async () => {
+  const p01 = caseById("p01-onde-contraste");
+  const { fake, loop } = await runLoopF3([
+    { chunks: [toolCallChunk([{ args: { query: "contraste" }, name: "pinar_pins_search" }]), toolFinish()] },
+    { chunks: [textChunk(CONTRAST_ANSWER), stop()] },
+  ]);
+  const offered = (JSON.parse(fake.requests[0].body) as { tools: Array<{ function: { name: string } }> }).tools.map((entry) => entry.function.name);
+  expect(offered).toContain("pinar_pins_search");
+  expect(offered.length).toBe(39);
+  // O tool result é o { hits } do respond, sem mudança.
+  const messages = (JSON.parse(fake.requests[1].body) as { messages: Array<{ content: string; role: string }> }).messages;
+  const toolMessage = messages.find((message) => message.role === "tool")!;
+  expect(JSON.parse(toolMessage.content)).toEqual(fixtureRespond("pinar.pins_search", { query: "contraste" }) as object);
+  expect(loop.unknownNames).toEqual([]);
+  expect(loop.toolCalls[0].problems).toEqual([]);
+  const score = scoreCase(p01.expect, loop, "f3");
+  expect(score.searchFirstOk).toBe(true);
+  expect(score.coverageOk).toBe(true);
+  expect(score.pass).toBe(true);
+  const gates = benchGates([loopToRun(p01, loop, 1, score)], "f3");
+  expect(gates.find((entry) => entry.id === "action")?.pass).toBe(true);
+  expect(gates.find((entry) => entry.id === "search")).toMatchObject({ measured: "100.0% (1/1)", pass: true });
+});
+
+test("f3: listar sessões antes de buscar reprova a ação do caso de busca", async () => {
+  const p01 = caseById("p01-onde-contraste");
+  const { loop } = await runLoopF3([
+    { chunks: [toolCallChunk([{ args: { query: "contraste" }, name: "pinar_list_sessions" }]), toolFinish()] },
+    { chunks: [toolCallChunk([{ args: { query: "contraste" }, name: "pinar_pins_search" }]), toolFinish()] },
+    { chunks: [textChunk(CONTRAST_ANSWER), stop()] },
+  ]);
+  const score = scoreCase(p01.expect, loop, "f3");
+  // Busca feita, menções e término certos: só a ordem reprova.
+  expect(score.mustCallOk).toBe(true);
+  expect(score.mentionsOk).toBe(true);
+  expect(score.endOk).toBe(true);
+  expect(score.searchFirstOk).toBe(false);
+  expect(score.pass).toBe(false);
+  const gates = benchGates([loopToRun(p01, loop, 1, score)], "f3");
+  expect(gates.find((entry) => entry.id === "action")).toMatchObject({ measured: "0.0% (0/1)", pass: false });
+  expect(gates.find((entry) => entry.id === "search")).toMatchObject({ measured: "0.0% (0/1)", pass: false });
+});
+
+test("f3: na mesma resposta vale a ordem das chamadas", async () => {
+  const p03 = caseById("p03-pdf-download");
+  const answer = "The PDF download pin is in Faturas do Skedly.";
+  const searchCall = { args: { query: "PDF download" }, name: "pinar_pins_search" };
+  const listCall = { args: { query: "PDF" }, name: "pinar_list_sessions" };
+  const { loop: searchFirst } = await runLoopF3([
+    { chunks: [toolCallChunk([searchCall, listCall]), toolFinish()] },
+    { chunks: [textChunk(answer), stop()] },
+  ]);
+  expect(scoreCase(p03.expect, searchFirst, "f3").pass).toBe(true);
+  const { loop: listFirst } = await runLoopF3([
+    { chunks: [toolCallChunk([listCall, searchCall]), toolFinish()] },
+    { chunks: [textChunk(answer), stop()] },
+  ]);
+  const score = scoreCase(p03.expect, listFirst, "f3");
+  expect(score.searchFirstOk).toBe(false);
+  expect(score.pass).toBe(false);
+});
+
+test("f3 herda a f2: pinar_ask encerra o turno; no f2 a busca é ferramenta desconhecida", async () => {
+  const { fake, loop } = await runLoopF3([{ chunks: [toolCallChunk([{ args: ASK_ARGS, name: "pinar_ask" }]), toolFinish()] }]);
+  expect(fake.requests.length).toBe(1);
+  expect(loop.stoppedReason).toBe("ask");
+  expect(loop.finalKind).toBe("ask");
+  expect(scoreCase(caseById("a02-mover-para-qual").expect, loop, "f3").pass).toBe(true);
+  const { loop: f2 } = await runLoopF3(
+    [
+      { chunks: [toolCallChunk([{ args: { query: "contraste" }, name: "pinar_pins_search" }]), toolFinish()] },
+      { chunks: [textChunk(CONTRAST_ANSWER), stop()] },
+    ],
+    "f2",
+  );
+  expect(f2.unknownNames).toEqual(["pinar_pins_search"]);
+  expect(f2.toolCalls[0].error).toBe("Unknown tool");
+});
+
+// ---------- perfil f3: ajustes do b03 e dos fora de escopo ----------
+
+const B03_ANSWER = "Mencionam contraste: Configurações do Cinzel e Tela de checkout da loja.";
+
+test("f3: o b03 passa só com a busca; no f2 a mesma execução reprova", async () => {
+  const b03 = caseById("b03-busca-por-pin");
+  const { loop } = await runLoopF3([
+    { chunks: [toolCallChunk([{ args: { query: "contraste" }, name: "pinar_pins_search" }]), toolFinish()] },
+    { chunks: [textChunk(B03_ANSWER), stop()] },
+  ]);
+  const score = scoreCase(expectFor(b03, "f3"), loop, "f3");
+  expect(score.mustCallOk).toBe(true);
+  expect(score.coverageOk).toBe(true);
+  expect(score.pass).toBe(true);
+  expect(benchGates([loopToRun(b03, loop, 1, score)], "f3").find((entry) => entry.id === "action")?.pass).toBe(true);
+  // Controle: com a expectativa da f2 (o expect do caso), a busca sozinha não basta.
+  const f2Score = scoreCase(b03.expect, loop, "f3");
+  expect(f2Score.missingMustCall).toEqual(["pinar_list_sessions"]);
+  expect(f2Score.pass).toBe(false);
+  // A listagem continua valendo no f3.
+  const { loop: listed } = await runLoopF3([
+    { chunks: [toolCallChunk([{ args: { query: "contraste" }, name: "pinar_list_sessions" }]), toolFinish()] },
+    { chunks: [textChunk(B03_ANSWER), stop()] },
+  ]);
+  expect(scoreCase(expectFor(b03, "f3"), listed, "f3").pass).toBe(true);
+  // Sem nenhuma das duas, ou com as menções erradas, reprova.
+  const { loop: guessed } = await runLoopF3([{ chunks: [textChunk(B03_ANSWER), stop()] }]);
+  const guessedScore = scoreCase(expectFor(b03, "f3"), guessed, "f3");
+  expect(guessedScore.missingMustCall).toEqual(["pinar_list_sessions|pinar_pins_search"]);
+  expect(guessedScore.pass).toBe(false);
+  expect(benchGates([loopToRun(b03, guessed, 1, guessedScore)], "f3").find((entry) => entry.id === "action")?.pass).toBe(false);
+  const { loop: wrong } = await runLoopF3([
+    { chunks: [toolCallChunk([{ args: { query: "contraste" }, name: "pinar_pins_search" }]), toolFinish()] },
+    { chunks: [textChunk("Mencionam contraste: Configurações do Cinzel."), stop()] },
+  ]);
+  expect(scoreCase(expectFor(b03, "f3"), wrong, "f3").mentionsFailures).toEqual(["Tela de checkout da loja"]);
+});
+
+test("f3: uma busca no x01 reprova; no f2 a mesma chamada fica só no gate de fora do catálogo", async () => {
+  const x01 = caseById("x01-clima");
+  const refusal = "Não tenho acesso à previsão do tempo; cuido do Pinar.";
+  const script = (): ScriptedResponse[] => [
+    { chunks: [toolCallChunk([{ args: { query: "previsão do tempo" }, name: "pinar_pins_search" }]), toolFinish()] },
+    { chunks: [textChunk(refusal), stop()] },
+  ];
+  const { loop } = await runLoopF3(script());
+  const score = scoreCase(expectFor(x01, "f3"), loop, "f3");
+  expect(score.calledMustNot).toEqual(["pinar_pins_search"]);
+  expect(score.mustNotCallOk).toBe(false);
+  expect(score.pass).toBe(false);
+  expect(benchGates([loopToRun(x01, loop, 1, score)], "f3").find((entry) => entry.id === "action")?.pass).toBe(false);
+  // Controle: a recusa sem chamada passa no f3.
+  const { loop: clean } = await runLoopF3([{ chunks: [textChunk(refusal), stop()] }]);
+  expect(scoreCase(expectFor(x01, "f3"), clean, "f3").pass).toBe(true);
+  // f2 sem mudança: o veto é o do caso, e o nome desconhecido conta no gate de fora do catálogo.
+  const { loop: f2 } = await runLoopF3(script(), "f2");
+  expect(expectFor(x01, "f2")).toBe(x01.expect);
+  const f2Score = scoreCase(expectFor(x01, "f2"), f2, "f2");
+  expect(f2Score.mustNotCallOk).toBe(true);
+  expect(f2.unknownNames).toEqual(["pinar_pins_search"]);
+  // As outras ferramentas só do assistente também reprovam no f3, nos três casos fora de escopo.
+  for (const id of ["x01-clima", "x02-haicai", "g06-out-of-scope"]) {
+    const benchCase = caseById(id);
+    for (const call of [
+      { args: { collectionId: "c", sessionIds: ["s"] }, name: "pinar_move_sessions" },
+      { args: { options: ["A", "B"], question: "Qual?" }, name: "pinar_ask" },
+      { args: { query: "x" }, name: "pinar_pins_search" },
+    ]) {
+      const { loop: called } = await runLoopF3([{ chunks: [toolCallChunk([call]), toolFinish()] }, { chunks: [textChunk(refusal), stop()] }]);
+      expect(scoreCase(expectFor(benchCase, "f3"), called, "f3").calledMustNot).toEqual([call.name]);
+    }
+  }
 });

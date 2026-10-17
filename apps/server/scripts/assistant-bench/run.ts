@@ -1,13 +1,15 @@
 // CLI: runs the assistant bench against one OpenAI-compatible model.
 //
 //   bun apps/server/scripts/assistant-bench/run.ts --model <id> \
-//     [--profile f0|f2] [--thinking on|off|omit] [--strict on|off] \
+//     [--profile f0|f2|f3] [--thinking on|off|omit] [--strict on|off] \
 //     [--parallel on|off|omit] [--repeat N] [--cases id1,id2] [--out <dir>]
 //
 // --profile f0 (default) is the F0 bench: its own prompt, the 36 MCP tools
 // and the cases of every profile. --profile f2 measures the assistant as
 // F2 runs it: ASSISTANT_SYSTEM_PROMPT, the catalog plus pinar_move_sessions
-// and pinar_ask, and the f2-only cases too.
+// and pinar_ask, and the f2-only cases too. --profile f3 is f2 plus
+// pinar_pins_search and the pin content cases, with a fifth gate (search
+// chosen in those cases).
 //
 // Configuration comes from the environment:
 //   ASSISTANT_BENCH_BASE_URL  (HTTPS base, e.g. https://appliance/v1)
@@ -21,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_SYSTEM_PROMPT } from "../../src/server/assistant/prompt";
-import { casesForProfile } from "./cases";
+import { casesForProfile, expectFor } from "./cases";
 import { redactSecret } from "./client";
 import { respond as fixtureRespond } from "./fixtures";
 import { runAgentLoop, SYSTEM_PROMPT } from "./loop";
@@ -59,7 +61,7 @@ function parseArgs(argv: string[]): { args?: ParsedArgs; error?: string } {
         i += 1;
         break;
       case "--profile":
-        if (value !== "f0" && value !== "f2") return { error: "--profile aceita f0 ou f2" };
+        if (value !== "f0" && value !== "f2" && value !== "f3") return { error: "--profile aceita f0, f2 ou f3" };
         out.profile = value;
         i += 1;
         break;
@@ -106,8 +108,8 @@ function parseArgs(argv: string[]): { args?: ParsedArgs; error?: string } {
 }
 
 const HELP = [
-  "Uso: run.ts --model <id> [--profile f0|f2] [--thinking on|off|omit] [--strict on|off] [--parallel on|off|omit] [--repeat N] [--cases id1,id2] [--out <dir>]",
-  "Perfis: f0 (padrão) = prompt e catálogo da F0; f2 = ASSISTANT_SYSTEM_PROMPT, catálogo + pinar_move_sessions e pinar_ask.",
+  "Uso: run.ts --model <id> [--profile f0|f2|f3] [--thinking on|off|omit] [--strict on|off] [--parallel on|off|omit] [--repeat N] [--cases id1,id2] [--out <dir>]",
+  "Perfis: f0 (padrão) = prompt e catálogo da F0; f2 = ASSISTANT_SYSTEM_PROMPT, catálogo + pinar_move_sessions e pinar_ask; f3 = f2 + pinar_pins_search e os casos de busca nos pins.",
   "Ambiente: ASSISTANT_BENCH_BASE_URL (HTTPS) e ASSISTANT_BENCH_API_KEY.",
 ].join("\n");
 
@@ -166,7 +168,7 @@ async function main(argv: string[]): Promise<number> {
   } else {
     cases = profileCases;
   }
-  const systemPrompt = args.profile === "f2" ? ASSISTANT_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const systemPrompt = args.profile === "f0" ? SYSTEM_PROMPT : ASSISTANT_SYSTEM_PROMPT;
 
   const config: BenchConfig = {
     baseUrl: baseUrl.replace(/\/+$/, ""),
@@ -200,7 +202,7 @@ async function main(argv: string[]): Promise<number> {
         respond: fixtureRespond,
         systemPrompt,
       });
-      const score = scoreCase(benchCase.expect, loop, args.profile);
+      const score = scoreCase(expectFor(benchCase, args.profile), loop, args.profile);
       const run = loopToRun(benchCase, loop, repeat, score);
       runs.push(run);
       const mark = score.pass ? "ok" : "falha";

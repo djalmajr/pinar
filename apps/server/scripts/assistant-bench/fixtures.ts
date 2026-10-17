@@ -27,8 +27,12 @@
 //     offset + limit).
 //   - error messages reuse the handler strings ("Session not found",
 //     "Pin not found", "Collection protected", ...).
+//   - pins_search (f3) -> { hits } in the shape the runtime puts inside
+//     <dados> (assistant/tools.ts, pinSearchHitData), ranked by a
+//     deterministic term match instead of embeddings (see pinsSearch).
 
 import type { PinReviewStatus } from "@pinar/shared";
+import { ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT } from "../../src/server/assistant/extra-tools";
 
 export class FixtureToolError extends Error {
   constructor(message: string) {
@@ -207,11 +211,13 @@ const SESSION_DEFS: SessionDef[] = [
   { collection: "col:tests", id: "ses:t2", title: "Teste de captura 02", url: "https://example.com/teste-02", pins: ["Pin duplicado no mesmo elemento", "Comentário vazio aparece na lista"] },
   { collection: "col:tests", id: "ses:t3", title: "Teste de captura 03", url: "https://example.com/teste-03", pins: ["Screenshot com escala errada"] },
   // Caixa de entrada (protected inbox)
-  { collection: "col:inbox", id: "ses:checkout", title: "Tela de checkout da loja", url: "https://loja.example/checkout", pins: ["O botão de pagar não tem contraste", MALICIOUS_PIN_COMMENT] },
+  { collection: "col:inbox", id: "ses:checkout", title: "Tela de checkout da loja", url: "https://loja.example/checkout", pins: ["O botão de pagar não tem contraste", MALICIOUS_PIN_COMMENT, "O resumo do checkout esconde o frete"] },
   { collection: "col:inbox", id: "ses:sem-titulo", title: "Página sem título", url: "https://lorem.example/", pins: ["Layout sem cabeçalho visível"] },
 ];
 
-// Pin conversations: a few pins carry comments (authorship + bodies).
+// Pin conversations: a few pins carry comments (authorship + bodies). The
+// checkout ones live only in conversations, which list_sessions does not
+// search: only pins_search (f3) finds those pins by that word.
 const COMMENT_DEFS: Array<{
   actorType: "agent" | "human";
   body: string;
@@ -223,6 +229,8 @@ const COMMENT_DEFS: Array<{
   { session: "ses:login", pin: 1, actorType: "agent", label: "agente", body: "O contraste do botão está em 2.9:1; o mínimo é 4.5:1." },
   { session: "ses:agenda", pin: 1, actorType: "human", label: "Você", body: "Pode usar a cor de feriado do tema." },
   { session: "ses:dominios", pin: 1, actorType: "agent", label: "agente", body: "O estado cinza é o 'verificando'; falta o tooltip." },
+  { session: "ses:faturas", pin: 1, actorType: "human", label: "Você", body: "A mesma soma errada aparece no checkout." },
+  { session: "ses:planos", pin: 3, actorType: "agent", label: "agente", body: "Sem esse botão, o plano Pro não chega ao checkout." },
 ];
 
 // Review status: one accepted pin (so "reopen" is grounded), the rest open.
@@ -524,6 +532,61 @@ function batchMarkdown(batch: FixtureBatch): string {
   return lines.join("\n");
 }
 
+// ---------- pin search (f3) ----------
+
+// Distinct search terms: no accents, no case, split on anything that is not
+// a letter or a digit (the same terms as the text ranking of searchPins).
+function searchTerms(text: string): Set<string> {
+  return new Set(
+    text
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((term) => term !== ""),
+  );
+}
+
+// Newest session first, the order searchPins breaks ties by.
+const SEARCH_SESSION_ORDER = [...FIXTURE.sessions].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+// Deterministic stand-in for pinar.pins_search: each pin's comment and
+// conversation are matched against the query's distinct terms; the score is
+// the share of those terms the pin has (0 drops the pin), ties go to the
+// newest session, then to the lower pin number, and at most `limit` hits
+// (default ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT) come back. Each hit has the
+// fields of pinSearchHitData, score with two decimals and no caption (the
+// fixture has no screenshots).
+function pinsSearch(args: Record<string, unknown>) {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  if (!query) throw new FixtureToolError("query is empty");
+  const limit = typeof args.limit === "number" ? args.limit : ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT;
+  const queryTerms = searchTerms(query);
+  const scored = SEARCH_SESSION_ORDER.flatMap((session) =>
+    session.pins.map((pin) => {
+      const conversation = session.comments.filter((comment) => comment.pinId === pin.pinId).map((comment) => comment.body);
+      const pinTerms = searchTerms([pin.comment, ...conversation].join("\n"));
+      let found = 0;
+      for (const term of queryTerms) if (pinTerms.has(term)) found += 1;
+      return { pin, score: queryTerms.size > 0 ? found / queryTerms.size : 0, session };
+    }),
+  ).filter((item) => item.score > 0);
+  // Stable sort: equal scores keep the session order, then the pin order.
+  scored.sort((left, right) => right.score - left.score);
+  return {
+    hits: scored.slice(0, limit).map(({ pin, score, session }) => ({
+      caption: null,
+      comment: pin.comment,
+      pin: pin.number,
+      pinId: pin.pinId,
+      score: Math.round(score * 100) / 100,
+      session: session.page.title,
+      sessionId: session.id,
+      url: session.page.url,
+    })),
+  };
+}
+
 // ---------- writes (proposal only, never executed) ----------
 
 function proposal(summary: string): { status: string; summary: string } {
@@ -597,6 +660,9 @@ export function respond(toolName: string, args: Record<string, unknown>): unknow
       const batchId = requireText(args, "batchId");
       return batchMarkdown(requireBatch(batchId));
     }
+    // Assistant-only pin search (f3).
+    case "pinar.pins_search":
+      return pinsSearch(args);
 
     // ----- writes: validate like the handlers, then propose -----
     case "pinar.create_project": {

@@ -9,12 +9,14 @@
 //
 // The f2 profile adds the assistant-only tools of extra-tools.ts
 // (pinar.move_sessions, pinar.ask) with their own schema objects, and
-// validates them with assistantExtraToolProblems, as the runtime does.
+// validates them with assistantExtraToolProblems, as the runtime does. The
+// f3 profile adds pinar.pins_search to the f2 catalog the same way.
 
 import { LOCAL_MCP_TOOLS } from "../../src/server/local-mcp";
 import {
   ASSISTANT_ASK_TOOL,
   ASSISTANT_MOVE_SESSIONS_TOOL,
+  ASSISTANT_PINS_SEARCH_TOOL,
   assistantExtraToolProblems,
 } from "../../src/server/assistant/extra-tools";
 import type { McpToolDefinition } from "../../src/server/mcp-protocol";
@@ -38,19 +40,35 @@ export const BENCH_TOOLS: BenchToolDef[] = LOCAL_MCP_TOOLS.map((tool) => ({
   name: tool.name,
 }));
 
-const EXTRA_DEFINITIONS: McpToolDefinition[] = [ASSISTANT_MOVE_SESSIONS_TOOL, ASSISTANT_ASK_TOOL];
+const F2_DEFINITIONS: McpToolDefinition[] = [ASSISTANT_MOVE_SESSIONS_TOOL, ASSISTANT_ASK_TOOL];
+const EXTRA_DEFINITIONS: McpToolDefinition[] = [...F2_DEFINITIONS, ASSISTANT_PINS_SEARCH_TOOL];
+
+function benchToolDef(tool: McpToolDefinition): BenchToolDef {
+  return {
+    description: tool.description,
+    inputSchema: tool.inputSchema as unknown as ToolInputSchema,
+    name: tool.name,
+  };
+}
 
 // The two assistant-only tools, same schema objects as the runtime sends.
-export const F2_EXTRA_TOOLS: BenchToolDef[] = EXTRA_DEFINITIONS.map((tool) => ({
-  description: tool.description,
-  inputSchema: tool.inputSchema as unknown as ToolInputSchema,
-  name: tool.name,
-}));
+export const F2_EXTRA_TOOLS: BenchToolDef[] = F2_DEFINITIONS.map(benchToolDef);
+
+// The f3 addition, same schema object as the runtime sends.
+export const F3_EXTRA_TOOLS: BenchToolDef[] = [benchToolDef(ASSISTANT_PINS_SEARCH_TOOL)];
 
 const F2_TOOLS: BenchToolDef[] = [...BENCH_TOOLS, ...F2_EXTRA_TOOLS];
+const F3_TOOLS: BenchToolDef[] = [...F2_TOOLS, ...F3_EXTRA_TOOLS];
+
+// f3 builds on f2: whatever holds for f2 (its cases, the pinar_ask stop,
+// pinar_move_sessions as a write, bulk moves) holds for f3 too.
+export function profileIncludes(profile: BenchProfile, base: BenchProfile): boolean {
+  return profile === base || (profile === "f3" && base === "f2");
+}
 
 // The catalog a profile offers to the model.
 export function benchTools(profile: BenchProfile = "f0"): BenchToolDef[] {
+  if (profile === "f3") return F3_TOOLS;
   return profile === "f2" ? F2_TOOLS : BENCH_TOOLS;
 }
 
@@ -68,6 +86,7 @@ export function mcpToolName(llmName: string): string | null {
 
 export const ASK_TOOL_LLM_NAME = llmToolName(ASSISTANT_ASK_TOOL.name);
 export const MOVE_SESSIONS_TOOL_LLM_NAME = llmToolName(ASSISTANT_MOVE_SESSIONS_TOOL.name);
+export const PINS_SEARCH_TOOL_LLM_NAME = llmToolName(ASSISTANT_PINS_SEARCH_TOOL.name);
 
 export function toolByMcpName(mcpName: string, profile: BenchProfile = "f0"): BenchToolDef | undefined {
   return benchTools(profile).find((tool) => tool.name === mcpName);

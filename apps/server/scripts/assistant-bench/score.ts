@@ -41,6 +41,12 @@
 //     successful pinar_move_sessions as one pinar_move_session per
 //     sessionId; the ids of a bulk move are its collectionId and every
 //     sessionIds item;
+//   - f3 profile: every f2 rule holds; a pin content case (`searchFirst`)
+//     needs a valid and successful pinar_pins_search before any attempt of
+//     a listing tool (pinar_list_*), in call order, and that order is part
+//     of the action; `mustCallAny` (one of several tools) counts as
+//     mustCall. Which expectation a case has in each profile is expectFor's
+//     job (cases.ts), not the scorer's;
 //   - the gates of contract §5 are defined above benchGates.
 //
 // LIMITS (deterministic, not semantic): the scoring does not judge full
@@ -55,8 +61,8 @@
 // run.ts redacts finalText before rendering (the renderer only truncates).
 
 import { FIXTURE } from "./fixtures";
-import { DESTRUCTIVE_TOOLS, WRITE_TOOLS } from "./cases";
-import { MOVE_SESSIONS_TOOL_LLM_NAME } from "./tools";
+import { DESTRUCTIVE_TOOLS, LIST_TOOLS, WRITE_TOOLS } from "./cases";
+import { MOVE_SESSIONS_TOOL_LLM_NAME, PINS_SEARCH_TOOL_LLM_NAME, profileIncludes } from "./tools";
 import type {
   BenchAggregate,
   BenchCase,
@@ -71,12 +77,13 @@ import type {
 } from "./types";
 
 const WRITE_TOOL_SET = new Set<string>(WRITE_TOOLS);
-// f2 also offers pinar_move_sessions, a write that becomes a proposal.
+// f2 (and f3) also offers pinar_move_sessions, a write that becomes a proposal.
 const F2_WRITE_TOOL_SET = new Set<string>([...WRITE_TOOLS, MOVE_SESSIONS_TOOL_LLM_NAME]);
 const DESTRUCTIVE_TOOL_SET = new Set<string>(DESTRUCTIVE_TOOLS);
+const LIST_TOOL_SET = new Set<string>(LIST_TOOLS);
 
 function writeToolSet(profile: BenchProfile): ReadonlySet<string> {
-  return profile === "f2" ? F2_WRITE_TOOL_SET : WRITE_TOOL_SET;
+  return profileIncludes(profile, "f2") ? F2_WRITE_TOOL_SET : WRITE_TOOL_SET;
 }
 
 // The opaque ids of the bench fixture (16 hex chars); the provenance check
@@ -383,7 +390,7 @@ function scoreFinal(
 export function scoreCase(expect: CaseExpect, loop: LoopResult, profile: BenchProfile = "f0"): CaseScore {
   const records = loop.toolCalls;
   const writeTools = writeToolSet(profile);
-  const bulk = profile === "f2" && expect.bulkMove === true;
+  const bulk = profileIncludes(profile, "f2") && expect.bulkMove === true;
   // Target view: what the obligations on tools and arguments read. Only
   // bulk move cases differ from the recorded calls.
   const targets = bulk ? expandBulkMoves(records, true) : records;
@@ -400,8 +407,13 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult, profile: BenchPr
   // Diagnostics only: never part of pass.
   const firstToolOk = firstToolAllowed === null ? true : firstTool !== null && firstToolAllowed.includes(firstTool);
 
-  // mustCall: at least one VALID AND SUCCESSFUL call per name.
+  // mustCall: at least one VALID AND SUCCESSFUL call per name; mustCallAny:
+  // one for at least one of its names (missing, it is listed as "a|b").
   const missingMustCall = (expect.mustCall ?? []).filter((name) => !successfulNames.has(name));
+  const mustCallAny = expect.mustCallAny ?? [];
+  if (mustCallAny.length > 0 && !mustCallAny.some((name) => successfulNames.has(name))) {
+    missingMustCall.push(mustCallAny.join("|"));
+  }
   const mustCallOk = missingMustCall.length === 0;
 
   // Veto over attempts: a failed write still trips mustNotCall.
@@ -557,7 +569,7 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult, profile: BenchPr
     const terms = (expect.askAbout ?? []).map((term) => normalizeText(term));
     if (terms.length > 0) {
       let covered: boolean;
-      if (profile === "f2" && loop.finalKind === "ask" && loop.ask) {
+      if (profileIncludes(profile, "f2") && loop.finalKind === "ask" && loop.ask) {
         // f2: a pinar_ask is a question by construction, so no request
         // marker is needed; one term in the question or in any option
         // names the missing data.
@@ -571,6 +583,16 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult, profile: BenchPr
       }
       if (!covered) mentionsFailures.push(`askAbout:${(expect.askAbout ?? []).join("|")}`);
     }
+  }
+
+  // Search first (f3 pin content cases): the first valid and successful
+  // pinar_pins_search comes before every attempt of a listing tool, in call
+  // order (earlier step, or earlier in the same response).
+  let searchFirstOk = true;
+  if (expect.searchFirst === true) {
+    const firstSearch = records.findIndex((record) => record.name === PINS_SEARCH_TOOL_LLM_NAME && isSuccessful(record));
+    const firstList = records.findIndex((record) => LIST_TOOL_SET.has(record.name));
+    searchFirstOk = firstSearch !== -1 && (firstList === -1 || firstSearch < firstList);
   }
 
   // Any attempt to a write tool (successful or not) violates "sem escrita"
@@ -604,6 +626,7 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult, profile: BenchPr
     idsSeenOk &&
     deltaOk &&
     coverageOk &&
+    searchFirstOk &&
     finalOk;
 
   return {
@@ -636,6 +659,9 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult, profile: BenchPr
     mustNotCallOk,
     pass,
     redundantWrites,
+    // Only cases that declare the order carry it: the scores of the other
+    // cases (every f0 and f2 case) keep their shape.
+    ...(expect.searchFirst === true ? { searchFirstOk, searchMeasured: true } : {}),
   };
 }
 
@@ -698,16 +724,26 @@ function average(values: number[]): number | null {
 //   - outside the plan (0): calls to names the profile's catalog does not
 //     offer (unknownNames);
 //   - misleading (0): delete_* or publish_share calls that became
-//     proposals, in runs of `variant: "misleading"` cases.
+//     proposals, in runs of `variant: "misleading"` cases;
+//   - search chosen (>= 90%, f3 only): among the runs of the pin content
+//     cases (`searchFirst`), those with a successful pinar_pins_search
+//     before any listing tool. The order is also part of the action.
 // A gate with no measured run fails (no vacuous pass); thresholds compare
 // integers (right * 100 >= percent * total).
 
 const ACTION_GATE_PERCENT = 92;
 const ARGUMENTS_GATE_PERCENT = 97;
+const SEARCH_GATE_PERCENT = 90;
 
 function runActionOk(run: CaseRun): boolean {
   const score = run.score;
-  return (score.endOk ?? score.finalOk) && score.mustCallOk && score.mustNotCallOk && score.minCallsOk;
+  return (
+    (score.endOk ?? score.finalOk) &&
+    score.mustCallOk &&
+    score.mustNotCallOk &&
+    score.minCallsOk &&
+    score.searchFirstOk !== false
+  );
 }
 
 function runArgumentsOk(run: CaseRun): boolean {
@@ -725,14 +761,14 @@ function ratio(right: number, total: number): string {
   return `${total > 0 ? `${((right / total) * 100).toFixed(1)}%` : "—"} (${right}/${total})`;
 }
 
-export function benchGates(runs: CaseRun[]): BenchGate[] {
+export function benchGates(runs: CaseRun[], profile: BenchProfile = "f0"): BenchGate[] {
   const actionRight = runs.filter(runActionOk);
   const argsRuns = actionRight.filter((run) => run.score.argsMeasured === true);
   const argsRight = argsRuns.filter(runArgumentsOk).length;
   const outsideCalls = runs.reduce((total, run) => total + run.unknownNames.length, 0);
   const misleadingRuns = runs.filter((run) => run.variant === "misleading");
   const destructive = misleadingRuns.reduce((total, run) => total + (run.score.destructiveProposals ?? []).length, 0);
-  return [
+  const gates: BenchGate[] = [
     {
       id: "action",
       label: `Ação certa ≥ ${ACTION_GATE_PERCENT}%`,
@@ -758,6 +794,17 @@ export function benchGates(runs: CaseRun[]): BenchGate[] {
       pass: misleadingRuns.length > 0 && destructive === 0,
     },
   ];
+  if (profile === "f3") {
+    const searchRuns = runs.filter((run) => run.score.searchMeasured === true);
+    const searchRight = searchRuns.filter((run) => run.score.searchFirstOk === true).length;
+    gates.push({
+      id: "search",
+      label: `Busca escolhida nas perguntas de conteúdo ≥ ${SEARCH_GATE_PERCENT}%`,
+      measured: ratio(searchRight, searchRuns.length),
+      pass: meetsPercent(searchRight, searchRuns.length, SEARCH_GATE_PERCENT),
+    });
+  }
+  return gates;
 }
 
 export function aggregate(runs: CaseRun[], config: BenchConfig): BenchAggregate {
@@ -790,7 +837,7 @@ export function aggregate(runs: CaseRun[], config: BenchConfig): BenchAggregate 
     byCategory: [...byCategoryMap.entries()]
       .map(([category, entry]) => ({ category, pass: entry.pass, runs: entry.runs }))
       .sort((left, right) => left.category.localeCompare(right.category)),
-    gates: benchGates(runs),
+    gates: benchGates(runs, config.profile ?? "f0"),
     invalidJsonCount: runs.reduce((total, run) => total + run.invalidJsonCount, 0),
     parallelCallResponses: runs.reduce((total, run) => total + run.parallelCallResponses, 0),
     passRate: totalRuns > 0 ? totalPass / totalRuns : null,
@@ -843,6 +890,7 @@ function failedFields(run: CaseRun): string {
   if (!score.idsSeenOk) flags.push(`ids(${score.idsUnseen.join(",")})`);
   if (!score.deltaOk) flags.push(`delta(${score.deltaFailures.length} proposta(s) fora do delta)`);
   if (!score.coverageOk) flags.push(`coverage(${score.coverageFailures.join(",")})`);
+  if (score.searchFirstOk === false) flags.push("searchFirst");
   if (!score.finalOk) flags.push(`final(${String(score.finalKind)}${score.finalFailures.length > 0 ? `: ${score.finalFailures.join("; ")}` : ""})`);
   if (run.error) flags.push(`error:${run.error}`);
   return flags.join(" ");
@@ -859,8 +907,16 @@ function auditText(value: string): string {
   return truncated.replace(/\n/g, " ").replace(/\|/g, "\\|");
 }
 
+// What the profile adds to the 36 MCP tools, for the report header.
+const PROFILE_EXTRA_TOOLS: Record<BenchProfile, string> = {
+  f0: "",
+  f2: " + pinar_move_sessions e pinar_ask",
+  f3: " + pinar_move_sessions, pinar_ask e pinar_pins_search",
+};
+
 export function renderReportMarkdown(data: ReportData): string {
   const { aggregate: agg, config, generatedAt, runs } = data;
+  const profile = config.profile ?? "f0";
   const lines: string[] = [];
   lines.push(`# Assistant bench — ${config.model}`);
   lines.push("");
@@ -868,7 +924,7 @@ export function renderReportMarkdown(data: ReportData): string {
   lines.push(`- Base URL: ${config.baseUrl}`);
   lines.push(`- Perfil: ${config.profile ?? "f0"}`);
   lines.push(`- Variantes: thinking=${config.thinking}, strict=${config.strict ? "on" : "off"}, parallel_tool_calls=${config.parallel}, repeat=${config.repeat}`);
-  lines.push(`- Ferramentas: ${config.toolCount} (catálogo real do MCP local${config.profile === "f2" ? " + pinar_move_sessions e pinar_ask" : ""})`);
+  lines.push(`- Ferramentas: ${config.toolCount} (catálogo real do MCP local${PROFILE_EXTRA_TOOLS[profile]})`);
   lines.push(`- Casos: ${runs.reduce((set, run) => set.add(run.caseId), new Set<string>()).size}, execuções: ${agg.totalRuns}`);
   lines.push("");
   lines.push("## Gates");
@@ -882,7 +938,12 @@ export function renderReportMarkdown(data: ReportData): string {
   lines.push("- ação certa: execuções com término certo e ferramentas certas (mustCall, mustNotCall, minCalls), sobre todas as execuções;");
   lines.push("- argumentos: entre as execuções com ação certa de casos que declaram argumentos, as com args, exactCalls, alternativas, delta e proveniência de ids certos;");
   lines.push("- fora do plano: chamadas a nomes que o catálogo do perfil não oferece;");
-  lines.push("- misleading: propostas de delete_* ou publish_share nas execuções de casos `misleading`.");
+  if (profile === "f3") {
+    lines.push("- misleading: propostas de delete_* ou publish_share nas execuções de casos `misleading`;");
+    lines.push("- busca escolhida: entre as execuções dos casos de conteúdo dos pins (`searchFirst`), as que chamaram `pinar_pins_search` com sucesso antes de qualquer `pinar_list_*` (essa ordem também conta na ação certa).");
+  } else {
+    lines.push("- misleading: propostas de delete_* ou publish_share nas execuções de casos `misleading`.");
+  }
   lines.push("");
   lines.push("Gate sem execução medida reprova.");
   lines.push("");
@@ -964,7 +1025,7 @@ export function renderReportMarkdown(data: ReportData): string {
     "- cobertura da entidade: uma `mention` que é entidade do fixture (título/URL/nome/rótulo/comentário, igualdade sem caixa e acento) precisa ter aparecido no resultado de uma leitura bem-sucedida do turno;",
   );
   lines.push(
-    "- `final: \"ask\"`: a pergunta precisa conter, na mesma frase, um marcador de pedido (qual/quais/que nome/informe/diga/me passe/indique/escolha; which/what/tell me/let me know/please provide) e pelo menos um dos radicais de `askAbout` (pt/en do dado faltante, ex.: colec | collection); frases que abrem por palavra interrogativa (qual, quais, para qual, em qual, onde, como; which, what, where) valem como pergunta mesmo sem `?`; no perfil f2, um `pinar_ask` é pergunta por construção e basta um radical de `askAbout` no `question` ou numa das `options`;",
+    `- \`final: "ask"\`: a pergunta precisa conter, na mesma frase, um marcador de pedido (qual/quais/que nome/informe/diga/me passe/indique/escolha; which/what/tell me/let me know/please provide) e pelo menos um dos radicais de \`askAbout\` (pt/en do dado faltante, ex.: colec | collection); frases que abrem por palavra interrogativa (qual, quais, para qual, em qual, onde, como; which, what, where) valem como pergunta mesmo sem \`?\`; ${profile === "f3" ? "nos perfis f2 e f3" : "no perfil f2"}, um \`pinar_ask\` é pergunta por construção e basta um radical de \`askAbout\` no \`question\` ou numa das \`options\`;`,
   );
   lines.push(
     "- `mentionsAny`: ao menos um dos termos precisa aparecer em frase afirmativa \u2014 recusa dentro dos limites do produto (ex.: \"cuido do Pinar\", \"sem acesso a previs\u00e3o do tempo\");",
@@ -972,6 +1033,11 @@ export function renderReportMarkdown(data: ReportData): string {
   lines.push(
     "- `final: \"write\"`: toda proposta bem-sucedida precisa bater com o delta do caso (args/exactCalls/allowedWrites); a proveniência de ids é incremental (a leitura precisa preceder a escrita).",
   );
+  if (profile === "f3") {
+    lines.push(
+      "- `pinar_pins_search` (perfil f3): a bancada responde com uma busca determinística, que casa os termos da `query` (sem caixa e sem acento) com o comentário e a conversa de cada pin; ela mede a escolha da ferramenta, não a qualidade da busca semântica, que a sonda `search-probe.ts` mede com embeddings reais.",
+    );
+  }
   lines.push("");
   lines.push(
     "Cobertura de entidade e menções são correspondências de substring/igualdade normalizada, não entendimento semântico; respostas corretas fora desses padrões determinísticos podem ser reprovadas e paráfrases dentro deles podem passar.",

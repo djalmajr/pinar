@@ -10,7 +10,8 @@
 // f0: the F0 bench (its own prompt, the 36 MCP tools), the default.
 // f2: the assistant as F2 runs it: ASSISTANT_SYSTEM_PROMPT and the catalog
 // plus the assistant-only tools pinar_move_sessions and pinar_ask.
-export type BenchProfile = "f0" | "f2";
+// f3: f2 plus pinar_pins_search; it runs every f2 case and rule too.
+export type BenchProfile = "f0" | "f2" | "f3";
 
 // ---------- tool schemas ----------
 
@@ -135,6 +136,10 @@ export interface CaseExpect {
   // several identical calls.
   minCalls?: Record<string, number>;
   mustCall?: string[];
+  // At least ONE of these names (LLM names) needs a VALID AND SUCCESSFUL
+  // call; it counts as part of mustCall (and of the action). Used where two
+  // tools answer equally well (b03 in f3: list_sessions or pins_search).
+  mustCallAny?: string[];
   // Veto over attempts (including failed ones), not just successes.
   mustNotCall?: string[];
   // Bulk move cases (f2): a successful pinar_move_sessions call also counts
@@ -143,6 +148,10 @@ export interface CaseExpect {
   // delta, id provenance). mustNotCall still sees only the real names. In
   // f0 the tool is not offered, so the flag changes nothing.
   bulkMove?: boolean;
+  // Pin content questions (f3): a VALID AND SUCCESSFUL pinar_pins_search
+  // call must come before any attempt of a listing tool (pinar_list_*), in
+  // call order across steps and inside a response. Part of the action.
+  searchFirst?: boolean;
 }
 
 export interface BenchCase {
@@ -253,6 +262,11 @@ export interface CaseScore {
   // Diagnostic: successful write calls beyond the first one (e.g. moving a
   // session that is already at the destination). Registered, never fatal.
   redundantWrites: string[];
+  // Only set when the case declares `searchFirst` (f3): the order check
+  // (absent counts as right) and the search gate input (absent counts as
+  // not measured).
+  searchFirstOk?: boolean;
+  searchMeasured?: boolean;
 }
 
 export interface CaseRun {
@@ -294,7 +308,7 @@ export interface BenchConfig {
 // One gate of contract §5. `pass` needs at least one measured run: a gate
 // with nothing to measure fails instead of passing vacuously.
 export interface BenchGate {
-  id: "action" | "arguments" | "misleading" | "outside-catalog";
+  id: "action" | "arguments" | "misleading" | "outside-catalog" | "search";
   label: string;
   // Human-readable measurement, e.g. "94.6% (35/37)".
   measured: string;

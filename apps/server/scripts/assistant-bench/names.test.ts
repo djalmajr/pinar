@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
-import { ASSISTANT_ASK_TOOL, ASSISTANT_MOVE_SESSIONS_TOOL } from "../../src/server/assistant/extra-tools";
+import { ASSISTANT_ASK_TOOL, ASSISTANT_MOVE_SESSIONS_TOOL, ASSISTANT_PINS_SEARCH_TOOL } from "../../src/server/assistant/extra-tools";
 import {
   benchTools,
   llmToolDefs,
   LLM_TOOL_NAME_PATTERN,
   mcpToolName,
+  profileIncludes,
   toolArgProblems,
   toolByLlmName,
   toolByMcpName,
@@ -93,4 +94,47 @@ test("perfil f2: as extras validam com assistantExtraToolProblems (repetição e
   // As ferramentas do MCP seguem no validateArgs.
   const list = toolByLlmName("pinar_list_sessions")!;
   expect(toolArgProblems(list, { limit: 51 })).toEqual(validateArgs(list.inputSchema, { limit: 51 }));
+});
+
+test("perfil f3: o catálogo da f2 mais pinar_pins_search, com o schema do runtime", () => {
+  const f3 = llmToolDefs(true, "f3");
+  expect(f3.length).toBe(39);
+  expect(f3.slice(0, 38)).toEqual(llmToolDefs(true, "f2"));
+  const search = f3[38];
+  expect(search.function.name).toBe("pinar_pins_search");
+  // O mesmo objeto de schema que buildAssistantToolSet manda ao modelo.
+  expect(search.function.parameters).toBe(ASSISTANT_PINS_SEARCH_TOOL.inputSchema as unknown as ToolInputSchema);
+  expect(search.function.description).toBe(ASSISTANT_PINS_SEARCH_TOOL.description);
+  expect(search.function.strict).toBe(true);
+  expect(LLM_TOOL_NAME_PATTERN.test(search.function.name)).toBe(true);
+  // f0 e f2 não oferecem nem resolvem a busca; f3 resolve ela e as extras da f2.
+  for (const profile of ["f0", "f2"] as const) {
+    expect(llmToolDefs(false, profile).some((definition) => definition.function.name === "pinar_pins_search")).toBe(false);
+    expect(toolByLlmName("pinar_pins_search", profile)).toBeUndefined();
+  }
+  expect(toolByLlmName("pinar_pins_search", "f3")?.name).toBe("pinar.pins_search");
+  expect(toolByLlmName("pinar_move_sessions", "f3")?.name).toBe("pinar.move_sessions");
+  expect(toolByLlmName("pinar_ask", "f3")?.name).toBe("pinar.ask");
+  expect(benchTools("f2").length).toBe(38);
+});
+
+test("perfil f3: a busca valida com assistantExtraToolProblems", () => {
+  const search = toolByLlmName("pinar_pins_search", "f3")!;
+  expect(toolArgProblems(search, { query: "contraste" })).toEqual([]);
+  expect(toolArgProblems(search, { limit: 50, query: "contraste" })).toEqual([]);
+  // Vazia depois do trim, sem query, limite fora da faixa e propriedade extra.
+  expect(toolArgProblems(search, { query: "   " })).toEqual(["query is empty"]);
+  expect(toolArgProblems(search, {}).length).toBeGreaterThan(0);
+  expect(toolArgProblems(search, { limit: 51, query: "x" }).length).toBeGreaterThan(0);
+  expect(toolArgProblems(search, { limit: 0, query: "x" }).length).toBeGreaterThan(0);
+  expect(toolArgProblems(search, { query: "x", sessionId: "s" }).length).toBeGreaterThan(0);
+});
+
+test("profileIncludes: f3 herda a f2; f0 e f2 não herdam nada", () => {
+  expect(profileIncludes("f3", "f2")).toBe(true);
+  expect(profileIncludes("f3", "f3")).toBe(true);
+  expect(profileIncludes("f2", "f2")).toBe(true);
+  expect(profileIncludes("f2", "f3")).toBe(false);
+  expect(profileIncludes("f0", "f2")).toBe(false);
+  expect(profileIncludes("f3", "f0")).toBe(false);
 });

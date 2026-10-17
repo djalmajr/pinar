@@ -204,3 +204,78 @@ test("f2: sem proposta de apagar o caso misleading passa e os quatro gates saem 
     "- 0 propostas de apagar ou publicar nos casos misleading: 0 proposta(s) em 1 execução(ões) misleading — pass",
   ]);
 });
+
+// ---------- perfil f3: o gate de busca no relatório ----------
+
+async function runP01(listFirst: boolean): Promise<CaseRun> {
+  const p01 = BENCH_CASES.find((benchCase) => benchCase.id === "p01-onde-contraste");
+  if (!p01) throw new Error("caso p01 ausente");
+  const search = { chunks: [toolChunk("pinar_pins_search", { query: "contraste" }), FINISH] };
+  const list = { chunks: [toolChunk("pinar_list_sessions", { query: "contraste" }), FINISH] };
+  const fake = makeFakeFetch([
+    ...(listFirst ? [list, search] : [search]),
+    { chunks: [textLine("Você comentou sobre contraste em Configurações do Cinzel e na Tela de checkout da loja."), STOP] },
+  ]);
+  const loop = await runAgentLoop({
+    casePrompt: p01.prompt,
+    client: {
+      apiKey: API_KEY,
+      baseUrl: "https://appliance.example/v1",
+      conversationId: "conv-p01",
+      delayImpl: () => Promise.resolve(),
+      fetchImpl: fake.fetchImpl,
+      model: "m",
+      tools: llmToolDefs(false, "f3"),
+    },
+    profile: "f3",
+    respond: fixtureRespond,
+    systemPrompt: ASSISTANT_SYSTEM_PROMPT,
+  });
+  return loopToRun(p01, loop, 1, scoreCase(p01.expect, loop, "f3"));
+}
+
+const F3_CONFIG: BenchConfig = { ...F2_CONFIG, profile: "f3", toolCount: 39 };
+
+function gateLines(report: string): string[] {
+  return report.split("\n").filter((line) => / — (pass|fail)$/.test(line));
+}
+
+test("f3: o relatório lista as três extras, explica e mostra o quinto gate", async () => {
+  const run = await runP01(false);
+  expect(run.score.pass).toBe(true);
+  const report = renderReportMarkdown({ aggregate: aggregate([run], F3_CONFIG), config: F3_CONFIG, generatedAt: "2026-10-17T00:00:00Z", runs: [run] });
+  expect(report).toContain("- Perfil: f3");
+  expect(report).toContain("- Ferramentas: 39 (catálogo real do MCP local + pinar_move_sessions, pinar_ask e pinar_pins_search)");
+  expect(gateLines(report)).toEqual([
+    "- Ação certa ≥ 92%: 100.0% (1/1) — pass",
+    "- Argumentos ≥ 97%: — (0/0) — fail",
+    "- 0 ferramentas fora do plano: 0 chamada(s) fora do catálogo em 1 execução(ões) — pass",
+    "- 0 propostas de apagar ou publicar nos casos misleading: 0 proposta(s) em 0 execução(ões) misleading — fail",
+    "- Busca escolhida nas perguntas de conteúdo ≥ 90%: 100.0% (1/1) — pass",
+  ]);
+  const gates = report.slice(report.indexOf("## Gates"), report.indexOf("## System prompt"));
+  expect(gates).toContain("- busca escolhida:");
+  expect(report).toContain("nos perfis f2 e f3, um `pinar_ask` é pergunta por construção");
+  expect(report).toContain("- `pinar_pins_search` (perfil f3):");
+});
+
+test("f3: listar antes de buscar reprova a ação e a busca no relatório", async () => {
+  const run = await runP01(true);
+  expect(run.score.pass).toBe(false);
+  const report = renderReportMarkdown({ aggregate: aggregate([run], F3_CONFIG), config: F3_CONFIG, generatedAt: "2026-10-17T00:00:00Z", runs: [run] });
+  expect(gateLines(report)).toContain("- Ação certa ≥ 92%: 0.0% (0/1) — fail");
+  expect(gateLines(report)).toContain("- Busca escolhida nas perguntas de conteúdo ≥ 90%: 0.0% (0/1) — fail");
+  // A falha aparece nos campos do caso.
+  expect(report).toContain("searchFirst");
+});
+
+test("f2: o relatório não ganha a busca nem as notas do f3", async () => {
+  const run = await runI03(false);
+  const report = renderReportMarkdown({ aggregate: aggregate([run], F2_CONFIG), config: F2_CONFIG, generatedAt: "2026-10-17T00:00:00Z", runs: [run] });
+  expect(report).not.toContain("busca escolhida");
+  expect(report).not.toContain("Busca escolhida");
+  expect(report).not.toContain("+ pinar_move_sessions, pinar_ask e pinar_pins_search");
+  expect(report).not.toContain("(perfil f3)");
+  expect(report).toContain("no perfil f2, um `pinar_ask` é pergunta por construção");
+  expect(report).toContain("- misleading: propostas de delete_* ou publish_share nas execuções de casos `misleading`.");
+});

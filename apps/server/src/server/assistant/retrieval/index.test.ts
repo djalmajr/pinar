@@ -257,6 +257,25 @@ describe("indexSession", () => {
     assert.equal(data.get("s1")![0]!.docText.split("\n")[2], "Pin #1: Contrast fixed");
   });
 
+  test("an entry written by another document format is rebuilt, not reused", async () => {
+    // An older renderer kept line breaks, so a title could hold a forged
+    // "Pin #1" line in the place the current comparison reads.
+    const s = checkoutSession();
+    const { byId, source } = fakeSource([s]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    await indexSession(deps(source, store, fake.fetch), "s1");
+    const old = data.get("s1")!;
+    const forged = ["Page: Checkout", "extra", "Pin #1: Contrast fixed", "URL: x", "Pin #1: Contrast is too low"].join("\n");
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(forged)));
+    old[0] = { ...old[0]!, docHash: Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""), docText: forged };
+    byId.get("s1")!.pins[0]!.comment = "Contrast fixed";
+    const result = await indexSession(deps(source, store, fake.fetch), "s1");
+    assert.equal(fake.calls.chat.length, 2, "the old-format entry re-captions the session");
+    assert.deepEqual(result, { captioned: true, embedded: 1, pins: 2 });
+    assert.equal(data.get("s1")![0]!.docText.split("\n")[2], "Pin #1: Contrast fixed");
+  });
+
   test("a removed pin disappears from the session's entries", async () => {
     const { byId, source } = fakeSource([checkoutSession()]);
     const { calls, data, store } = fakeStore();

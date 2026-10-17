@@ -28,7 +28,7 @@
 // becomes a hit.
 
 import type { AssistantEndpoint } from "../models";
-import { buildPinDocument, PIN_SECTION_LINE, pinSectionText, type PinDocumentInput } from "./document";
+import { buildPinDocument, pinDocumentHash, PIN_SECTION_LINE, pinSectionText, type PinDocumentInput } from "./document";
 import { cosine, decodeVector, embedTexts, encodeVector, type EmbeddingEndpoint } from "./embeddings";
 import { captionSessionPins } from "./vision";
 import type { PinIndexEntry, PinIndexStore } from "./types";
@@ -83,10 +83,15 @@ export async function indexSession(deps: PinIndexDeps, sessionId: string): Promi
   const previous = new Map((await deps.store.entries(sessionId)).map((entry) => [entry.pinId, entry]));
   const comments = await deps.source.comments(sessionId);
 
-  const unchanged = pins.map((pin, index) => {
-    const entry = previous.get(pinIds[index]!);
-    return entry !== undefined && entry.number === pin.number && sameSection(entry.docText, pin);
-  });
+  // An entry is current only when its text is of this renderer's format
+  // (its hash matches) and still has the pin's line.
+  const unchanged = await Promise.all(
+    pins.map(async (pin, index) => {
+      const entry = previous.get(pinIds[index]!);
+      if (entry === undefined || entry.number !== pin.number || !sameSection(entry.docText, pin)) return false;
+      return (await pinDocumentHash(entry.docText)) === entry.docHash;
+    }),
+  );
   const listChanged = previous.size !== pins.length || unchanged.includes(false);
   const missingCaption = pinIds.some((pinId) => previous.get(pinId)?.caption == null);
 

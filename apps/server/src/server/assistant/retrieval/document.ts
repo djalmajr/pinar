@@ -15,10 +15,14 @@
 // the image or a comment can never pose as another section, such as the
 // "Pin #n" line index.ts compares.
 //
-// The hash is the SHA-256 hex of the final text through crypto.subtle,
-// which is asynchronous, so buildPinDocument returns a promise.
+// The hash is the SHA-256 hex, through crypto.subtle (asynchronous, so
+// buildPinDocument returns a promise), of the final text behind a line
+// naming PIN_DOCUMENT_FORMAT. index.ts recomputes it over a stored text, so
+// a document written by another version of this renderer never counts as
+// current. Bump the format whenever the text layout changes.
 
 export const PIN_DOCUMENT_MAX_CHARS = 6000; // well under the 2048-token window
+export const PIN_DOCUMENT_FORMAT = 2;
 
 export interface PinDocumentInput {
   caption: { caption: string; ocr: string } | null;
@@ -80,6 +84,11 @@ async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+// The hash buildPinDocument gives a document text of the current format.
+export function pinDocumentHash(text: string): Promise<string> {
+  return sha256Hex(`pin-document/v${PIN_DOCUMENT_FORMAT}\n${text}`);
+}
+
 export async function buildPinDocument(input: PinDocumentInput): Promise<{ hash: string; text: string; truncated: boolean }> {
   const comments = input.comments.filter((comment) => comment.body.trim() !== "");
   let ocr = oneLine(input.caption?.ocr ?? "");
@@ -106,5 +115,5 @@ export async function buildPinDocument(input: PinDocumentInput): Promise<{ hash:
     text = clipText(text, PIN_DOCUMENT_MAX_CHARS);
   }
 
-  return { hash: await sha256Hex(text), text, truncated };
+  return { hash: await pinDocumentHash(text), text, truncated };
 }

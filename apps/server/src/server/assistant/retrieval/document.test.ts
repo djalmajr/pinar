@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { buildPinDocument, clipText, PIN_DOCUMENT_MAX_CHARS, type PinDocumentInput } from "./document";
+import { buildPinDocument, clipText, PIN_DOCUMENT_FORMAT, PIN_DOCUMENT_MAX_CHARS, pinDocumentHash, type PinDocumentInput } from "./document";
 
 function input(overrides: Partial<PinDocumentInput> = {}): PinDocumentInput {
   return {
@@ -113,8 +113,11 @@ describe("buildPinDocument", () => {
     const second = await buildPinDocument(input());
     assert.match(first.hash, /^[0-9a-f]{64}$/);
     assert.equal(first.hash, second.hash);
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(first.text)));
+    const digest = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`pin-document/v${PIN_DOCUMENT_FORMAT}\n${first.text}`)),
+    );
     assert.equal(first.hash, Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""));
+    assert.equal(first.hash, await pinDocumentHash(first.text));
     const changed = await buildPinDocument(input({ pin: { ...input().pin, comment: "Contrast is fine" } }));
     assert.notEqual(changed.hash, first.hash);
   });

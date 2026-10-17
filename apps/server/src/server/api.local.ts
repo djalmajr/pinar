@@ -143,6 +143,8 @@ interface HistoryDatabase {
     batchId?: string | null;
     collectionId?: string;
     createdAt?: string;
+    /** `"auto"` marks an automatic filing, `null` clears it; omitted keeps it unless the collection changes. */
+    filedBy?: "auto" | null;
     id?: string;
     page?: PageInfo;
     pins?: Pin[];

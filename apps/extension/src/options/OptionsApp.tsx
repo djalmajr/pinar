@@ -267,6 +267,7 @@ function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSet
     ? current.language as SupportedLanguage
     : null;
   const merged = mergeDeliveryPreferences({
+    autoCaptureDestination: false,
     captureDestination: null,
     componentTarget: null,
     copyOnFinishBatch: current.copyOnFinishBatch,

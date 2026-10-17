@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { parseVisualCapture, sessionFromCapture, type Session } from "@pinar/shared";
 import {
   handleCloudApiRequest,
   handleCloudPublicRequest,
   type CloudEnv,
+  persistSession,
   resetCloudMemoryStateForTests,
+  seedCloudWebSessionForTests,
   setCloudNowForTests,
 } from "./cloud-api";
 import { PAID_STORAGE_BYTES } from "../lib/entitlements";
@@ -2488,6 +2491,173 @@ describe("cloud MCP endpoint", () => {
       const listed = await callTool(env, "pinar.list_pins", { sessionId }, MANAGE_TOKEN);
       const listedBody = JSON.parse(listed.text) as { pins: Array<Record<string, unknown>> };
       assert.deepEqual(listedBody.pins.map((pin) => pin.id), [keeperId]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// F3.5 data on D1: the owner's automatic-destination switch and the
+// automatic-filing mark a capture saver writes through persistSession.
+describe("capture filing data on D1", () => {
+  beforeEach(() => {
+    mcpSessions.clear();
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  // What a capture path saves when it files the session itself.
+  function autoFiledSession(id: string, collectionId: string): Session {
+    const capture = parseVisualCapture({
+      captureId: id,
+      createdAt: NOW,
+      page: { title: `Auto ${id}`, url: `https://example.test/${id}` },
+      pins: [{ comment: "auto note", kind: "element", number: 1 }],
+      screenshot: { missing: true },
+    }, id);
+    return sessionFromCapture(capture, {
+      byteSize: 1,
+      collectionId,
+      filedBy: "auto",
+      id,
+      includeScreenshot: false,
+      isPermanent: true,
+      plan: "pro",
+      position: 0,
+      shotUrl: null,
+      userId: "usr_mcp",
+    });
+  }
+
+  async function webApi(env: CloudEnv, cookie: string, path: string, init: { body?: unknown; method?: string } = {}) {
+    const response = await handleCloudApiRequest(new Request(`https://pinar.test${path}`, {
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      headers: { cookie, "content-type": "application/json", origin: "https://pinar.test" },
+      method: init.method || "GET",
+    }), env);
+    return { body: await jsonBody(response), status: response.status };
+  }
+
+  function storedMark(db: Database, id: string) {
+    return (db.query("SELECT filed_by FROM sessions WHERE id = ?").get(id) as { filed_by: string | null }).filed_by;
+  }
+
+  test("round-trips autoCaptureDestination through owner_preferences", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = await seedMcpWorkspace(db);
+      const web = await seedCloudWebSessionForTests({ email: "mcp@example.test", id: "usr_mcp", plan: "pro" }, env);
+      const defaults = await webApi(env, web.cookie, "/api/preferences");
+      assert.equal(defaults.status, 200);
+      assert.equal(defaults.body.autoCaptureDestination, false);
+
+      const on = await webApi(env, web.cookie, "/api/preferences", {
+        body: { autoCaptureDestination: true, handoffMode: "full" },
+        method: "PATCH",
+      });
+      assert.equal(on.body.autoCaptureDestination, true);
+      const row = () => db.query(
+        "SELECT auto_capture_destination, handoff_mode, include_screenshot FROM owner_preferences WHERE owner_id = 'usr_mcp'",
+      ).get();
+      assert.deepEqual(row(), { auto_capture_destination: 1, handoff_mode: "full", include_screenshot: 1 });
+
+      // A patch of another key keeps the switch, and the switch alone keeps the rest.
+      const partial = await webApi(env, web.cookie, "/api/preferences", { body: { includeScreenshot: false }, method: "PATCH" });
+      assert.equal(partial.body.autoCaptureDestination, true);
+      assert.equal((await webApi(env, web.cookie, "/api/preferences")).body.autoCaptureDestination, true);
+      const off = await webApi(env, web.cookie, "/api/preferences", { body: { autoCaptureDestination: false }, method: "PATCH" });
+      assert.equal(off.body.autoCaptureDestination, false);
+      assert.equal(off.body.handoffMode, "full");
+      assert.equal(off.body.includeScreenshot, false);
+      assert.deepEqual(row(), { auto_capture_destination: 0, handoff_mode: "full", include_screenshot: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("keeps the automatic-filing mark on edits, shows it on reads and clears it on every move", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = await seedMcpWorkspace(db);
+      const web = await seedCloudWebSessionForTests({ email: "mcp@example.test", id: "usr_mcp", plan: "pro" }, env);
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_target"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      assert.equal(storedMark(db, "session_mcp"), null);
+
+      // Reads: the session route, the history list and the MCP list.
+      const read = await webApi(env, web.cookie, "/api/sessions/session_auto");
+      const session = read.body.session as Session;
+      assert.equal(session.filedBy, "auto");
+      const pinId = String(session.pins[0]?.pinId);
+      const history = await webApi(env, web.cookie, "/api/history?limit=10");
+      const listed = history.body.sessions as Session[];
+      assert.equal(listed.find((item) => item.id === "session_auto")?.filedBy, "auto");
+      assert.equal(Object.hasOwn(listed.find((item) => item.id === "session_mcp") || {}, "filedBy"), false);
+      const summaries = JSON.parse((await callTool(env, "pinar.list_sessions", { limit: 10 })).text) as { sessions: Array<Record<string, unknown>> };
+      assert.equal(summaries.sessions.find((item) => item.id === "session_auto")?.filedBy, "auto");
+      assert.equal(Object.hasOwn(summaries.sessions.find((item) => item.id === "session_mcp") || {}, "filedBy"), false);
+
+      // Edits keep it: the note (web and MCP), the title (MCP), a comment and the viewer patch.
+      assert.equal((await webApi(env, web.cookie, `/api/sessions/session_auto/pins/${encodeURIComponent(pinId)}`, {
+        body: { comment: "edited note" },
+        method: "PATCH",
+      })).status, 200);
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const note = await callTool(env, "pinar.edit_pin_note", { comment: "agent note", pinId, sessionId: "session_auto" }, MANAGE_TOKEN);
+      assert.equal(note.result.isError, undefined);
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const title = await callTool(env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_auto" }, MANAGE_TOKEN);
+      assert.equal(title.result.isError, undefined);
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      assert.equal((await webApi(env, web.cookie, `/api/sessions/session_auto/pins/${encodeURIComponent(pinId)}/comments`, {
+        body: { body: "a comment" },
+        method: "POST",
+      })).status, 200);
+      assert.equal((await webApi(env, web.cookie, "/api/sessions/session_auto", {
+        body: { reproduction: null },
+        method: "PATCH",
+      })).status, 200);
+      const edited = (await webApi(env, web.cookie, "/api/sessions/session_auto")).body.session as Session;
+      assert.equal(edited.filedBy, "auto");
+      assert.equal(edited.page.title, "Renamed");
+      assert.equal(edited.pins[0]?.comment, "agent note");
+
+      // Moves clear it: the web route, the MCP tool, deleting the collection (web and MCP).
+      const movedWeb = await webApi(env, web.cookie, "/api/sessions/session_auto/move", {
+        body: { collectionId: "collection_mcp" },
+        method: "POST",
+      });
+      assert.equal(movedWeb.status, 200);
+      assert.equal(Object.hasOwn(movedWeb.body.session as Session, "filedBy"), false);
+      assert.equal(storedMark(db, "session_auto"), null);
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_mcp"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const movedMcp = await callTool(env, "pinar.move_session", { collectionId: "collection_target", sessionId: "session_auto" }, MANAGE_TOKEN);
+      assert.equal(movedMcp.result.isError, undefined);
+      assert.equal(Object.hasOwn(JSON.parse(movedMcp.text).session as Session, "filedBy"), false);
+      assert.equal(storedMark(db, "session_auto"), null);
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_target"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      assert.equal((await webApi(env, web.cookie, "/api/collections/collection_target", { method: "DELETE" })).status, 200);
+      const inbox = db.query("SELECT id FROM collections WHERE owner_id = ? AND is_protected = 1").get("usr_mcp") as { id: string };
+      assert.deepEqual(
+        db.query("SELECT collection_id, filed_by FROM sessions WHERE id = 'session_auto'").get(),
+        { collection_id: inbox.id, filed_by: null },
+      );
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_mcp"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const deleted = await callTool(env, "pinar.delete_collection", { collectionId: "collection_mcp" }, MANAGE_TOKEN);
+      assert.equal(deleted.result.isError, undefined);
+      assert.deepEqual(
+        db.query("SELECT collection_id, filed_by FROM sessions WHERE id IN ('session_auto', 'session_mcp') ORDER BY id").all(),
+        [{ collection_id: inbox.id, filed_by: null }, { collection_id: inbox.id, filed_by: null }],
+      );
     } finally {
       db.close();
     }

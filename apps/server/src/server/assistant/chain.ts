@@ -15,8 +15,10 @@
 // Every committed call adds its billing under providerMetadata
 // [ASSISTANT_CHAIN_METADATA_KEY] of the finish part: the link, its
 // `hub:model`, whether it was a fallback and the cost in USD micros, read
-// from providerMetadata.gateway.cost (decimal USD string, rounded up), or
-// else the worst-case ASSISTANT_MODEL_PRICES table; the appliance costs 0.
+// from providerMetadata.gateway — marketCost, a decimal USD string, when it
+// is valid (a BYOK call reports its real cost there and 0 in cost), else
+// cost, each rounded up — or else the worst-case ASSISTANT_MODEL_PRICES
+// table; the appliance costs 0.
 // The turn adds the steps up (assistantTurnBilling). The UI message stream
 // drops finish metadata (finish-step is sent bare), so the client stream
 // does not change.
@@ -142,7 +144,7 @@ export interface AssistantModelPrice {
 // the worst case: the most expensive tier of each price, regional and
 // "fast" variants included (/tmp/pinar-ai-assistant/f4/
 // gateway-models-2026-10-17.json). Only a fallback for a gateway answer
-// without providerMetadata.gateway.cost.
+// without a usable marketCost or cost.
 export const ASSISTANT_MODEL_PRICES: Readonly<Record<string, AssistantModelPrice>> = {
   "anthropic/claude-haiku-5.5": {
     effectiveFrom: "2026-10-17",
@@ -192,6 +194,26 @@ function femtoToMicrosCeil(femto: bigint): number {
 export function usdToMicrosCeil(decimal: string): number | null {
   const femto = femtoUsd(decimal);
   return femto === null ? null : femtoToMicrosCeil(femto);
+}
+
+/**
+ * USD micros of a gateway call read from its providerMetadata.gateway
+ * object: marketCost, when it is a plain non-negative decimal string (a
+ * BYOK call reports its real cost there and 0 in cost), else cost, else
+ * null. Each figure is rounded up as usdToMicrosCeil.
+ */
+export function gatewayCostMicros(gateway: unknown): number | null {
+  const fields: Record<string, unknown> =
+    typeof gateway === "object" && gateway !== null && !Array.isArray(gateway)
+      ? (gateway as Record<string, unknown>)
+      : {};
+  const marketCost = fields["marketCost"];
+  if (typeof marketCost === "string") {
+    const fromMarket = usdToMicrosCeil(marketCost);
+    if (fromMarket !== null) return fromMarket;
+  }
+  const cost = fields["cost"];
+  return typeof cost === "string" ? usdToMicrosCeil(cost) : null;
 }
 
 interface ChainCallUsage {
@@ -319,8 +341,7 @@ function v4Model(model: LanguageModel): ChainModel {
 function callBilling(index: number, link: AssistantChainLink, finish: FinishPart): ChainCallBilling {
   const base = { fallback: index > 0, link: index, model: assistantChainLinkName(link) };
   if (link.hub === "appliance") return { ...base, costSource: "appliance", costUsdMicros: 0 };
-  const cost = finish.providerMetadata?.["gateway"]?.["cost"];
-  const fromGateway = typeof cost === "string" ? usdToMicrosCeil(cost) : null;
+  const fromGateway = gatewayCostMicros(finish.providerMetadata?.["gateway"]);
   if (fromGateway !== null) return { ...base, costSource: "gateway", costUsdMicros: fromGateway };
   const fromTable = assistantTableCostMicros(link.model, finish.usage);
   return fromTable === null

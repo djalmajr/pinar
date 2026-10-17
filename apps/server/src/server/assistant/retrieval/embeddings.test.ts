@@ -205,13 +205,14 @@ describe("embedTexts through the gateway", () => {
     console.log = original;
   });
   const costLines = () => logs.map((args) => JSON.parse(String(args[0])) as Record<string, unknown>);
-  // The gateway's answer: the vectors, its usage, and the cost when given.
-  const gatewayResponse = (cost?: string) => (call: Call) =>
+  // The gateway's /v1/embeddings answer: the vectors, its usage, and the
+  // providerMetadata.gateway figures when given.
+  const gatewayResponse = (gateway?: Record<string, unknown>) => (call: Call) =>
     Response.json({
       data: call.body.input.map((text, index) => ({ embedding: vectorFor(text), index, object: "embedding" })),
       model: call.body.model,
       object: "list",
-      ...(cost === undefined ? {} : { providerMetadata: { gateway: { cost, routing: {} } } }),
+      ...(gateway === undefined ? {} : { providerMetadata: { gateway, routing: {} } }),
       usage: { prompt_tokens: call.body.input.length * 10, total_tokens: call.body.input.length * 10 },
     });
 
@@ -245,9 +246,30 @@ describe("embedTexts through the gateway", () => {
   });
 
   test("the gateway's providerMetadata cost wins over the table", async () => {
-    const fake = fakeFetch(gatewayResponse("0.0000035"));
+    const fake = fakeFetch(gatewayResponse({ cost: "0.0000035" }));
     await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });
     assert.deepEqual(costLines(), [{ costSource: "gateway", costUsdMicros: 4, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" }]);
+  });
+
+  test("a BYOK batch: the cost is the marketCost of the /v1/embeddings body, not the zero cost", async () => {
+    // The 2026-10-17 live shape: credentialType "byok".
+    const fake = fakeFetch(gatewayResponse({ cost: "0", marketCost: "0.00000008", surchargeCost: "0", gatewayCost: "0", enabledDisallowPromptTraining: true }));
+    await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });
+    // 0.00000008 USD = 0.08 micros, rounded up to 1; not the 0 of cost.
+    assert.deepEqual(costLines(), [{ costSource: "gateway", costUsdMicros: 1, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" }]);
+  });
+
+  test("a system-credential batch: equal cost and marketCost give the same result as the cost alone", async () => {
+    // The 2026-10-17 live shape: credentialType "system", all figures equal.
+    const fake = fakeFetch(gatewayResponse({ cost: "0.0000035", marketCost: "0.0000035", gatewayCost: "0.0000035" }));
+    await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });
+    assert.deepEqual(costLines(), [{ costSource: "gateway", costUsdMicros: 4, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" }]);
+  });
+
+  test("with a malformed marketCost the cost of the /v1/embeddings body is used", async () => {
+    const fake = fakeFetch(gatewayResponse({ cost: "0.000005", marketCost: "n/a" }));
+    await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });
+    assert.deepEqual(costLines(), [{ costSource: "gateway", costUsdMicros: 5, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" }]);
   });
 
   test("without a cost nor a usable table the line says none", async () => {
@@ -269,7 +291,7 @@ describe("embedTexts through the gateway", () => {
   });
 
   test("the line carries no key, URL or text", async () => {
-    const fake = fakeFetch(gatewayResponse("0.000001"));
+    const fake = fakeFetch(gatewayResponse({ cost: "0.000001" }));
     await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "query", texts: ["contraste do botão comprar"] });
     assert.equal(logs.length, 1);
     const line = String(logs[0]![0]);

@@ -220,6 +220,10 @@ describe("captionSessionPins through the gateway", () => {
   test("one assistant_index_cost line: the gateway's cost, else ASSISTANT_MODEL_PRICES × usage, else none", async () => {
     const cases: Array<[Record<string, unknown>, VisionEndpoint, unknown]> = [
       [{ providerMetadata: { gateway: { cost: "0.000321" } }, usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["gateway", 321]],
+      // BYOK (the 2026-10-17 live shape): cost is 0, the real cost is marketCost.
+      [{ providerMetadata: { gateway: { cost: "0", marketCost: "0.0000035", surchargeCost: "0", gatewayCost: "0", enabledDisallowPromptTraining: true } }, usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["gateway", 4]],
+      // a malformed marketCost falls back to the cost.
+      [{ providerMetadata: { gateway: { cost: "0.000005", marketCost: "n/a" } }, usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["gateway", 5]],
       // 1000 × 0.00000055 + 200 × 0.00000275 = 0.0011 USD.
       [{ usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["table", 1100]],
       [{ usage: { prompt_tokens: 1000 } }, gateway, ["none", null]],

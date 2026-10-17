@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { AssistantEndpoint } from "../assistant/models";
 import { PIN_EMBEDDING_DIMENSIONS, type EmbeddingEndpoint } from "../assistant/retrieval/embeddings";
-import { chooseCollection, FILING_NONE_OPTION, type FilingCandidate, type FilingEngine } from "./choose";
+import { chooseCollection, FILING_NONE_OPTION, filingSimilarityThresholds, type FilingCandidate, type FilingEngine } from "./choose";
 
 const endpoint: AssistantEndpoint = {
   apiKey: "decisions-key",
@@ -114,5 +114,29 @@ describe("chooseCollection cut to 19 candidates", () => {
     const fake = recorder();
     await chooseCollection({ candidates, engine: fake.engines.similarity, fetch: fake.fetch, text });
     assert.deepEqual(fake.centroids, candidates.map((kept) => kept.collectionId));
+  });
+});
+
+describe("filingSimilarityThresholds (F3.5 §1)", () => {
+  const read = (values: Record<string, string>) => (name: string) => values[name];
+
+  test("absent variables keep the defaults", () => {
+    assert.deepEqual(filingSimilarityThresholds(read({})), { margin: 0.05, min: 0.7 });
+  });
+
+  test("plain decimals in 0-1 apply, the boundaries included", () => {
+    assert.deepEqual(filingSimilarityThresholds(read({ FILING_SIMILARITY_MARGIN: "0.02", FILING_SIMILARITY_MIN: "0.65" })), { margin: 0.02, min: 0.65 });
+    assert.deepEqual(filingSimilarityThresholds(read({ FILING_SIMILARITY_MARGIN: "1", FILING_SIMILARITY_MIN: "0" })), { margin: 1, min: 0 });
+  });
+
+  test("an invalid value falls back to that field's default, independently of the other", () => {
+    const invalid = ["", "  ", "abc", "-0.1", "1.5", "1e-1", "0.5 ", "1.", ".5"];
+    for (const min of invalid) {
+      assert.deepEqual(filingSimilarityThresholds(read({ FILING_SIMILARITY_MIN: min })), { margin: 0.05, min: 0.7 }, `min ${JSON.stringify(min)}`);
+    }
+    for (const margin of invalid) {
+      assert.deepEqual(filingSimilarityThresholds(read({ FILING_SIMILARITY_MARGIN: margin })), { margin: 0.05, min: 0.7 }, `margin ${JSON.stringify(margin)}`);
+    }
+    assert.deepEqual(filingSimilarityThresholds(read({ FILING_SIMILARITY_MARGIN: "abc", FILING_SIMILARITY_MIN: "0.65" })), { margin: 0.05, min: 0.65 });
   });
 });

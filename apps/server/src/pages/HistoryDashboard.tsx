@@ -58,6 +58,9 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
   toast,
 } from "@pinar/ui";
@@ -100,6 +103,7 @@ import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import SearchIcon from "~icons/lucide/search";
+import SparklesIcon from "~icons/lucide/sparkles";
 import TableIcon from "~icons/lucide/table-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import UnlinkIcon from "~icons/lucide/unlink";
@@ -133,17 +137,33 @@ function SessionPageLink({ url }: { url?: string }) {
   );
 }
 
-function CollectionChip({ name }: { name?: string }) {
+// A grouped batch is marked when any of its captures is: moving the group
+// moves every capture, which clears every mark.
+function sessionFiledBy(session: Session): Session["filedBy"] {
+  const captures = (session as SessionGroup).captures ?? [session];
+  return captures.some((capture) => capture.filedBy === "auto") ? "auto" : undefined;
+}
+
+export function CollectionChip({ filedBy, name }: { filedBy?: Session["filedBy"]; name?: string }) {
+  const { t } = useServerI18n();
   if (!name) return null;
   return (
     <span className="inline-flex max-w-40 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
       <FolderIcon className="size-3.5 shrink-0" />
       <span className="truncate">{name}</span>
+      {filedBy === "auto" ? (
+        <Tooltip>
+          <TooltipTrigger render={<span aria-label={t("dashboard.autoFiled")} className="inline-flex shrink-0" role="img" />}>
+            <SparklesIcon aria-hidden="true" className="size-3.5 text-primary" />
+          </TooltipTrigger>
+          <TooltipContent>{t("dashboard.autoFiled")}</TooltipContent>
+        </Tooltip>
+      ) : null}
     </span>
   );
 }
 
-function SessionIdentity({
+export function SessionIdentity({
   collectionName,
   heading = false,
   session,
@@ -155,7 +175,7 @@ function SessionIdentity({
   const { t } = useServerI18n();
   const captures = (session as SessionGroup).captures;
   const { description, title, url } = sessionListingCopy(session.page);
-  const collectionLabel = <CollectionChip name={collectionName} />;
+  const collectionLabel = <CollectionChip filedBy={sessionFiledBy(session)} name={collectionName} />;
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
       {captures ? <Badge variant="secondary">{t("dashboard.sessionEvidence", { pages: new Set(captures.map((capture) => capture.page.url)).size, count: captures.length })}</Badge> : null}
@@ -1121,7 +1141,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                             </div>
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
                               <ReviewCounts session={session} t={t} />
-                              {selectedCollection ? null : <CollectionChip name={collectionNameBySessionId.get(session.id)} />}
+                              {selectedCollection ? null : <CollectionChip filedBy={sessionFiledBy(session)} name={collectionNameBySessionId.get(session.id)} />}
                             </div>
                           </div>
                         </CardFooter>

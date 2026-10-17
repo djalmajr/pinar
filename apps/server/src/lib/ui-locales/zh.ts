@@ -239,6 +239,10 @@ const messages: UiMessages = {
   "settings.captureDestination": "捕获目标",
   "settings.captureDestinationDefault": "收件箱",
   "settings.captureDestinationDescription": "新捕获的保存位置。服务器默认使用第一个项目的收件箱。",
+  "settings.autoCaptureDestination": "自动选择集合",
+  "settings.autoCaptureDestinationDescription":
+    "Pinar 会为每个新捕获选择集合；不确定时，它会进入收件箱。",
+  "settings.autoCaptureDestinationUnavailable": "需要先配置 AI。",
   "settings.captureHeading": "捕获",
   "settings.collection": "集合",
   "settings.copyOnFinishBatch": "会话结束时复制",
@@ -393,6 +397,7 @@ const messages: UiMessages = {
   "dashboard.allSessions": "所有会话",
   "dashboard.collection": "集合",
   "dashboard.protectedInbox": "收件箱",
+  "dashboard.autoFiled": "已自动归档。移动即可更正。",
   "dashboard.collectionActions": "集合操作",
   "dashboard.collapseCollection": "收起 {name}",
   "dashboard.collectionMenu": "集合",

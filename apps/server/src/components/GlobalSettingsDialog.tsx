@@ -145,6 +145,79 @@ function serverDefaultDestination(projects: ProjectTreeProject[]) {
   return null;
 }
 
+// GET /api/preferences says whether the server can choose a collection (AI
+// configured and a way to choose). A server that omits the field counts as
+// able; only an explicit false turns the switch off.
+export function autoCaptureDestinationAvailable(body: unknown) {
+  return !(isRecord(body) && body.autoCaptureDestinationAvailable === false);
+}
+
+export function CaptureDestinationSettings({ autoAvailable, projects }: { autoAvailable: boolean; projects: ProjectTreeProject[] }) {
+  const { autoCaptureDestination, available, captureDestination, patch } = useDeliveryPreferences();
+  const { t } = useServerI18n();
+  // Without a way to choose, the server ignores the setting and files by the
+  // manual destination, so the switch reads off and the destination stays editable.
+  const automatic = autoCaptureDestination && autoAvailable;
+  const inboxLabel = t("dashboard.protectedInbox");
+  const destinationOptions = useMemo(
+    () => captureDestinationOptions({
+      collectionIcon: (collection) => collection.isProtected ? <InboxIcon /> : <FolderIcon />,
+      collectionLabel: (collection) => collectionDisplayName(collection, inboxLabel),
+      projectIcon: (project) => <ProjectIconGlyph icon={project.icon} />,
+      tree: { projects },
+    }),
+    [inboxLabel, projects],
+  );
+  // Without an explicit choice the server uses the first project's inbox;
+  // show that path so the field never reads as empty.
+  const destinationPath = useMemo(
+    () => captureDestinationPath({ projects }, captureDestination ?? serverDefaultDestination(projects)),
+    [captureDestination, projects],
+  );
+
+  function selectCaptureDestination(path: string[]) {
+    const projectId = path[0];
+    const collectionId = path.at(-1);
+    if (!projectId || !collectionId || path.length < 2) return;
+    if (captureDestination?.collectionId === collectionId && captureDestination.projectId === projectId) return;
+    void patch({ captureDestination: { collectionId, projectId } });
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <SectionHeading>{t("settings.captureHeading")}</SectionHeading>
+      <SettingRow
+        description={autoAvailable ? t("settings.autoCaptureDestinationDescription") : (
+          <>
+            {t("settings.autoCaptureDestinationDescription")}
+            <span className="block">{t("settings.autoCaptureDestinationUnavailable")}</span>
+          </>
+        )}
+        title={t("settings.autoCaptureDestination")}
+      >
+        <Switch
+          aria-label={t("settings.autoCaptureDestination")}
+          checked={automatic}
+          disabled={!available || !autoAvailable}
+          onCheckedChange={(value) => void patch({ autoCaptureDestination: value })}
+        />
+      </SettingRow>
+      <SettingRow controlClassName="min-w-0 max-w-72" description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
+        <Cascader
+          aria-label={t("settings.captureDestination")}
+          disabled={!available || automatic || destinationOptions.length === 0}
+          emptyText={t("dashboard.noCollectionsFound")}
+          options={destinationOptions}
+          placeholder={t("settings.collection")}
+          searchPlaceholder={t("dashboard.search")}
+          value={destinationPath}
+          onValueChange={selectCaptureDestination}
+        />
+      </SettingRow>
+    </div>
+  );
+}
+
 function currentThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "dark" || stored === "light") return stored;
@@ -200,7 +273,6 @@ function settingsNavButtonClass(isActive: boolean) {
 export function GlobalSettingsDialog({ initialSection = "general", open, onOpenChange }: GlobalSettingsDialogProps) {
   const {
     available,
-    captureDestination,
     copyViewerContent,
     handoffMode,
     includeScreenshot,
@@ -222,6 +294,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   const [aiUsageStatus, setAiUsageStatus] = useState<AiUsageStatus>("idle");
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
+  const [autoCaptureAvailable, setAutoCaptureAvailable] = useState(true);
   const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
   const runtime = pinarRuntime();
   const authSession = useAuthSession();
@@ -259,6 +332,20 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
       cancelled = true;
     };
   }, [open]);
+
+  // Read on every visit to Capture: setting up AI in this same dialog can
+  // make automatic filing available.
+  useEffect(() => {
+    if (!open || section !== "capture") return undefined;
+    const controller = new AbortController();
+    void fetch("/api/preferences", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() as Promise<unknown> : null)
+      .then((body) => {
+        if (!controller.signal.aborted && body !== null) setAutoCaptureAvailable(autoCaptureDestinationAvailable(body));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [open, section]);
 
   useEffect(() => {
     if (!open || !showPaidAi) return undefined;
@@ -341,23 +428,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     media.addEventListener("change", handleChange);
     return () => media.removeEventListener("change", handleChange);
   }, [theme]);
-
-  const inboxLabel = t("dashboard.protectedInbox");
-  const destinationOptions = useMemo(
-    () => captureDestinationOptions({
-      collectionIcon: (collection) => collection.isProtected ? <InboxIcon /> : <FolderIcon />,
-      collectionLabel: (collection) => collectionDisplayName(collection, inboxLabel),
-      projectIcon: (project) => <ProjectIconGlyph icon={project.icon} />,
-      tree: { projects },
-    }),
-    [inboxLabel, projects],
-  );
-  // Without an explicit choice the server uses the first project's inbox;
-  // show that path so the field never reads as empty.
-  const destinationPath = useMemo(
-    () => captureDestinationPath({ projects }, captureDestination ?? serverDefaultDestination(projects)),
-    [captureDestination, projects],
-  );
 
   const sectionLabel = section === "about"
     ? t("settings.aboutTitle")
@@ -564,14 +634,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     applyTheme(nextTheme);
   }
 
-  function selectCaptureDestination(path: string[]) {
-    const projectId = path[0];
-    const collectionId = path.at(-1);
-    if (!projectId || !collectionId || path.length < 2) return;
-    if (captureDestination?.collectionId === collectionId && captureDestination.projectId === projectId) return;
-    void patch({ captureDestination: { collectionId, projectId } });
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[min(44rem,calc(100dvh-2rem))] w-[min(68rem,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden rounded-xl p-0 sm:max-w-none">
@@ -709,21 +771,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                 </SettingRow>
               </section>
               <section className={cn("flex flex-col gap-5", section !== "capture" && "hidden")}>
-                <div className="flex flex-col gap-5">
-                  <SectionHeading>{t("settings.captureHeading")}</SectionHeading>
-                  <SettingRow controlClassName="min-w-0 max-w-72" description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
-                    <Cascader
-                      aria-label={t("settings.captureDestination")}
-                      disabled={!available || destinationOptions.length === 0}
-                      emptyText={t("dashboard.noCollectionsFound")}
-                      options={destinationOptions}
-                      placeholder={t("settings.collection")}
-                      searchPlaceholder={t("dashboard.search")}
-                      value={destinationPath}
-                      onValueChange={selectCaptureDestination}
-                    />
-                  </SettingRow>
-                </div>
+                <CaptureDestinationSettings autoAvailable={autoCaptureAvailable} projects={projects} />
                 <div className="flex flex-col gap-5">
                   <SectionHeading>{t("settings.handoffHeading")}</SectionHeading>
                   <SettingRow description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>

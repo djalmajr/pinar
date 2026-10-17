@@ -4,16 +4,21 @@
 // URL is validated by the first barrier (url.ts) before anything is stored;
 // the egress (fetch.ts) refuses until the EdgeR guard exists (A55, S6).
 //
+// S2 adds POST /api/byok/test: it decrypts the key only on the server,
+// runs the capability detection (detect.ts) through the egress interface
+// (a fake in the tests, byokFetch in production), records the result in
+// capabilities_json and answers the view. It is limited per user (limit.ts
+// plus one test in flight) and, like the other routes, it is Pro-only,
+// no-store and origin-checked by the entry point.
+//
 // Errors never echo a value: the key never appears in a response, a log or
 // an error, and the catch of the whole route is silent, because a database
 // driver can echo a bound parameter into its message. A database without
 // the 0034, a row the master key cannot decrypt, or a storage failure all
 // answer 503 byok_unavailable — and only the BYOK is unavailable: the rest
 // of the Cloud goes on.
-//
-// Detection of the capabilities is S2 (POST /api/byok/test): every save
-// records them as untested, and untested capabilities route nowhere.
 
+import { markCloudPinIndexOwnerStale } from "../assistant/retrieval/store-cloud";
 import { planIncludesAi } from "../../lib/entitlements";
 import {
   authenticateAgentKeyContext,
@@ -24,6 +29,9 @@ import {
   type Principal,
 } from "../cloud-api";
 import { byokCrypto } from "./crypto";
+import { detectByokCapabilities } from "./detect";
+import { ByokEgress, byokFetch } from "./fetch";
+import { BYOK_TEST_MAX_PER_HOUR, byokTestConsume } from "./limit";
 import { byokRow, deleteByokRow, saveByokRow, type ByokStoredRow } from "./store";
 import { BYOK_BASE_URL_MAX, validateByokUrl } from "./url";
 
@@ -82,9 +90,25 @@ export function setByokNowForTests(value: string | number | null) {
   byokNowOverride = value === null ? null : new Date(value).getTime();
 }
 
-function byokNow(): string {
-  return new Date(byokNowOverride ?? Date.now()).toISOString();
+function byokNowMs(): number {
+  return byokNowOverride ?? Date.now();
 }
+
+function byokNow(): string {
+  return new Date(byokNowMs()).toISOString();
+}
+
+// The egress of the test route: byokFetch (the refusal until S6) in
+// production, the injected fake in the tests (the ByokEgress interface).
+let byokEgressForTests: ByokEgress | null = null;
+
+export function setByokEgressForTests(egress: ByokEgress | null) {
+  byokEgressForTests = egress;
+}
+
+// The one test in flight per account (F5 contract §2); it drains in the
+// finally of the test route, so it never leaks across tests.
+const byokTestsInFlight = new Set<string>();
 
 function unconfiguredView(): ByokView {
   return {
@@ -274,14 +298,16 @@ async function updateByok(request: Request, env: CloudEnv): Promise<Response> {
   }
 
   const now = byokNow();
+  const embeddingModelFinal = embeddingModel ?? current?.embeddingModel ?? "";
   const row: ByokStoredRow = {
     baseUrl: checked.normalized,
     // S2's detection is what tests the endpoint: every save starts from
-    // the untested capabilities (F5 contract §1).
+    // the untested capabilities (F5 contract §1). The test itself stays in
+    // POST /api/byok/test (the UI calls it after the save).
     capabilitiesJson: JSON.stringify(untestedCapabilities()),
     chatModel: chatModel ?? current?.chatModel ?? "",
     createdAt: current?.createdAt ?? now,
-    embeddingModel: embeddingModel ?? current?.embeddingModel ?? "",
+    embeddingModel: embeddingModelFinal,
     keyCiphertext,
     keyId,
     keyLast4,
@@ -289,6 +315,14 @@ async function updateByok(request: Request, env: CloudEnv): Promise<Response> {
     updatedAt: now,
   };
   await saveByokRow(env, actor.principal.id, row);
+  // F5 contract §1: the vectors of different embedding models do not mix,
+  // so a save that changes the embedding model (or moves it to another
+  // endpoint) marks the owner's pin index stale, and the next indexing pass
+  // re-embeds it with the new model. Best effort: the save already landed.
+  const endpointChanged = current !== null && checked.normalized !== current.baseUrl;
+  if (embeddingModelFinal !== (current?.embeddingModel ?? "") || (endpointChanged && embeddingModelFinal !== "")) {
+    await markCloudPinIndexOwnerStale(env, actor.principal.id);
+  }
   return json(byokView(row));
 }
 
@@ -300,8 +334,94 @@ async function deleteByok(request: Request, env: CloudEnv): Promise<Response> {
   return json(unconfiguredView());
 }
 
+// POST /api/byok/test (F5/S2): the same access as the other routes (Pro,
+// the web session or an agent key with a manage/full permission, no-store
+// and the entry point's origin check), then the key is decrypted only on
+// the server, the capabilities are detected through the egress interface
+// and the result is recorded in capabilities_json. The view never carries
+// the key. Without a saved endpoint it is 404 byok_not_configured; without
+// the master key it is 503 byok_unavailable, like the rest. The limit is
+// one test in flight and BYOK_TEST_MAX_PER_HOUR per hour: 429
+// byok_test_limited. In production the egress is byokFetch, which refuses:
+// the configured capabilities then record egress_unavailable and nothing
+// leaves.
+function testLimited() {
+  return json(
+    { code: "byok_test_limited", error: `Too many connection tests; try again later (limit: ${BYOK_TEST_MAX_PER_HOUR} per hour)` },
+    429,
+  );
+}
+
+async function testByok(request: Request, env: CloudEnv): Promise<Response> {
+  const actor = await byokActor(request, env);
+  if (!actor.ok) return actor.response;
+  const crypto = await byokCrypto(env.BYOK_MASTER_KEY);
+  if (crypto === null) return unavailable();
+  const ownerId = actor.principal.id;
+  const row = await byokRow(env, ownerId);
+  if (row === null) {
+    return json({ code: "byok_not_configured", error: "The BYOK endpoint is not configured" }, 404);
+  }
+  // One test in flight per account: the check and the mark are one
+  // synchronous step, so a concurrent request always sees the first one's.
+  if (byokTestsInFlight.has(ownerId)) return testLimited();
+  byokTestsInFlight.add(ownerId);
+  try {
+    if (!(await byokTestConsume(env, ownerId, byokNowMs()))) return testLimited();
+    let apiKey: string;
+    try {
+      apiKey = await crypto.decrypt(row.keyCiphertext);
+    } catch {
+      // A ciphertext the master key cannot read: the BYOK is unavailable,
+      // and the error is not logged (a driver or a tag may echo the key).
+      return unavailable();
+    }
+    const capabilities = await detectByokCapabilities({
+      endpoint: {
+        baseUrl: row.baseUrl,
+        chatModel: row.chatModel,
+        embeddingModel: row.embeddingModel,
+        key: apiKey,
+        transcriptionModel: row.transcriptionModel,
+      },
+      egress: byokEgressForTests ?? ((url, init) => byokFetch(env, url, init)),
+      now: byokNow(),
+    });
+    const now = byokNow();
+    const updated: ByokStoredRow = { ...row, capabilitiesJson: JSON.stringify(capabilities), updatedAt: now };
+    await saveByokRow(env, ownerId, updated);
+    return json(byokView(updated));
+  } finally {
+    byokTestsInFlight.delete(ownerId);
+  }
+}
+
+function byokPath(request: Request): string {
+  try {
+    return new URL(request.url).pathname;
+  } catch {
+    return "";
+  }
+}
+
 export async function handleByokRequest(request: Request, env: CloudEnv): Promise<Response> {
   const method = request.method;
+  if (byokPath(request) === "/api/byok/test") {
+    if (method !== "POST") {
+      return noStore(
+        json(
+          { code: "method_not_allowed", error: "Method not allowed" },
+          405,
+          { Allow: "POST" },
+        ),
+      );
+    }
+    try {
+      return noStore(await testByok(request, env));
+    } catch {
+      return noStore(unavailable());
+    }
+  }
   if (method !== "GET" && method !== "PUT" && method !== "DELETE") {
     return noStore(
       json(

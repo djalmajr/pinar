@@ -9160,10 +9160,11 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   }
   if (method === "GET" && path === "/api/preferences") return readPreferences(request, env);
   if (method === "PATCH" && path === "/api/preferences") return updatePreferences(request, env);
-  // GET/PUT/DELETE /api/byok: the Pro BYOK endpoint (F5/S1). The egress
-  // interface refuses until the EdgeR guard exists (A55, S6); the route
-  // module is imported lazily, as the assistant's.
-  if (path === "/api/byok") {
+  // GET/PUT/DELETE /api/byok and POST /api/byok/test: the Pro BYOK endpoint
+  // (F5/S1) and the capability test (F5/S2). The egress interface refuses
+  // until the EdgeR guard exists (A55, S6); the route module is imported
+  // lazily, as the assistant's.
+  if (path === "/api/byok" || path === "/api/byok/test") {
     const { handleByokRequest } = await import("./byok/api");
     return handleByokRequest(request, env);
   }

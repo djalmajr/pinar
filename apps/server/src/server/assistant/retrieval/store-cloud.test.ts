@@ -12,7 +12,7 @@ import {
   type CloudEnv,
 } from "../../cloud-api";
 import type { AssistantD1Database, AssistantD1Statement } from "../store-cloud";
-import { cloudPinIndexStore, markCloudPinIndexSessionStale, resetCloudPinIndexMemoryForTests } from "./store-cloud";
+import { cloudPinIndexStore, markCloudPinIndexOwnerStale, markCloudPinIndexSessionStale, resetCloudPinIndexMemoryForTests } from "./store-cloud";
 import { assertPinIndexReplaceAtomic, assertPinIndexStore, INDEXED_AT, pinIndexEntry, pinIndexVector } from "./store.test-helpers";
 import type { PinIndexStore } from "./types";
 
@@ -316,6 +316,83 @@ describe("markCloudPinIndexSessionStale", () => {
       },
     };
     await assert.doesNotReject(markCloudPinIndexSessionStale({ DB: failing }, "idx_mark"));
+  });
+});
+
+/**
+ * markCloudPinIndexOwnerStale marks every session of the owner with entries
+ * dirty (F5 contract §1: the vectors of different embedding models do not
+ * mix), keeps every field of the entries, leaves the other owners alone,
+ * and keeps the token rules of the per-session mark: a replacement that
+ * read the fresh mark clears it.
+ */
+async function assertOwnerMarkStale(env: { DB?: AssistantD1Database }) {
+  const ownerA = cloudPinIndexStore(env, "usr_a");
+  const ownerB = cloudPinIndexStore(env, "usr_b");
+  const entriesA1 = [pinIndexEntry("idx_owner_a1", "idx_a1_p1", { caption: "Botão", model: "old-model", vector: pinIndexVector(2) })];
+  const entriesA2 = [pinIndexEntry("idx_owner_a2", "idx_a2_p1")];
+  const entriesB = [pinIndexEntry("idx_owner_b", "idx_b_p1")];
+  await ownerA.replaceSession("idx_owner_a1", entriesA1);
+  await ownerA.replaceSession("idx_owner_a2", entriesA2);
+  await ownerB.replaceSession("idx_owner_b", entriesB);
+  const sessionsA = [{ id: "idx_owner_a1", updatedAt: INDEXED_AT }, { id: "idx_owner_a2", updatedAt: INDEXED_AT }];
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: sessionsA }), []);
+
+  await markCloudPinIndexOwnerStale(env, "usr_a");
+  // Both of A's sessions are stale, with every entry kept...
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: sessionsA }), ["idx_owner_a1", "idx_owner_a2"]);
+  assert.deepEqual(await ownerA.entries("idx_owner_a1"), entriesA1);
+  // ...B's session is untouched, and B's staleSessions see nothing new.
+  assert.deepEqual(await ownerB.staleSessions({ limit: 10, sessions: [{ id: "idx_owner_b", updatedAt: INDEXED_AT }] }), []);
+  assert.deepEqual(await ownerB.entries("idx_owner_b"), entriesB);
+
+  // The token rules hold per session: a replacement that read the fresh
+  // mark applies and leaves the mark clean; the other session stays stale.
+  const markA1 = await ownerA.readMark!("idx_owner_a1");
+  assert.ok(markA1);
+  await ownerA.replaceSession("idx_owner_a1", entriesA1, { readMark: markA1 });
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: sessionsA }), ["idx_owner_a2"]);
+  // A second owner-wide mark re-marks the cleaned session, with a fresh
+  // token: the stale read of the first mark loses to it.
+  await markCloudPinIndexOwnerStale(env, "usr_a");
+  const markA2 = await ownerA.readMark!("idx_owner_a1");
+  assert.ok(markA2 && markA2 !== markA1);
+  await ownerA.replaceSession("idx_owner_a1", entriesA1, { readMark: markA1 });
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: sessionsA }), ["idx_owner_a1", "idx_owner_a2"], "the newer mark keeps them stale");
+
+  // An owner without entries changes nothing: no mark row is created.
+  await markCloudPinIndexOwnerStale(env, "usr_none");
+  assert.equal(
+    await cloudPinIndexStore(env, "usr_none").readMark!("idx_none"),
+    null,
+    "no mark row for a session the owner never indexed",
+  );
+}
+
+describe("markCloudPinIndexOwnerStale", () => {
+  beforeEach(() => resetCloudPinIndexMemoryForTests());
+
+  test("D1: marks every session of the owner dirty and leaves the other owners alone", async () => {
+    const db = migratedDatabase();
+    try {
+      await assertOwnerMarkStale({ DB: sqliteD1(db) });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("memory: marks every session of the owner dirty and leaves the other owners alone", async () => {
+    await assertOwnerMarkStale({ DB: undefined });
+  });
+
+  test("best effort: a failing database never throws", async () => {
+    const failing: AssistantD1Database = {
+      batch: () => Promise.reject(new Error("batch down")),
+      prepare: () => {
+        throw new Error("database down");
+      },
+    };
+    await assert.doesNotReject(markCloudPinIndexOwnerStale({ DB: failing }, "usr_a"));
   });
 });
 

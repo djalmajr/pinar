@@ -18,11 +18,15 @@ import {
 } from "../cloud-api";
 import {
   handleByokRequest,
+  setByokEgressForTests,
   setByokNowForTests,
   untestedCapabilities,
   type ByokView,
 } from "./api";
+import { resetByokTestWindowsForTests } from "./limit";
 import { resetByokMemoryStateForTests } from "./store";
+import { cloudPinIndexStore, resetCloudPinIndexMemoryForTests } from "../assistant/retrieval/store-cloud";
+import { pinIndexEntry } from "../assistant/retrieval/store.test-helpers";
 
 const NOW = "2026-10-01T12:00:00.000Z";
 const LATER = "2026-12-01T12:00:00.000Z";
@@ -759,6 +763,422 @@ describe("/api/byok security review probes (F4d)", () => {
       assert.equal(db.query("SELECT * FROM byok_endpoints").all().length, 0);
     } finally {
       db.close();
+    }
+  });
+});
+
+// F5/S2: POST /api/byok/test — the capability detection through the
+// injectable egress (a fake in the tests, byokFetch in production, which
+// refuses), the per-user limit, and the recording of the result in
+// capabilities_json. The PUT also marks the owner's pin index stale when
+// the embedding model (or the endpoint) changes.
+describe("/api/byok/test (F5/S2)", () => {
+  // The appliance catalog shortcut: one GET /models decides everything.
+  const applianceCatalog = {
+    data: [
+      { available: true, modalities: { input: ["image", "text"] }, scope: "llm", supported_parameters: ["stream", "tool_choice", "tools"] },
+      { available: true, embedding: { dimensions: { native: 256, supported: [256, 512] } }, scope: "embeddings" },
+      { available: true, scope: "audio" },
+    ],
+    object: "list",
+  };
+  function passingEgress() {
+    return async () => Response.json(applianceCatalog);
+  }
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    resetByokTestWindowsForTests();
+    setByokEgressForTests(null);
+    setCloudNowForTests(NOW);
+    setByokNowForTests(NOW);
+  });
+
+  afterEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    resetByokTestWindowsForTests();
+    setByokEgressForTests(null);
+    setCloudNowForTests(null);
+    setByokNowForTests(null);
+  });
+
+  async function saveEndpoint(db: Database, env: CloudEnv, cookie: string, baseUrl = "https://api.example.test/v1") {
+    const response = await api("PUT", "/api/byok", env, {
+      body: JSON.stringify({
+        apiKey: TEST_KEY,
+        baseUrl,
+        chatModel: "chat-1",
+        embeddingModel: "embed-1",
+        transcriptionModel: "tr-1",
+      }),
+      headers: { cookie, "content-type": "application/json" },
+    });
+    assert.equal(response.status, 200);
+    return response;
+  }
+
+  const TESTED = {
+    chat: { error: null, ok: true, testedAt: NOW },
+    embeddings: { dims: 256, error: null, ok: true, testedAt: NOW },
+    tools: { error: null, ok: true, testedAt: NOW },
+    transcription: { error: null, ok: true, testedAt: NOW },
+    vision: { error: null, ok: true, testedAt: NOW },
+  };
+
+  test("a Pro account tests the connection; the view is recorded and never carries the key", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_test", "test@example.test", "pro");
+      const env = envFor(db);
+      const header = { cookie };
+      await saveEndpoint(db, env, cookie);
+      setByokEgressForTests(passingEgress());
+
+      const test = await api("POST", "/api/byok/test", env, { headers: header });
+      assert.equal(test.status, 200);
+      assert.equal(test.headers.get("cache-control"), "no-store");
+      const testText = await test.clone().text();
+      const testView = byokView(JSON.parse(testText) as unknown as ByokView);
+      assert.deepEqual(testView.capabilities, TESTED);
+      assert.equal(testView.updatedAt, NOW);
+      assert.ok(!testText.includes(TEST_KEY), "the key is not in the answer");
+
+      // The result is recorded in capabilities_json and comes back in the GET.
+      const row = db.query("SELECT capabilities_json, updated_at FROM byok_endpoints WHERE owner_id = 'usr_test'").get() as {
+        capabilities_json: string;
+        updated_at: string;
+      };
+      assert.deepEqual(JSON.parse(row.capabilities_json), TESTED);
+      assert.equal(row.updated_at, NOW);
+      const get = await api("GET", "/api/byok", env, { headers: header });
+      assert.equal(get.status, 200);
+      assert.deepEqual(byokView(await jsonBody(get)).capabilities, TESTED);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("without BYOK configured it is 404 byok_not_configured; without the master key 503 byok_unavailable", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_none", "none@example.test", "pro");
+      const env = envFor(db);
+      const notConfigured = await api("POST", "/api/byok/test", env, { headers: { cookie } });
+      assert.equal(notConfigured.status, 404);
+      assert.equal(notConfigured.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await jsonBody(notConfigured), { code: "byok_not_configured", error: "The BYOK endpoint is not configured" });
+
+      await saveEndpoint(db, env, cookie);
+      const noMaster = await api("POST", "/api/byok/test", envFor(db, { BYOK_MASTER_KEY: undefined }), { headers: { cookie } });
+      assert.equal(noMaster.status, 503);
+      assert.deepEqual(await jsonBody(noMaster), { code: "byok_unavailable", error: "BYOK is not available on this deployment" });
+      // Nothing was tested or recorded.
+      const row = db.query("SELECT capabilities_json FROM byok_endpoints").get() as { capabilities_json: string };
+      assert.deepEqual(JSON.parse(row.capabilities_json), UNTESTED);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("in production, without an injected egress: egress_unavailable and no network call", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_prod", "prod@example.test", "pro");
+      const env = envFor(db);
+      await saveEndpoint(db, env, cookie);
+
+      // Spy on the global fetch: byokFetch refuses before any fetch, so
+      // nothing may reach the network in S2.
+      const realFetch = globalThis.fetch;
+      let fetchCalls = 0;
+      globalThis.fetch = () => {
+        fetchCalls += 1;
+        return Promise.reject(new Error("the network must not be reached"));
+      };
+      try {
+        const test = await api("POST", "/api/byok/test", env, { headers: { cookie } });
+        assert.equal(test.status, 200);
+        const view = byokView(await jsonBody(test));
+        for (const capability of ["chat", "tools", "vision"] as const) {
+          assert.deepEqual(view.capabilities[capability], { error: "egress_unavailable", ok: false, testedAt: NOW }, capability);
+        }
+        assert.deepEqual(view.capabilities.embeddings, { dims: null, error: "egress_unavailable", ok: false, testedAt: NOW });
+        assert.deepEqual(view.capabilities.transcription, { error: "egress_unavailable", ok: false, testedAt: NOW });
+        assert.equal(fetchCalls, 0, "no call reached the global fetch");
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("the limit: six tests per hour, 429 byok_test_limited, and the window restarts", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_limit", "limit@example.test", "pro");
+      const env = envFor(db);
+      await saveEndpoint(db, env, cookie);
+      setByokEgressForTests(passingEgress());
+      for (let index = 1; index <= 6; index += 1) {
+        const response = await api("POST", "/api/byok/test", env, { headers: { cookie } });
+        assert.equal(response.status, 200, `test ${index}`);
+      }
+      const limited = await api("POST", "/api/byok/test", env, { headers: { cookie } });
+      assert.equal(limited.status, 429);
+      assert.equal(limited.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await jsonBody(limited), {
+        code: "byok_test_limited",
+        error: "Too many connection tests; try again later (limit: 6 per hour)",
+      });
+      // The next hour restarts the window.
+      setByokNowForTests(Date.parse(NOW) + 60 * 60 * 1000 + 1);
+      const again = await api("POST", "/api/byok/test", env, { headers: { cookie } });
+      assert.equal(again.status, 200);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("at most one test in flight: the concurrent test is 429", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_inflight", "inflight@example.test", "pro");
+      const env = envFor(db);
+      await saveEndpoint(db, env, cookie);
+      const slow = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return Response.json(applianceCatalog);
+      };
+      setByokEgressForTests(slow);
+      const [first, second] = await Promise.all([
+        api("POST", "/api/byok/test", env, { headers: { cookie } }),
+        api("POST", "/api/byok/test", env, { headers: { cookie } }),
+      ]);
+      assert.deepEqual([first.status, second.status].sort((a, b) => a - b), [200, 429]);
+      const limited = [first, second].find((response) => response.status === 429);
+      assert.deepEqual(await jsonBody(limited!), {
+        code: "byok_test_limited",
+        error: "Too many connection tests; try again later (limit: 6 per hour)",
+      });
+      // The in-flight mark drained: a following test runs.
+      const third = await api("POST", "/api/byok/test", env, { headers: { cookie } });
+      assert.equal(third.status, 200);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("another account neither tests nor sees the BYOK of the first", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookieA = await insertUser(db, "usr_a", "a@example.test", "pro");
+      const cookieB = await insertUser(db, "usr_b", "b@example.test", "pro");
+      const env = envFor(db);
+      await saveEndpoint(db, env, cookieA);
+      const before = db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_a'").get();
+      setByokEgressForTests(passingEgress());
+
+      // B has no endpoint of its own: the test is 404, and nothing of A
+      // (not even a call to A's endpoint) happens.
+      const testB = await api("POST", "/api/byok/test", env, { headers: { cookie: cookieB } });
+      assert.equal(testB.status, 404);
+      assert.equal((await jsonBody(testB)).code, "byok_not_configured");
+      assert.deepEqual(db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_a'").get(), before, "A's row is untouched");
+
+      // A's test records A's row only; B still reads its own (absent) row.
+      const testA = await api("POST", "/api/byok/test", env, { headers: { cookie: cookieA } });
+      assert.equal(testA.status, 200);
+      assert.deepEqual(db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_b'").all(), [], "B has no row");
+      const getB = await api("GET", "/api/byok", env, { headers: { cookie: cookieB } });
+      assert.equal(byokView(await jsonBody(getB)).configured, false);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("the access of the other routes: Pro, the agent key with a write permission, and the method", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookieFree = await insertUser(db, "usr_free", "free@example.test", "free");
+      const env = envFor(db);
+      const free = await api("POST", "/api/byok/test", env, { headers: { cookie: cookieFree } });
+      assert.equal(free.status, 403);
+      assert.equal((await jsonBody(free)).code, "byok_requires_pro");
+
+      const cookiePro = await insertUser(db, "usr_a", "a@example.test", "pro");
+      await saveEndpoint(db, env, cookiePro);
+      const tokenRead = await insertAgentKeyWithToken(db, "key_read", "usr_a", "read", "pak_" + "r".repeat(43));
+      const denied = await api("POST", "/api/byok/test", env, { headers: { authorization: `Bearer ${tokenRead}` } });
+      assert.equal(denied.status, 403);
+      assert.equal((await jsonBody(denied)).code, "byok_forbidden");
+
+      const tokenManage = await insertAgentKeyWithToken(db, "key_manage", "usr_a", "manage", "pak_" + "m".repeat(43));
+      setByokEgressForTests(passingEgress());
+      const ok = await api("POST", "/api/byok/test", env, { headers: { authorization: `Bearer ${tokenManage}` } });
+      assert.equal(ok.status, 200);
+
+      // The method of the test route is POST; POST of the plain route stays 405.
+      const get = await api("GET", "/api/byok/test", env, { headers: { cookie: cookiePro } });
+      assert.equal(get.status, 405);
+      assert.equal(get.headers.get("allow"), "POST");
+      const postPlain = await api("POST", "/api/byok", env, { headers: { cookie: cookiePro }, body: "{}" });
+      assert.equal(postPlain.status, 405);
+      assert.equal(postPlain.headers.get("allow"), "DELETE, GET, PUT");
+      // A hostile origin is refused, like the other mutation routes.
+      const hostile = await api("POST", "/api/byok/test", env, { headers: { cookie: cookiePro, origin: "https://hostile.example" } });
+      assert.equal(hostile.status, 403);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("the memory deployment runs the same test", async () => {
+    const env: CloudEnv = { BYOK_MASTER_KEY: MASTER_KEY };
+    const account = await seedCloudWebSessionForTests({ email: "a@example.test", plan: "pro" });
+    const header = { cookie: account.cookie };
+    const notConfigured = await api("POST", "/api/byok/test", env, { headers: header });
+    assert.equal(notConfigured.status, 404);
+    await handleByokRequest(
+      new Request("https://pinar.test/api/byok", {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1", chatModel: "chat-1" }),
+        headers: { ...header, "content-type": "application/json" },
+        method: "PUT",
+      }),
+      env,
+    );
+    setByokEgressForTests(passingEgress());
+    const test = await api("POST", "/api/byok/test", env, { headers: header });
+    assert.equal(test.status, 200);
+    const view = byokView(await jsonBody(test));
+    assert.equal(view.capabilities.chat.ok, true);
+    assert.equal(view.capabilities.chat.testedAt, NOW);
+  });
+});
+
+describe("the PUT marks the owner's pin index stale (F5/S2)", () => {
+  // The appliance catalog shortcut: one GET /models decides everything.
+  const applianceCatalog = {
+    data: [
+      { available: true, modalities: { input: ["image", "text"] }, scope: "llm", supported_parameters: ["stream", "tool_choice", "tools"] },
+      { available: true, embedding: { dimensions: { native: 256, supported: [256, 512] } }, scope: "embeddings" },
+      { available: true, scope: "audio" },
+    ],
+    object: "list",
+  };
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    resetByokTestWindowsForTests();
+    setByokEgressForTests(null);
+    setCloudNowForTests(NOW);
+    setByokNowForTests(NOW);
+  });
+
+  afterEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    resetByokTestWindowsForTests();
+    setByokEgressForTests(null);
+    setCloudNowForTests(null);
+    setByokNowForTests(null);
+  });
+
+  function markToken(db: Database, sessionId: string): string | null {
+    const row = db.query("SELECT doc_hash FROM pin_index WHERE session_id = ? AND pin_id = ''").get(sessionId) as { doc_hash: string } | null;
+    return row?.doc_hash ?? null;
+  }
+
+  test("D1: the embedding model (and the endpoint) change marks the index; another model does not", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_a", "a@example.test", "pro");
+      const env = envFor(db);
+      const header = { ...{ cookie }, "content-type": "application/json" };
+      // A and B own an indexed session each.
+      db.query(
+        "INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at) "
+          + "VALUES (?, 'pin_a', 'usr_a', 1, 'old-model', NULL, 't', 'h', 0, NULL, NULL, ?)",
+      ).run("sess_a", NOW);
+      db.query(
+        "INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at) "
+          + "VALUES (?, 'pin_b', 'usr_b', 1, 'old-model', NULL, 't', 'h', 0, NULL, NULL, ?)",
+      ).run("sess_b", NOW);
+      assert.equal(markToken(db, "sess_a"), null);
+
+      // The first save with an embedding model marks A's index stale...
+      const put1 = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1", chatModel: "chat-1", embeddingModel: "embed-1" }),
+        headers: header,
+      });
+      assert.equal(put1.status, 200);
+      assert.deepEqual(byokView(await jsonBody(put1)).capabilities, UNTESTED, "the save resets the capabilities");
+      const token1 = markToken(db, "sess_a");
+      assert.ok(token1, "A's session is marked");
+      assert.equal(markToken(db, "sess_b"), null, "B's index is untouched");
+
+      // The test passes and records the capabilities...
+      setByokEgressForTests(async () => Response.json(applianceCatalog));
+      const test = await api("POST", "/api/byok/test", env, { headers: { cookie } });
+      assert.equal(test.status, 200);
+
+      // ...and the change of the chat model resets them, without a new mark.
+      const put2 = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ baseUrl: "https://api.example.test/v1", chatModel: "chat-2" }),
+        headers: header,
+      });
+      assert.equal(put2.status, 200);
+      assert.deepEqual(byokView(await jsonBody(put2)).capabilities, UNTESTED, "the capabilities are untested again");
+      assert.equal(markToken(db, "sess_a"), token1, "the chat model does not re-mark the index");
+
+      // The change of the embedding model re-marks it, with a fresh token...
+      const put3 = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ baseUrl: "https://api.example.test/v1", embeddingModel: "embed-2" }),
+        headers: header,
+      });
+      assert.equal(put3.status, 200);
+      const token3 = markToken(db, "sess_a");
+      assert.ok(token3 && token3 !== token1, "the embedding model change re-marks the index");
+
+      // ...as does the change of the endpoint, keeping the same model.
+      const put4 = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ baseUrl: "https://api2.example.test/v1" }),
+        headers: header,
+      });
+      assert.equal(put4.status, 200);
+      const token4 = markToken(db, "sess_a");
+      assert.ok(token4 && token4 !== token3, "the endpoint change re-marks the index");
+      assert.equal(markToken(db, "sess_b"), null, "B's index is still untouched");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("memory: the embedding model change marks the owner's sessions and nothing else", async () => {
+    resetCloudPinIndexMemoryForTests();
+    try {
+      const env: CloudEnv = { BYOK_MASTER_KEY: MASTER_KEY };
+      const account = await seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" });
+      const header = { ...{ cookie: account.cookie }, "content-type": "application/json" };
+      const storeA = cloudPinIndexStore({ DB: undefined }, "usr_a");
+      const storeB = cloudPinIndexStore({ DB: undefined }, "usr_b");
+      await storeA.replaceSession("mem_a", [pinIndexEntry("mem_a", "mem_a_p1")]);
+      await storeB.replaceSession("mem_b", [pinIndexEntry("mem_b", "mem_b_p1")]);
+      const sessionsA = [{ id: "mem_a", updatedAt: "2026-09-01T00:00:00.000Z" }];
+      assert.deepEqual(await storeA.staleSessions({ limit: 10, sessions: sessionsA }), []);
+
+      const put = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1", chatModel: "chat-1", embeddingModel: "embed-1" }),
+        headers: header,
+      });
+      assert.equal(put.status, 200);
+      assert.deepEqual(await storeA.staleSessions({ limit: 10, sessions: sessionsA }), ["mem_a"]);
+      assert.deepEqual(await storeB.staleSessions({ limit: 10, sessions: [{ id: "mem_b", updatedAt: "2026-09-01T00:00:00.000Z" }] }), []);
+    } finally {
+      resetCloudPinIndexMemoryForTests();
     }
   });
 });

@@ -20,6 +20,11 @@ const STRING_FIELDS = [
   "ASSISTANT_CHAIN",
   "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
+  // The BYOK (F5/S1): the master key (32 bytes, base64) and the egress guard
+  // marker (A55, S6). Both optional; absent or invalid keeps the BYOK
+  // answering 503 byok_unavailable.
+  "BYOK_EGRESS",
+  "BYOK_MASTER_KEY",
   "CLOUD_TRIAL_ENABLED",
   "COMPLIMENTARY_PRO_USER_IDS",
   "EXTENSION_ORIGIN",

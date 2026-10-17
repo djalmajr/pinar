@@ -218,6 +218,14 @@ export interface CloudEnv {
   // "true" switches the assistant on; every other value (or absence) is off.
   ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
+  // The BYOK master key (F5/S1): 32 bytes in base64. Absent or invalid keeps
+  // the BYOK answering 503 byok_unavailable while the rest of the Cloud goes
+  // on. Never logged; the ciphertext it guards carries its key_id for
+  // rotation.
+  BYOK_MASTER_KEY?: string;
+  // The EdgeR egress guard marker (A55, F5/S6): set when the guard exists.
+  // Until then the BYOK egress (server/byok/fetch.ts) always refuses.
+  BYOK_EGRESS?: string;
   CLOUD_TRIAL_ENABLED?: string;
   COMPLIMENTARY_PRO_USER_IDS?: string;
   DB?: D1Database;
@@ -9164,6 +9172,13 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   }
   if (method === "GET" && path === "/api/preferences") return readPreferences(request, env);
   if (method === "PATCH" && path === "/api/preferences") return updatePreferences(request, env);
+  // GET/PUT/DELETE /api/byok: the Pro BYOK endpoint (F5/S1). The egress
+  // interface refuses until the EdgeR guard exists (A55, S6); the route
+  // module is imported lazily, as the assistant's.
+  if (path === "/api/byok") {
+    const { handleByokRequest } = await import("./byok/api");
+    return handleByokRequest(request, env);
+  }
   if (method === "POST" && (path === "/api/auth/extension-codes" || path === "/api/auth/extension-codes/exchange")) {
     if (env.DEPLOYMENT_ENV || env.DB) return json({ error: "Sign in with an email code" }, 410);
     return path.endsWith("/exchange") ? exchangeExtensionCode(request, env) : createExtensionCode(request, env);

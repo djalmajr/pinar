@@ -33,15 +33,57 @@ export type FakeTurn =
   | { kind: "tool"; args: Record<string, unknown>; name: string }
   | { body: string; kind: "fail"; status: number };
 
+export interface FakeModelOptions {
+  /**
+   * Lists FAKE_EMBEDDING_MODEL as an embedding model in /v1/models and
+   * answers POST /v1/embeddings. Without it, /v1/models lists only the chat
+   * model and /v1/embeddings answers 404, as before.
+   */
+  embeddings?: boolean;
+}
+
+export const FAKE_EMBEDDING_MODEL = "fake-embed";
+export const FAKE_EMBEDDING_DIMENSIONS = 256;
+
+export interface FakeEmbeddingRequest {
+  dimensions?: number;
+  input?: string[];
+  model?: string;
+  prompt_name?: string;
+}
+
 export interface FakeModel {
   /** Base URL to put in ai.json (`http://127.0.0.1:<port>/v1`). */
   endpoint: string;
+  /** Parsed JSON bodies of every POST /v1/embeddings received, answered or not. */
+  embeddingRequests: FakeEmbeddingRequest[];
   /** Script the next chat completion answers, in order. */
   enqueue(...turns: FakeTurn[]): void;
   /** Parsed JSON bodies of every POST /v1/chat/completions received. */
-  requests: Array<{ messages?: Array<{ content?: unknown; role: string }> }>;
+  requests: Array<{ messages?: Array<{ content?: unknown; role: string }>; tools?: Array<{ function?: { name?: string } }> }>;
   reset(): void;
   stop(): Promise<void>;
+}
+
+function embeddingTerms(text: string): string[] {
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((term) => term.length > 2);
+}
+
+/**
+ * A deterministic bag-of-words vector (the fakeEmbedding of
+ * retrieval/runtime-local.test.ts): one hashed dimension per word longer
+ * than two letters, without case or accents, plus a small constant so no
+ * vector is all zeros. Texts that share words point the same way.
+ */
+export function fakeEmbedding(text: string): number[] {
+  const vector = new Array<number>(FAKE_EMBEDDING_DIMENSIONS).fill(0);
+  vector[FAKE_EMBEDDING_DIMENSIONS - 1] = 0.01;
+  for (const term of embeddingTerms(text)) {
+    let hash = 0;
+    for (const character of term) hash = (hash * 31 + character.charCodeAt(0)) % (FAKE_EMBEDDING_DIMENSIONS - 1);
+    vector[hash]! += 1;
+  }
+  return vector;
 }
 
 function chunk(delta: Record<string, unknown>, finishReason: string | null) {
@@ -68,14 +110,29 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 /** An OpenAI-compatible model on an ephemeral loopback port, scripted per turn. */
-export async function startFakeModel(): Promise<FakeModel> {
+export async function startFakeModel(options: FakeModelOptions = {}): Promise<FakeModel> {
   const queue: FakeTurn[] = [];
   const requests: FakeModel["requests"] = [];
+  const embeddingRequests: FakeEmbeddingRequest[] = [];
   const server: Server = createServer(async (request, response) => {
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     if (request.method === "GET" && path === "/v1/models") {
+      const models: Array<Record<string, unknown>> = [{ id: "fake-model" }];
+      if (options.embeddings) models.push({ id: FAKE_EMBEDDING_MODEL, type: "embedding" });
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ data: [{ id: "fake-model" }] }));
+      response.end(JSON.stringify({ data: models }));
+      return;
+    }
+    if (request.method === "POST" && path === "/v1/embeddings") {
+      const body = JSON.parse(await readBody(request)) as FakeEmbeddingRequest;
+      embeddingRequests.push(body);
+      if (!options.embeddings) {
+        response.writeHead(404).end();
+        return;
+      }
+      const data = (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index, object: "embedding" }));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data, model: FAKE_EMBEDDING_MODEL, object: "list" }));
       return;
     }
     if (request.method === "POST" && path === "/v1/chat/completions") {
@@ -110,12 +167,14 @@ export async function startFakeModel(): Promise<FakeModel> {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("fake model did not bind");
   return {
+    embeddingRequests,
     endpoint: `http://127.0.0.1:${address.port}/v1`,
     enqueue: (...turns) => queue.push(...turns),
     requests,
     reset: () => {
       queue.length = 0;
       requests.length = 0;
+      embeddingRequests.length = 0;
     },
     stop: () => new Promise<void>((resolve) => {
       server.closeAllConnections();

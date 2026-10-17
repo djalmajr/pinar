@@ -242,6 +242,10 @@ const messages: UiMessages = {
   "settings.captureDestinationDefault": "Posteingang",
   "settings.captureDestinationDescription":
     "Wohin neue Aufnahmen gespeichert werden. Der Serverstandard verwendet den Posteingang des ersten Projekts.",
+  "settings.autoCaptureDestination": "Sammlung automatisch wählen",
+  "settings.autoCaptureDestinationDescription":
+    "Pinar wählt die Sammlung für jede neue Aufnahme; im Zweifel landet sie im Posteingang.",
+  "settings.autoCaptureDestinationUnavailable": "Erfordert eingerichtete KI.",
   "settings.captureHeading": "Aufnahme",
   "settings.collection": "Sammlung",
   "settings.copyOnFinishBatch": "Beim Beenden eines Stapels kopieren",
@@ -410,6 +414,7 @@ const messages: UiMessages = {
   "dashboard.allSessions": "Alle Sitzungen",
   "dashboard.collection": "Sammlung",
   "dashboard.protectedInbox": "Posteingang",
+  "dashboard.autoFiled": "Automatisch abgelegt. Zum Korrigieren verschieben.",
   "dashboard.collectionActions": "Sammlungsaktionen",
   "dashboard.collapseCollection": "{name} einklappen",
   "dashboard.collectionMenu": "Sammlung",

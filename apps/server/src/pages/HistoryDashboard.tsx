@@ -58,6 +58,9 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
   toast,
 } from "@pinar/ui";
@@ -100,6 +103,7 @@ import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import SearchIcon from "~icons/lucide/search";
+import SparklesIcon from "~icons/lucide/sparkles";
 import TableIcon from "~icons/lucide/table-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import UnlinkIcon from "~icons/lucide/unlink";
@@ -133,42 +137,76 @@ function SessionPageLink({ url }: { url?: string }) {
   );
 }
 
-function CollectionChip({ name }: { name?: string }) {
+// A grouped batch is marked when any of its captures is: moving the group
+// moves every capture, which clears every mark.
+function sessionFiledBy(session: Session): Session["filedBy"] {
+  const captures = (session as SessionGroup).captures ?? [session];
+  return captures.some((capture) => capture.filedBy === "auto") ? "auto" : undefined;
+}
+
+function AutoFiledMark() {
+  const { t } = useServerI18n();
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span aria-label={t("dashboard.autoFiled")} className="inline-flex shrink-0" role="img" />}>
+        <SparklesIcon aria-hidden="true" className="size-3.5 text-primary" />
+      </TooltipTrigger>
+      <TooltipContent>{t("dashboard.autoFiled")}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+export function CollectionChip({ filedBy, name }: { filedBy?: Session["filedBy"]; name?: string }) {
   if (!name) return null;
   return (
     <span className="inline-flex max-w-40 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
       <FolderIcon className="size-3.5 shrink-0" />
       <span className="truncate">{name}</span>
+      {filedBy === "auto" ? <AutoFiledMark /> : null}
     </span>
   );
 }
 
-function SessionIdentity({
+// Inside a collection the chip is hidden, so showFiledMark puts the mark
+// next to the title instead: that is where the filed captures get reviewed.
+export function SessionIdentity({
   collectionName,
   heading = false,
   session,
+  showFiledMark = false,
 }: {
   collectionName?: string;
   heading?: boolean;
   session: Session;
+  showFiledMark?: boolean;
 }) {
   const { t } = useServerI18n();
   const captures = (session as SessionGroup).captures;
   const { description, title, url } = sessionListingCopy(session.page);
-  const collectionLabel = <CollectionChip name={collectionName} />;
+  const filedBy = sessionFiledBy(session);
+  const collectionLabel = <CollectionChip filedBy={filedBy} name={collectionName} />;
+  const filedMark = showFiledMark && filedBy === "auto" ? <AutoFiledMark /> : null;
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
       {captures ? <Badge variant="secondary">{t("dashboard.sessionEvidence", { pages: new Set(captures.map((capture) => capture.page.url)).size, count: captures.length })}</Badge> : null}
       {title ? (
         heading ? (
-          <CardTitle className="line-clamp-1">{title}</CardTitle>
+          filedMark ? (
+            <div className="flex max-w-full min-w-0 items-center gap-1.5">
+              <CardTitle className="line-clamp-1 min-w-0">{title}</CardTitle>
+              {filedMark}
+            </div>
+          ) : (
+            <CardTitle className="line-clamp-1">{title}</CardTitle>
+          )
         ) : (
           <span className="flex max-w-full min-w-0 items-center gap-2">
             <span className="min-w-0 truncate align-bottom font-medium" title={title}>{title}</span>
             {collectionLabel}
+            {filedMark}
           </span>
         )
-      ) : null}
+      ) : filedMark}
       {(heading || !title) ? collectionLabel : null}
       {description ? (
         <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
@@ -822,6 +860,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
         <SessionIdentity
           collectionName={selectedCollection ? undefined : collectionNameBySessionId.get(row.original.id)}
           session={row.original}
+          showFiledMark={Boolean(selectedCollection)}
         />
       ),
       enableHiding: false,
@@ -1110,7 +1149,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">
                           <div className="min-w-0">
-                            <SessionIdentity heading session={session} />
+                            <SessionIdentity heading session={session} showFiledMark={Boolean(selectedCollection)} />
                           </div>
                         </CardHeader>
                         <CardFooter className="mt-auto justify-between gap-2 py-2.5">
@@ -1121,7 +1160,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                             </div>
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
                               <ReviewCounts session={session} t={t} />
-                              {selectedCollection ? null : <CollectionChip name={collectionNameBySessionId.get(session.id)} />}
+                              {selectedCollection ? null : <CollectionChip filedBy={sessionFiledBy(session)} name={collectionNameBySessionId.get(session.id)} />}
                             </div>
                           </div>
                         </CardFooter>

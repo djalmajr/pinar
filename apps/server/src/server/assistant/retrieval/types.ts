@@ -9,7 +9,8 @@ export interface PinIndexStore {
   /**
    * Replaces every entry of the session in one atomic write (pins removed from the session disappear).
    * `readMark` is what `readMark` returned before the indexing read the session: a store with edit
-   * marks clears the session's mark only while it is still that one.
+   * marks applies the replacement only while the session's mark is still that one, and changes
+   * nothing otherwise (a newer edit or a newer indexing won).
    */
   replaceSession(sessionId: string, entries: PinIndexEntry[], options?: { readMark: string | null }): Promise<void>;
   /** Optional: the session's current edit mark (null when unmarked), for stores whose writes mark sessions dirty. */

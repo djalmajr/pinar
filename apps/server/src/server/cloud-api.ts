@@ -117,6 +117,7 @@ import {
   resetCloudAssistantMemoryForTests,
 } from "./assistant/store-cloud";
 import {
+  cloudPinIndexReady,
   deleteMemoryPinIndexForSession,
   markCloudPinIndexSessionStale,
   resetCloudPinIndexMemoryForTests,
@@ -6642,13 +6643,14 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
         .bind(id, principal.id).first();
       if (!existing) return json({ error: "Session not found" }, 404);
       shotId = String(existing.shot_id || id);
+      const pinIndex = await cloudPinIndexReady(env.DB);
       await env.DB.batch([
         env.DB.prepare("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?")
           .bind(id, principal.id),
         env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(id),
-        env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(id),
+        ...(pinIndex ? [env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(id)] : []),
         env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, principal.id),
       ]);
     } catch {
@@ -6944,9 +6946,11 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
     await env.DB.prepare(
       "DELETE FROM pin_comments WHERE capture_id NOT IN (SELECT id FROM sessions)",
     ).run();
-    await env.DB.prepare(
-      "DELETE FROM pin_index WHERE session_id NOT IN (SELECT id FROM sessions)",
-    ).run();
+    if (await cloudPinIndexReady(env.DB)) {
+      await env.DB.prepare(
+        "DELETE FROM pin_index WHERE session_id NOT IN (SELECT id FROM sessions)",
+      ).run();
+    }
     deletedCount = sessions.length;
     const cleanupResults = await env.DB.batch([
       env.DB.prepare(
@@ -7856,13 +7860,14 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             if (!existing) throw new McpToolError("Session not found");
             shotId = String(existing.shot_id || sessionId);
             try {
+              const pinIndex = await cloudPinIndexReady(context.env.DB);
               await context.env.DB.batch([
                 context.env.DB.prepare("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?")
                   .bind(sessionId, context.principal.id),
                 context.env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(sessionId),
                 context.env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(sessionId),
                 context.env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(sessionId),
-                context.env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(sessionId),
+                ...(pinIndex ? [context.env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(sessionId)] : []),
                 context.env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(sessionId, context.principal.id),
               ]);
             } catch {

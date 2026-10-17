@@ -8,6 +8,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
 import {
+  cleanupOldRecords,
   cloudAssistantToolHost,
   cloudPinSearch,
   findAccessibleSession,
@@ -89,12 +90,15 @@ function sqliteD1(db: Database, log: QueryLog = []): NonNullable<CloudEnv["DB"]>
   };
 }
 
-function migratedDatabase() {
+const MIGRATIONS = new URL("../../../../migrations/", import.meta.url);
+
+// Every migration, or all but those whose file name starts with `skip`.
+function migratedDatabase(options: { skip?: string } = {}) {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  const directory = new URL("../../../../migrations/", import.meta.url);
-  for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort()) {
-    db.exec(readFileSync(new URL(file, directory), "utf8"));
+  for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
+    if (options.skip && file.startsWith(options.skip)) continue;
+    db.exec(readFileSync(new URL(file, MIGRATIONS), "utf8"));
   }
   return db;
 }
@@ -1083,5 +1087,69 @@ describe("AI_EMBEDDING_MODEL in the EdgeR env", () => {
     assert.equal(env.AI_BASE_URL, undefined);
     assert.equal(env.AI_EMBEDDING_MODEL, undefined);
     assert.throws(() => edgerCloudEnv(read({ AI_EMBEDDING_MODEL: "embeddinggemma-300m", AI_MODEL: "chat-model" })), /incomplete AI configuration: missing AI_API_KEY, AI_BASE_URL, AI_TRANSCRIPTION_MODEL/);
+  });
+});
+
+// Code can ship before migration 0029 runs: deleting a session and the
+// retention cleanup must keep working without the pin_index table, and
+// clean the index once it exists.
+describe("Cloud session deletes before and after migration 0029", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(null);
+  });
+
+  function seed() {
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_mcp", "usr_pro", "col_pro", [{ comment: "Nota", number: 1, pinId: "p1" }]);
+    insertSession(db, "session_web", "usr_pro", "col_pro", [{ comment: "Nota", number: 1, pinId: "p1" }]);
+  }
+
+  async function deleteBoth(env: CloudEnv) {
+    const host = cloudAssistantToolHost(env, principal("usr_pro"), "https://pinar.test", { writes: true });
+    await host.callTool("pinar.delete_session", { sessionId: "session_mcp" });
+    const web = await seedCloudWebSessionForTests({ email: "usr_pro@example.test", id: "usr_pro", plan: "pro" }, env);
+    const response = await handleCloudApiRequest(new Request("https://pinar.test/api/history/session_web", {
+      headers: { cookie: web.cookie, origin: "https://pinar.test" },
+      method: "DELETE",
+    }), env);
+    assert.equal(response.status, 200, await response.clone().text());
+    const left = db.query("SELECT id FROM sessions WHERE id IN ('session_mcp', 'session_web')").all();
+    assert.deepEqual(left, [], "both sessions are gone");
+  }
+
+  test("without the pin_index table, deletes and the retention cleanup still work", async () => {
+    db = migratedDatabase({ skip: "0029" });
+    seed();
+    // The assistant off, as in production today.
+    const env = cloudEnv(db, { ASSISTANT_ENABLED: undefined, DEPLOYMENT_ENV: "production" });
+    await deleteBoth(env);
+    await cleanupOldRecords(env);
+  });
+
+  test("with the table, the same deletes and the cleanup remove index entries", async () => {
+    db = migratedDatabase();
+    seed();
+    const env = cloudEnv(db);
+    const owner = cloudPinIndexStore(env, "usr_pro");
+    const entry = (sessionId: string): PinIndexEntry => ({
+      caption: null, docHash: "h", docText: "t", model: "", number: 1, ocr: null, pinId: "p1", sessionId, truncated: false, updatedAt: NOW, vector: null,
+    });
+    await owner.replaceSession("session_mcp", [entry("session_mcp")]);
+    await owner.replaceSession("session_web", [entry("session_web")]);
+    await owner.replaceSession("session_orphan", [entry("session_orphan")]); // no session row
+    await deleteBoth(env);
+    assert.deepEqual(pinIndexRows(db).map((row) => row.session_id), ["session_orphan"]);
+    await cleanupOldRecords(env);
+    assert.deepEqual(pinIndexRows(db), [], "the cleanup drops entries of sessions that are gone");
   });
 });

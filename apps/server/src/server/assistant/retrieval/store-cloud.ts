@@ -166,6 +166,24 @@ export async function markCloudPinIndexSessionStale(env: { DB?: AssistantD1Datab
   }
 }
 
+// Databases already seen with the pin_index table. A missing table is not
+// remembered, so the check runs again until migration 0029 lands.
+const pinIndexReadyDatabases = new WeakSet<object>();
+
+/**
+ * Whether the database has the pin_index table yet. The session delete and
+ * the retention cleanup touch the table only when it exists, so code that
+ * ships before migration 0029 runs keeps deleting sessions; any other
+ * database error still reaches the caller.
+ */
+export async function cloudPinIndexReady(db: AssistantD1Database): Promise<boolean> {
+  if (pinIndexReadyDatabases.has(db)) return true;
+  const row = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pin_index'").first();
+  if (!row) return false;
+  pinIndexReadyDatabases.add(db);
+  return true;
+}
+
 /**
  * Cloud `PinIndexStore`: every query is filtered by `owner_id`, so entries
  * of another account behave as if they did not exist, and `entriesFor`

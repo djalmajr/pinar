@@ -47,16 +47,40 @@ export function newAssistantMessageId(): string {
 /** Title ceiling, counted in graphemes (perceived characters), not UTF-16 units. */
 export const ASSISTANT_TITLE_MAX = 80;
 
+// Code points that never start a perceived character: combining marks,
+// variation selectors, emoji skin-tone modifiers, tags and the zero-width
+// joiner.
+const GRAPHEME_EXTEND = /^(?:\p{M}|[‍︀-️\u{1f3fb}-\u{1f3ff}\u{e0020}-\u{e007f}])$/u;
+const REGIONAL_INDICATOR = /^[\u{1f1e6}-\u{1f1ff}]$/u;
+
 /**
- * Splits text into graphemes via `Intl.Segmenter` when available, falling
- * back to code points (which never split a surrogate pair) otherwise.
+ * Splits text into graphemes via `Intl.Segmenter` when available. The
+ * fallback groups code points itself: extending code points join the
+ * previous one, a code point after a zero-width joiner joins it, and
+ * regional indicators pair into flags. It covers the clusters a title cut
+ * can meet (accents, ZWJ emoji, flags) without the full Unicode rules.
  */
 function graphemePieces(text: string): string[] {
   if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
     const segmenter = new Intl.Segmenter("und", { granularity: "grapheme" });
     return Array.from(segmenter.segment(text), (segment) => segment.segment);
   }
-  return Array.from(text);
+  const pieces: string[] = [];
+  let previous = "";
+  let openFlag = false;
+  for (const point of text) {
+    const joins = pieces.length > 0
+      && (GRAPHEME_EXTEND.test(point) || previous === "‍" || (openFlag && REGIONAL_INDICATOR.test(point)));
+    if (joins) {
+      pieces[pieces.length - 1] += point;
+      openFlag = false;
+    } else {
+      pieces.push(point);
+      openFlag = REGIONAL_INDICATOR.test(point);
+    }
+    previous = point;
+  }
+  return pieces;
 }
 
 /**

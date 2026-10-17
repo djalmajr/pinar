@@ -257,7 +257,7 @@ async function startAssistantDemo(browser) {
     throw new Error("The assistant cover needs the local build: run `bun run build:local` first");
   }
   const home = await mkdtemp(join(tmpdir(), "pinar-help-assistant-"));
-  const fake = await startFakeModel();
+  let fake = null;
   let server = null;
   let exited = Promise.resolve();
   const stop = async () => {
@@ -265,10 +265,11 @@ async function startAssistantDemo(browser) {
       server.kill("SIGTERM");
       await exited;
     }
-    await fake.stop();
+    await fake?.stop();
     await rm(home, { force: true, recursive: true });
   };
   try {
+    fake = await startFakeModel();
     writeLocalAiSettings(home, fake.endpoint);
     const port = await freePort();
     const env = { ...process.env, PINAR_HOME: home, PORT: String(port) };

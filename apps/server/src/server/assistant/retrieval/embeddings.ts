@@ -6,12 +6,26 @@
 // EMBEDDING_BATCH_SIZE texts with at most EMBEDDING_CONCURRENCY requests in
 // flight, each bounded by EMBEDDING_TIMEOUT_MS. A response whose count or
 // dimensions differ from the request rejects the whole call; the first
-// failing batch stops new batches from starting. Nothing is logged.
+// failing batch stops new batches from starting. On the appliance nothing
+// is logged.
+//
+// Through the Vercel AI Gateway (endpoint.gateway, gateway.ts) the body is
+// { dimensions: 256, input, model, providerOptions } instead: the privacy
+// options of the chain and no prompt_name, an appliance extra. Each batch
+// that gets a response body then logs one assistant_index_cost line.
 //
 // Vectors are stored as Float32 little-endian bytes (encodeVector /
 // decodeVector) and ranked by cosine.
 
 import { postEndpointJson } from "./endpoint";
+import {
+  assistantIndexCostLog,
+  gatewayIndexCost,
+  gatewayPrivacyOptions,
+  priceTimesTokensMicros,
+  usageTokens,
+  type GatewayEmbeddingOptions,
+} from "./gateway";
 
 export const PIN_EMBEDDING_DIMENSIONS = 256;
 export const EMBEDDING_BATCH_SIZE = 32;
@@ -21,6 +35,7 @@ export const EMBEDDING_TIMEOUT_MS = 15_000;
 export interface EmbeddingEndpoint {
   apiKey?: string;
   baseUrl: string;
+  gateway?: GatewayEmbeddingOptions; // set for the Vercel AI Gateway
   model: string;
 }
 
@@ -76,15 +91,22 @@ export async function embedTexts(input: {
       const current = next++;
       const batch = batches[current]!;
       try {
+        const { gateway, model } = input.endpoint;
         const body = await postEndpointJson({
           apiKey: input.endpoint.apiKey,
           baseUrl: input.endpoint.baseUrl,
-          body: { dimensions: PIN_EMBEDDING_DIMENSIONS, input: batch, model: input.endpoint.model, prompt_name: input.kind },
+          body: gateway
+            ? { dimensions: PIN_EMBEDDING_DIMENSIONS, input: batch, model, providerOptions: gatewayPrivacyOptions(gateway) }
+            : { dimensions: PIN_EMBEDDING_DIMENSIONS, input: batch, model, prompt_name: input.kind },
           fetch: input.fetch,
           label: "embedding request",
           path: "/embeddings",
           timeoutMs: input.timeoutMs ?? EMBEDDING_TIMEOUT_MS,
         });
+        if (gateway) {
+          const cost = gatewayIndexCost(body, () => priceTimesTokensMicros(gateway.inputPrice, usageTokens(body, "prompt_tokens")));
+          assistantIndexCostLog({ ...cost, kind: "embedding", model });
+        }
         results[current] = parseEmbeddings(body, batch.length);
       } catch (error) {
         failed = true;

@@ -19,7 +19,7 @@ import { resetRetrievalCapabilitiesCacheForTests } from "../assistant/retrieval/
 import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "../assistant/retrieval/embeddings";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
 import { FILING_NONE_OPTION } from "./choose";
-import { setCloudFilingFetchForTests } from "./runtime-cloud";
+import { cloudFilingEngine, setCloudFilingFetchForTests } from "./runtime-cloud";
 
 const NOW = "2026-10-17T12:00:00.000Z";
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -925,6 +925,163 @@ describe("cloud GET /api/preferences autoCaptureDestinationAvailable", () => {
     const result = await available({ AI_EMBEDDING_MODEL: undefined }, "none");
     assert.equal(result.value, false);
     assert.equal(result.calls, 1, "one /models detection");
+  });
+});
+
+// ---------- production through the gateway (F4 contract §4) ----------
+
+const GATEWAY_ORIGIN = "https://ai-gateway.vercel.sh";
+const GATEWAY_KEY = "vck-gateway-test";
+const GATEWAY_EMBEDDING = "openai/text-embedding-3-small";
+const CHAIN = "gateway:anthropic/claude-haiku-5.5,gateway:deepseek/deepseek-v4.1-flash";
+
+interface HubCall {
+  authorization: string | null;
+  body: Record<string, any> | null;
+  origin: string;
+  path: string;
+}
+
+// The gateway on a fake fetch (its catalog, where the first link even
+// declares the decisions extra, and /embeddings) and, at BASE_URL, an
+// appliance that would answer decisions for Onboarding: a request that
+// reached either the decisions engine or AI_BASE_URL would change the
+// destination, and the recorded calls show it.
+function fakeGatewayHubs(embed: (text: string) => number[]) {
+  const calls: HubCall[] = [];
+  const applianceFake = fakeAppliance({ decide: decideFor("Onboarding", 0.95), embed, engine: "decisions" });
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    const raw = typeof init?.body === "string" ? init.body : "";
+    const body = raw ? (JSON.parse(raw) as Record<string, any>) : null;
+    const path = url.pathname.replace(/^\/v1/, "");
+    calls.push({ authorization: new Headers(init?.headers).get("authorization"), body, origin: url.origin, path });
+    if (url.origin !== GATEWAY_ORIGIN) return applianceFake.fetch(input, init);
+    if (path === "/models") {
+      return Response.json({
+        data: [
+          { id: "openai/text-embedding-3-large", pricing: { input: "0.00000013" }, tags: null, type: "embedding" },
+          { decisions: DECISIONS_EXTRA, id: "anthropic/claude-haiku-5.5", pricing: { input: "0.0000001", output: "0.0000005" }, tags: ["vision"], type: "language" },
+          { id: GATEWAY_EMBEDDING, pricing: { input: "0.00000002", output: null }, tags: null, type: "embedding" },
+        ],
+      });
+    }
+    if (path === "/decisions") return decideFor("Onboarding", 0.95)(body!);
+    if (path === "/embeddings") {
+      return Response.json({ data: (body!.input as string[]).map((text, index) => ({ embedding: embed(text), index })), usage: { prompt_tokens: 5, total_tokens: 5 } });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+  return {
+    applianceCalls: () => calls.filter((call) => call.origin !== GATEWAY_ORIGIN),
+    calls,
+    fetch: fetchFn,
+    gatewayCalls: () => calls.filter((call) => call.origin === GATEWAY_ORIGIN),
+  };
+}
+
+function productionFilingEnv(db: Database, overrides: Partial<CloudEnv> = {}): CloudEnv {
+  return filingEnv(db, {
+    AI_EMBEDDING_MODEL: GATEWAY_EMBEDDING,
+    AI_GATEWAY_API_KEY: GATEWAY_KEY,
+    ASSISTANT_CHAIN: CHAIN,
+    DEPLOYMENT_ENV: "production",
+    ...overrides,
+  });
+}
+
+describe("cloud capture filing in production, through the gateway (F4 contract §4)", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => {
+    setCloudFilingFetchForTests(null);
+    resetRetrievalCapabilitiesCacheForTests();
+    resetCloudMemoryStateForTests();
+  });
+
+  async function preferencesAvailable(env: CloudEnv, cookie: string) {
+    const response = await handleCloudApiRequest(new Request("https://pinar.test/api/preferences", { headers: { cookie } }), env);
+    assert.equal(response.status, 200);
+    return ((await response.json()) as Record<string, unknown>).autoCaptureDestinationAvailable;
+  }
+
+  test("similarity through the gateway with its key and the privacy options; never decisions, nothing to AI_BASE_URL", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = productionFilingEnv(db);
+      const cookie = await signIn(db, env);
+      seedCollections(db);
+      insertSession(db, { collectionId: "col_checkout", createdAt: "2026-10-01T10:00:00.000Z", id: "cloud_chk_1", title: "Card form" });
+      insertSession(db, { collectionId: "col_onboarding", createdAt: "2026-10-02T10:00:00.000Z", id: "cloud_onb_1", title: "Welcome" });
+      await indexSession(env, "cloud_chk_1", [{ model: GATEWAY_EMBEDDING, vector: vector(1, 0) }]);
+      await indexSession(env, "cloud_onb_1", [{ model: GATEWAY_EMBEDDING, vector: vector(0, 1) }]);
+      await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+      const hubs = fakeGatewayHubs((text) => (text.includes("Payment") ? vector(1, 0.05) : vector(0, 0, 1)));
+      setCloudFilingFetchForTests(hubs.fetch);
+
+      assert.equal(await preferencesAvailable(env, cookie), true);
+      const body = await shot(env, cookie, { collectionId: "col_onboarding", id: "cloud_gateway", title: "Payment declined" });
+      assert.equal(body.destination.collectionId, "col_checkout");
+      assert.equal(body.filing.engine, "similarity");
+      assert.equal(body.filing.reason, "chosen");
+      assert.equal(stored(db, "cloud_gateway").filed_by, "auto");
+
+      assert.deepEqual(hubs.applianceCalls(), [], "no request to AI_BASE_URL");
+      assert.deepEqual([...new Set(hubs.gatewayCalls().map((call) => call.path))].sort(), ["/embeddings", "/models"], "never /decisions");
+      const embedding = hubs.gatewayCalls().find((call) => call.path === "/embeddings")!;
+      assert.equal(embedding.authorization, `Bearer ${GATEWAY_KEY}`);
+      assert.deepEqual(Object.keys(embedding.body!).sort(), ["dimensions", "input", "model", "providerOptions"]);
+      assert.equal(embedding.body!.model, GATEWAY_EMBEDDING);
+      assert.deepEqual(embedding.body!.providerOptions, { gateway: { disallowPromptTraining: true } });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("without AI_EMBEDDING_MODEL, or with one the catalog does not list as embedding, the automatic destination is unavailable: the Inbox", async () => {
+    for (const AI_EMBEDDING_MODEL of [undefined, "anthropic/claude-haiku-5.5", "openai/text-embedding-9"]) {
+      resetCloudMemoryStateForTests();
+      resetRetrievalCapabilitiesCacheForTests();
+      const db = migratedDatabase();
+      try {
+        const env = productionFilingEnv(db, { AI_EMBEDDING_MODEL });
+        const cookie = await signIn(db, env);
+        seedCollections(db);
+        await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+        const hubs = fakeGatewayHubs(() => vector(1, 0));
+        setCloudFilingFetchForTests(hubs.fetch);
+
+        assert.equal(await preferencesAvailable(env, cookie), false, String(AI_EMBEDDING_MODEL));
+        const body = await shot(env, cookie, { collectionId: "col_onboarding", id: "cloud_no_embedding", title: "Onboarding" });
+        assert.equal(body.destination.collectionId, "col_inbox", String(AI_EMBEDDING_MODEL));
+        assert.deepEqual(body.filing, { collectionId: null, confidence: 0, engine: "none", reason: "error" }, String(AI_EMBEDDING_MODEL));
+        assert.deepEqual([...new Set(hubs.calls.map((call) => `${call.origin}${call.path}`))], [`${GATEWAY_ORIGIN}/models`], String(AI_EMBEDDING_MODEL));
+      } finally {
+        db.close();
+      }
+    }
+  });
+
+  test("production without a usable gateway chain reaches no endpoint, even with AI_BASE_URL set", async () => {
+    const production = {
+      AI_API_KEY: "sk-ai-test",
+      AI_BASE_URL: BASE_URL,
+      AI_EMBEDDING_MODEL: GATEWAY_EMBEDDING,
+      AI_GATEWAY_API_KEY: GATEWAY_KEY,
+      AI_MODEL: "mock",
+      ASSISTANT_CHAIN: CHAIN,
+      DEPLOYMENT_ENV: "production",
+    };
+    for (const overrides of [{ ASSISTANT_CHAIN: undefined }, { AI_GATEWAY_API_KEY: undefined }, { ASSISTANT_CHAIN: `${CHAIN},appliance:mock` }]) {
+      const hubs = fakeGatewayHubs(() => vector(1, 0));
+      setCloudFilingFetchForTests(hubs.fetch);
+      assert.equal(await cloudFilingEngine({ ...production, ...overrides }), null, JSON.stringify(overrides));
+      assert.deepEqual(hubs.calls, [], JSON.stringify(overrides));
+    }
   });
 });
 

@@ -87,6 +87,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.8.1",
+    date: "2026-10-17",
+    changes: ["cloud-voice-restored"],
+  },
+  {
     tag: "v0.8.0",
     date: "2026-10-17",
     changes: [

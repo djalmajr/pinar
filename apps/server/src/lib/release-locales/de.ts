@@ -23,6 +23,18 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.8.1": {
+      title: "Sprache und ausformulierte Schritte funktionieren in Pinar Cloud wieder",
+      summary:
+        "Pinar Cloud transkribiert Sprachkommentare wieder und erzeugt wieder ausformulierte Reproduktionsschritte.",
+      changes: {
+        "cloud-voice-restored": {
+          title: "Sprachtranskription und Ausformulierte Schritte erzeugen sind zurück",
+          description:
+            "In Version 0.8.0 bot Pinar Cloud wegen eines Serverfehlers weder die Sprachtranskription noch Ausformulierte Schritte erzeugen an. Beides funktioniert wieder, mit denselben Pinar-Cloud-Credits: Sprache verbraucht 1 Credit bis 60 Sekunden und 2 von 61 bis 120 Sekunden, und jede Erzeugung ausformulierter Schritte verbraucht 1. Die lokale App bleibt unverändert.",
+        },
+      },
+    },
     "v0.8.0": {
       title: "Ein Assistent für deine Aufnahmen",
       summary:

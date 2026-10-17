@@ -21,6 +21,18 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.8.1": {
+      title: "Pinar Cloud 中的语音和文字步骤恢复可用",
+      summary:
+        "Pinar Cloud 再次支持语音评论转写和生成文字复现步骤。",
+      changes: {
+        "cloud-voice-restored": {
+          title: "语音转写和“生成文字步骤”已恢复",
+          description:
+            "在 0.8.0 版本中，由于服务器故障，Pinar Cloud 无法使用语音转写和“生成文字步骤”。现在两者都已恢复，使用相同的 Pinar Cloud AI 积分：语音 60 秒以内使用 1 积分，61 到 120 秒使用 2 积分，每次生成文字步骤使用 1 积分。本地应用没有变化。",
+        },
+      },
+    },
     "v0.8.0": {
       title: "为您的捕获而生的助手",
       summary:

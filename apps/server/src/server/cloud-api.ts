@@ -124,6 +124,7 @@ import { cleanupAssistantMarginRecords, recordAssistantIndexCost, type Assistant
 import type { AssistantRequestDeps, AssistantStatus } from "./assistant/http";
 import type { AssistantEndpoint } from "./assistant/models";
 import type { PinSearchService } from "./assistant/retrieval/index";
+import type { FilingThresholdEnv } from "./filing/constants";
 import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
@@ -178,7 +179,8 @@ interface R2Bucket {
   put(key: string, value: Uint8Array, options: { httpMetadata: { contentType: string } }): Promise<unknown>;
 }
 
-export interface CloudEnv {
+// The filing thresholds (F3.5 §1) are part of the env, so runtimeEnv keeps them.
+export interface CloudEnv extends FilingThresholdEnv {
   ADMIN_API_KEY?: string;
   AI?: Ai;
   // Raw AI strings for the assistant appliance (the AI binding stays for the

@@ -1,6 +1,6 @@
 import type { SupportedLanguage } from "@pinar/shared";
 
-export const CURRENT_LEGAL_VERSION = "2026-09-22";
+export const CURRENT_LEGAL_VERSION = "2026-10-17";
 export const OPERATOR_CONTACT_EMAIL = {
   en: "contact@pinar.dev",
   pt: "contato@pinar.dev",
@@ -87,11 +87,11 @@ Prices, taxes, currency, renewal interval, and the applicable offer are shown at
 
 ## 5. Content and permissions
 
-You retain ownership of content you submit. You grant Pinar a limited license to host, copy, process, transmit, and display that content only as needed to provide, secure, maintain, and improve the service. You must have the rights and permissions needed to capture, upload, annotate, or share the content, including screenshots and personal data visible on a page.
+You retain ownership of content you submit. You grant Pinar a limited license to host, copy, process, transmit, and display that content only as needed to provide, secure, maintain, and improve the service. That license does not include using your content to train AI models. You must have the rights and permissions needed to capture, upload, annotate, or share the content, including screenshots and personal data visible on a page.
 
 ## 6. AI features
 
-AI output may be incomplete, inaccurate, or unsuitable. You must review it before relying on it. Do not use AI output as the sole basis for legal, medical, financial, employment, credit, or other high-impact decisions. Credits represent product usage units, not currency, stored value, or a guaranteed number of tokens.
+AI output may be incomplete, inaccurate, or unsuitable. You must review it before relying on it. Do not use AI output as the sole basis for legal, medical, financial, employment, credit, or other high-impact decisions. Credits represent product usage units, not currency, stored value, or a guaranteed number of tokens. For third-party data in your content (what appears on the pages you capture and collaborator comments), you are the controller: using the AI features of Pinar Cloud with that content instructs Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil, and you are responsible for informing the data subjects and for having a legal basis for the processing, with Pinar acting as a processor; see the Privacy Policy.
 
 ## 7. Availability and changes
 
@@ -132,11 +132,11 @@ Preços, tributos, moeda, intervalo de renovação e oferta aplicável são exib
 
 ## 5. Conteúdo e permissões
 
-Você mantém a titularidade do conteúdo enviado. Você concede ao Pinar uma licença limitada para hospedar, copiar, processar, transmitir e exibir esse conteúdo apenas conforme necessário para fornecer, proteger, manter e melhorar o serviço. Você deve possuir os direitos e permissões necessários para capturar, enviar, anotar ou compartilhar o conteúdo, inclusive screenshots e dados pessoais visíveis em uma página.
+Você mantém a titularidade do conteúdo enviado. Você concede ao Pinar uma licença limitada para hospedar, copiar, processar, transmitir e exibir esse conteúdo apenas conforme necessário para fornecer, proteger, manter e melhorar o serviço. Essa licença não inclui usar o seu conteúdo para treinar modelos de IA. Você deve possuir os direitos e permissões necessários para capturar, enviar, anotar ou compartilhar o conteúdo, inclusive screenshots e dados pessoais visíveis em uma página.
 
 ## 6. Recursos de IA
 
-Resultados de IA podem ser incompletos, imprecisos ou inadequados. Você deve revisá-los antes de utilizá-los. Não use resultados de IA como fundamento exclusivo para decisões jurídicas, médicas, financeiras, trabalhistas, de crédito ou outras decisões de alto impacto. Créditos representam unidades de uso do produto, não moeda, valor armazenado nem uma quantidade garantida de tokens.
+Resultados de IA podem ser incompletos, imprecisos ou inadequados. Você deve revisá-los antes de utilizá-los. Não use resultados de IA como fundamento exclusivo para decisões jurídicas, médicas, financeiras, trabalhistas, de crédito ou outras decisões de alto impacto. Créditos representam unidades de uso do produto, não moeda, valor armazenado nem uma quantidade garantida de tokens. Para dados de terceiros no seu conteúdo (o que aparece nas páginas capturadas e comentários de colaboradores), você é o controlador: ao usar os recursos de IA do Pinar Cloud com esse conteúdo, você instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil, e é responsável por informar os titulares e por ter base legal para o tratamento, com o Pinar atuando como operador; veja a Política de Privacidade.
 
 ## 7. Disponibilidade e alterações
 
@@ -157,66 +157,78 @@ A lei brasileira rege estes Termos, sem afastar proteções obrigatórias dispon
   privacy: {
     en: `## 1. Controller and scope
 
-For the hosted Pinar service, the data controller is **Djalma Júnior**, an individual in Brazil. Privacy contact: **${OPERATOR_CONTACT_EMAIL.en}**. This Policy does not govern local-only data that never leaves your device; you control that data locally.
+For the hosted Pinar service, the data controller is **Djalma Júnior**, an individual in Brazil. Privacy contact: **${OPERATOR_CONTACT_EMAIL.en}**. Data protection officer: **Djalma Júnior**, through the same contact. This Policy does not govern local-only data that never leaves your device; you control that data locally. When you use AI in the local app, it sends each request directly to the endpoint you configure (a model on your computer or a provider of your choice); that content does not pass through Pinar, and that provider's terms apply.
+
+When your use of Pinar includes third-party data — what appears on the pages you capture and collaborator comments — you are the controller of that data. When you use the AI features of Pinar Cloud with that content, you instruct Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil. You are responsible for informing the data subjects and for having a legal basis for the processing; Pinar acts as a processor of that data. When we process that data for our own purposes, such as security, fraud and abuse prevention, and legal compliance, we act as controller.
 
 ## 2. Data we process
 
 Depending on your use, we process: account email and authentication records; policy-acceptance evidence; billing identifiers and plan status received from Stripe (not full card details); device and extension identifiers; IP address, request, security, and diagnostic logs; projects, collections, page URLs and titles, screenshots, annotations, comments, selectors, and sharing metadata you submit; storage and AI-credit usage; and prompts, inputs, outputs, model usage, and error details when you invoke an AI feature.
 
+When your plan includes the AI assistant in Pinar Cloud, we also process: your messages and its answers, stored as conversation history; the proposals it prepares for you to confirm; the project, collection, session, pin, and comment data its tools read to answer you, which may include content other people shared with you; descriptions and visible text that AI extracts from session screenshots, and search representations (embeddings) of each pin's text (page title and URL, element, description, and comments), used to search your pins, on accounts that use the assistant or have turned on the automatic collection choice; the title, URL, and pin comments of a new capture, when you turn on “Choose the collection automatically”; and usage records with the model, tokens, and cost of each request.
+
 Avoid capturing secrets or unnecessary sensitive personal data. A screenshot may contain information about you or third parties, and you are responsible for having an appropriate basis to submit it.
 
 ## 3. Purposes and legal bases
 
-We process data to provide accounts and contracted features; authenticate users; store and share content at your direction; process billing and entitlements; operate AI features; prevent fraud and abuse; secure and troubleshoot the service; comply with law; establish or defend legal claims; and communicate service or policy changes. Under the LGPD, the applicable bases may include contract performance, compliance with legal obligations, legitimate interests subject to safeguards, regular exercise of rights, fraud prevention, and consent where specifically requested.
+We process data to provide accounts and contracted features; authenticate users; store and share content at your direction; process billing and entitlements; operate AI features, including the Pinar Cloud assistant, the search of your pins, and, when you turn it on, the automatic choice of a new capture's collection; prevent fraud and abuse; secure and troubleshoot the service; comply with law; establish or defend legal claims; and communicate service or policy changes. Under the LGPD, the applicable bases may include contract performance, compliance with legal obligations, legitimate interests subject to safeguards, regular exercise of rights, fraud prevention, and consent where specifically requested. The description of screenshots and the indexing of pins for search are done to run the AI features you use (contract performance).
 
 ## 4. Sharing and international transfers
 
-We share data only as needed with the providers listed in the Service Providers and Subprocessors page, with professional advisers under confidentiality, in a corporate transaction subject to appropriate protections, or with authorities when legally required. Cloud infrastructure and payment processing may involve processing outside Brazil. We use provider contracts and legally recognized safeguards appropriate to the transfer.
+We share data only as needed with the providers listed in the Service Providers and Subprocessors page, with professional advisers under confidentiality, in a corporate transaction subject to appropriate protections, or with authorities when legally required. Cloud infrastructure, payment processing, and AI features may involve processing outside Brazil; the hosted service runs on servers in Germany. We use provider contracts and legally recognized safeguards appropriate to the transfer.
+
+**AI in Pinar Cloud.** To answer in the assistant, search your pins, and choose a new capture's collection, Pinar Cloud sends the content each request needs to the AI providers accessed through the Vercel AI Gateway (Vercel Inc., United States). The gateway routes each request to a provider that serves the model Pinar configured. That content may include your messages and the conversation history; the data the assistant's tools read; the screenshot of each session with pins, to describe the pins for search, even when “Include screenshot in agent copy” is off; the text of pins, for search; the voice recorded on a pin, to transcribe it; and the title, URL, and pin comments of a new capture, when “Choose the collection automatically” is on, and the content each session needs to generate its written reproduction steps. To keep search ready, Pinar indexes the pins as you ask and may index, before you ask, only the sessions with pins of accounts that have already had a conversation with the assistant or turned on “Choose the collection automatically”. Vercel and the AI providers act as processors of Pinar and, for third-party data that you control, as subprocessors. They may process that content outside Brazil. The transfer is necessary to run the features you invoke (Article 33, IX, combined with Article 7, V, of the LGPD) and, for third-party data, follows your instruction as controller. Pinar does not request zero data retention, so the providers may retain the data from each request for the periods in their own terms. See Vercel's terms and privacy policy at https://vercel.com/legal.
 
 ## 5. Retention and deletion
 
-Retention depends on plan, content type, legal duties, security needs, and account status. The current periods and recovery windows are described in the Data Retention Policy. Backups and fraud, billing, tax, security, and legal records may remain for a limited period after deletion when required or reasonably necessary.
+Retention depends on plan, content type, legal duties, security needs, and account status. The current periods and recovery windows are described in the Data Retention Policy. AI assistant conversations in Pinar Cloud are kept until you delete them and become eligible for automatic deletion 90 days after their last message; the search data derived from a session is deleted with it. Backups and fraud, billing, tax, security, and legal records may remain for a limited period after deletion when required or reasonably necessary.
 
 ## 6. Security
 
-We use measures designed for the nature of the service, including scoped tokens, access controls, origin validation, rate limits, encrypted transport, isolated production resources, and restricted provider access. No online system is completely secure. Contact us promptly if you believe your account or data was compromised.
+We use measures designed for the nature of the service, including scoped tokens, access controls, origin validation, rate limits, encrypted transport, isolated production resources, and restricted provider access. No online system is completely secure. Contact us promptly if you believe your account or data was compromised. If a security incident may cause relevant risk or harm to the data subjects, we will notify the ANPD and the affected data subjects, as required by law.
 
 ## 7. Your rights
 
-Subject to applicable law, you may request confirmation and access; correction; information about sharing; portability where regulated; anonymization, blocking, or deletion of unnecessary or unlawfully processed data; deletion of consent-based data subject to legal exceptions; information about consent choices; withdrawal of consent; and review of a decision based solely on automated processing that affects your interests. We may verify your identity before acting. Requests are free and may be sent to **${OPERATOR_CONTACT_EMAIL.en}**.
+Subject to applicable law, you may request confirmation and access; correction; information about sharing; portability where regulated; anonymization, blocking, or deletion of unnecessary or unlawfully processed data; deletion of consent-based data subject to legal exceptions; information about consent choices; withdrawal of consent; and review of a decision based solely on automated processing that affects your interests. We may verify your identity before acting. Requests are free and may be sent to **${OPERATOR_CONTACT_EMAIL.en}**. We will respond within the LGPD time limits. If you appear in content a customer sent to Pinar (for example, in a screenshot) and are not a user of the service, direct your request to the person who sent the content, who is the controller of that data. If you contact us, we will forward the request to the customer when we can identify them.
 
 ## 8. Children, changes, and complaints
 
 Pinar is not directed to children. Do not submit a child's personal data without the authority and safeguards required by law. We will publish material changes and request renewed acceptance when legally or contractually necessary. You may also lodge a complaint with Brazil's National Data Protection Authority (ANPD) or another competent authority.`,
     pt: `## 1. Controlador e escopo
 
-No serviço hospedado do Pinar, o controlador é **Djalma Júnior**, pessoa física no Brasil. Contato de privacidade: **${OPERATOR_CONTACT_EMAIL.pt}**. Esta Política não rege dados de uso exclusivamente local que nunca saem do seu dispositivo; você controla esses dados localmente.
+No serviço hospedado do Pinar, o controlador é **Djalma Júnior**, pessoa física no Brasil. Contato de privacidade: **${OPERATOR_CONTACT_EMAIL.pt}**. Encarregado pelo tratamento de dados pessoais: **Djalma Júnior**, pelo mesmo contato. Esta Política não rege dados de uso exclusivamente local que nunca saem do seu dispositivo; você controla esses dados localmente. Quando você usa IA no app local, ele envia cada pedido diretamente ao endpoint que você configurou (um modelo no seu computador ou um provedor de sua escolha); esse conteúdo não passa pelo Pinar, e valem os termos desse provedor.
+
+Quando o seu uso do Pinar inclui dados de terceiros — o que aparece nas páginas capturadas e os comentários de colaboradores —, você é o controlador desses dados. Ao usar os recursos de IA do Pinar Cloud com esse conteúdo, você instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil. Você é responsável por informar os titulares e por ter base legal para o tratamento; o Pinar atua como operador desses dados. Quando tratamos esses dados para finalidades próprias, como segurança, prevenção a fraude e abuso e cumprimento da lei, atuamos como controlador.
 
 ## 2. Dados tratados
 
 Conforme o uso, tratamos: e-mail da conta e registros de autenticação; evidências de aceite de políticas; identificadores de cobrança e status do plano recebidos do Stripe (não os dados completos do cartão); identificadores do dispositivo e da extensão; endereço IP e logs de requisição, segurança e diagnóstico; projetos, coleções, URLs e títulos de páginas, screenshots, anotações, comentários, seletores e metadados de compartilhamento enviados por você; consumo de armazenamento e créditos de IA; e prompts, entradas, saídas, uso do modelo e detalhes de erros quando você aciona um recurso de IA.
 
+Quando seu plano inclui o assistente de IA no Pinar Cloud, também tratamos: suas mensagens e as respostas dele, guardadas como histórico da conversa; as propostas que ele prepara para você confirmar; os dados de projetos, coleções, sessões, pins e comentários que as ferramentas dele leem para responder, o que pode incluir conteúdo que outras pessoas compartilharam com você; descrições e textos visíveis que a IA extrai dos screenshots das sessões e representações de busca (embeddings) do texto de cada pin (título e URL da página, elemento, descrição e comentários), usadas para buscar seus pins, nas contas que usam o assistente ou ligaram a escolha automática da coleção; o título, a URL e os comentários dos pins de uma captura nova, quando você liga “Escolher a coleção automaticamente”; e registros de consumo com o modelo, os tokens e o custo de cada pedido.
+
 Evite capturar segredos ou dados pessoais sensíveis desnecessários. Um screenshot pode conter informações suas ou de terceiros, e você é responsável por possuir base adequada para enviá-lo.
 
 ## 3. Finalidades e bases legais
 
-Tratamos dados para fornecer contas e recursos contratados; autenticar usuários; armazenar e compartilhar conteúdo sob sua orientação; processar cobrança e direitos de uso; operar recursos de IA; prevenir fraude e abuso; proteger e diagnosticar o serviço; cumprir a lei; exercer ou defender direitos; e comunicar mudanças no serviço ou nas políticas. Na LGPD, as bases aplicáveis podem incluir execução de contrato, cumprimento de obrigação legal, legítimo interesse sujeito a salvaguardas, exercício regular de direitos, prevenção à fraude e consentimento quando solicitado especificamente.
+Tratamos dados para fornecer contas e recursos contratados; autenticar usuários; armazenar e compartilhar conteúdo sob sua orientação; processar cobrança e direitos de uso; operar recursos de IA, inclusive o assistente do Pinar Cloud, a busca nos seus pins e, quando você liga, a escolha automática da coleção de uma captura nova; prevenir fraude e abuso; proteger e diagnosticar o serviço; cumprir a lei; exercer ou defender direitos; e comunicar mudanças no serviço ou nas políticas. Na LGPD, as bases aplicáveis podem incluir execução de contrato, cumprimento de obrigação legal, legítimo interesse sujeito a salvaguardas, exercício regular de direitos, prevenção à fraude e consentimento quando solicitado especificamente. A descrição dos screenshots e a indexação dos pins para busca são feitas para executar os recursos de IA que você usa (execução de contrato).
 
 ## 4. Compartilhamento e transferências internacionais
 
-Compartilhamos dados somente quando necessário com os provedores listados na página Provedores de Serviço e Suboperadores, com assessores profissionais sujeitos a confidencialidade, em operação societária sujeita a proteções adequadas ou com autoridades quando legalmente exigido. Infraestrutura de nuvem e processamento de pagamentos podem envolver tratamento fora do Brasil. Utilizamos contratos com fornecedores e salvaguardas reconhecidas em lei apropriadas à transferência.
+Compartilhamos dados somente quando necessário com os provedores listados na página Provedores de Serviço e Suboperadores, com assessores profissionais sujeitos a confidencialidade, em operação societária sujeita a proteções adequadas ou com autoridades quando legalmente exigido. Infraestrutura de nuvem, processamento de pagamentos e recursos de IA podem envolver tratamento fora do Brasil; a hospedagem do serviço fica na Alemanha. Utilizamos contratos com fornecedores e salvaguardas reconhecidas em lei apropriadas à transferência.
+
+**IA no Pinar Cloud.** Para responder no assistente, buscar seus pins e escolher a coleção de uma captura nova, o Pinar Cloud envia o conteúdo de que cada pedido precisa a provedores de IA acessados pelo Vercel AI Gateway (Vercel Inc., Estados Unidos). O gateway encaminha cada pedido a um provedor que oferece o modelo configurado pelo Pinar. Esse conteúdo pode incluir suas mensagens e o histórico da conversa; os dados que as ferramentas do assistente leem; o screenshot de cada sessão com pins, para descrever os pins na busca, mesmo com a opção “Incluir captura no copy para agentes” desligada; o texto dos pins, para a busca; o áudio gravado num pin, para transcrevê-lo; e o título, a URL e os comentários dos pins de uma captura nova, quando “Escolher a coleção automaticamente” está ligado, e o conteúdo que cada sessão precisa para gerar os passos escritos de reprodução. Para manter a busca pronta, o Pinar indexa os pins na hora da pergunta e pode indexar, antes de você perguntar, só as sessões com pins de contas que já conversaram com o assistente ou ligaram “Escolher a coleção automaticamente”. A Vercel e os provedores de IA atuam como operadores do Pinar e, para dados de terceiros que você controla, como suboperadores. Eles podem tratar esse conteúdo fora do Brasil. A transferência é necessária para executar os recursos que você aciona (art. 33, IX, combinado com o art. 7º, V, da LGPD) e, para dados de terceiros, segue a sua instrução como controlador. O Pinar não solicita retenção zero de dados, então os provedores podem reter os dados de cada pedido pelos prazos dos próprios termos. Veja os termos e a política de privacidade da Vercel em https://vercel.com/legal.
 
 ## 5. Retenção e exclusão
 
-A retenção depende do plano, tipo de conteúdo, obrigações legais, necessidades de segurança e estado da conta. Os prazos e janelas de recuperação atuais estão descritos na Política de Retenção de Dados. Backups e registros de fraude, cobrança, tributos, segurança e questões legais podem permanecer por período limitado após a exclusão quando exigido ou razoavelmente necessário.
+A retenção depende do plano, tipo de conteúdo, obrigações legais, necessidades de segurança e estado da conta. Os prazos e janelas de recuperação atuais estão descritos na Política de Retenção de Dados. As conversas com o assistente de IA no Pinar Cloud ficam guardadas até você apagá-las e se tornam elegíveis para exclusão automática 90 dias após a última mensagem; os dados de busca derivados de uma sessão são excluídos com ela. Backups e registros de fraude, cobrança, tributos, segurança e questões legais podem permanecer por período limitado após a exclusão quando exigido ou razoavelmente necessário.
 
 ## 6. Segurança
 
-Adotamos medidas compatíveis com a natureza do serviço, incluindo tokens com escopo, controles de acesso, validação de origem, limites de requisição, transporte criptografado, recursos de produção isolados e acesso restrito de fornecedores. Nenhum sistema on-line é totalmente seguro. Contate-nos prontamente se acreditar que sua conta ou seus dados foram comprometidos.
+Adotamos medidas compatíveis com a natureza do serviço, incluindo tokens com escopo, controles de acesso, validação de origem, limites de requisição, transporte criptografado, recursos de produção isolados e acesso restrito de fornecedores. Nenhum sistema on-line é totalmente seguro. Contate-nos prontamente se acreditar que sua conta ou seus dados foram comprometidos. Se um incidente de segurança puder gerar risco ou dano relevante aos titulares, comunicaremos a ANPD e os titulares afetados, conforme a lei.
 
 ## 7. Seus direitos
 
-Conforme a lei aplicável, você pode solicitar confirmação e acesso; correção; informação sobre compartilhamento; portabilidade quando regulamentada; anonimização, bloqueio ou eliminação de dados desnecessários ou tratados irregularmente; eliminação de dados tratados com consentimento, ressalvadas exceções legais; informação sobre escolhas de consentimento; revogação do consentimento; e revisão de decisão tomada unicamente por tratamento automatizado que afete seus interesses. Podemos verificar sua identidade antes de atender ao pedido. As solicitações são gratuitas e podem ser enviadas para **${OPERATOR_CONTACT_EMAIL.pt}**.
+Conforme a lei aplicável, você pode solicitar confirmação e acesso; correção; informação sobre compartilhamento; portabilidade quando regulamentada; anonimização, bloqueio ou eliminação de dados desnecessários ou tratados irregularmente; eliminação de dados tratados com consentimento, ressalvadas exceções legais; informação sobre escolhas de consentimento; revogação do consentimento; e revisão de decisão tomada unicamente por tratamento automatizado que afete seus interesses. Podemos verificar sua identidade antes de atender ao pedido. As solicitações são gratuitas e podem ser enviadas para **${OPERATOR_CONTACT_EMAIL.pt}**. Responderemos nos prazos da LGPD. Se você aparece no conteúdo que um cliente enviou ao Pinar (por exemplo, num screenshot) e não é usuário do serviço, dirija o pedido a quem enviou o conteúdo, que é o controlador desses dados. Se nos procurar, encaminharemos o pedido ao cliente quando pudermos identificá-lo.
 
 ## 8. Crianças, alterações e reclamações
 
@@ -292,6 +304,7 @@ Local Pinar data remains on your device until you delete it or uninstall and rem
 - **Free:** non-permanent cloud sessions and their screenshots are eligible for automatic deletion after 30 days.
 - **Pro:** cloud sessions are retained while the subscription is active. When paid eligibility ends, new uploads may pause. Content above the Free quota enters a 30-day grace period followed by a recovery-only window ending 90 days after paid eligibility ended; after that it is eligible for deletion.
 - **Storage add-ons:** capacity lasts 12 months from purchase. If expiry leaves usage above the remaining quota, uploads pause; the overage receives a 30-day grace period and remains recoverable until 90 days after expiry, after which over-quota content is eligible for deletion.
+- **AI assistant conversations:** kept until you delete them. A conversation, its messages, and its proposals become eligible for automatic deletion 90 days after its last message. Pin search data (descriptions, extracted text, and embeddings) is deleted with its session.
 
 Deletion eligibility is not a promise of immediate deletion at the exact boundary. Users should maintain their own backups of important content.
 
@@ -301,7 +314,7 @@ Web sessions generally expire after 30 days and device sessions after 180 days u
 
 ## 4. Backups, logs, and deletion requests
 
-Operational logs are retained for a limited period appropriate to security and diagnosis. Deleted data may persist temporarily in restricted backups until normal rotation. A verified deletion request removes or anonymizes data unless retention is required for law, fraud prevention, security, disputes, or exercise of rights. Contact **${OPERATOR_CONTACT_EMAIL.en}**.`,
+Operational logs are retained for a limited period appropriate to security and diagnosis. Deleted data may persist temporarily in restricted backups until normal rotation (about 14 days for the database). A verified deletion request removes or anonymizes data unless retention is required for law, fraud prevention, security, disputes, or exercise of rights. Contact **${OPERATOR_CONTACT_EMAIL.en}**.`,
     pt: `## 1. Dados exclusivamente locais
 
 Os dados locais do Pinar permanecem no seu dispositivo até que você os exclua ou desinstale e remova os dados locais. O Pinar não exclui remotamente o histórico exclusivamente local.
@@ -311,6 +324,7 @@ Os dados locais do Pinar permanecem no seu dispositivo até que você os exclua 
 - **Free:** sessões não permanentes em nuvem e seus screenshots tornam-se elegíveis para exclusão automática após 30 dias.
 - **Pro:** sessões em nuvem são retidas enquanto a assinatura estiver ativa. Quando a elegibilidade paga termina, novos envios podem ser suspensos. O conteúdo acima da cota Free entra em carência de 30 dias e depois em janela exclusiva de recuperação, encerrada 90 dias após o fim da elegibilidade paga; depois disso, torna-se elegível para exclusão.
 - **Adicionais de armazenamento:** a capacidade vale por 12 meses a partir da compra. Se a expiração deixar o uso acima da cota restante, novos envios são suspensos; o excedente recebe carência de 30 dias e permanece recuperável até 90 dias após a expiração, quando conteúdo acima da cota se torna elegível para exclusão.
+- **Conversas com o assistente de IA:** ficam guardadas até você apagá-las. Uma conversa, suas mensagens e suas propostas se tornam elegíveis para exclusão automática 90 dias após a última mensagem. Os dados de busca dos pins (descrições, textos extraídos e embeddings) são excluídos com a sessão.
 
 Elegibilidade para exclusão não significa promessa de exclusão imediata no instante exato do limite. Usuários devem manter seus próprios backups de conteúdo importante.
 
@@ -320,7 +334,7 @@ Sessões web geralmente expiram após 30 dias, e sessões de dispositivos após 
 
 ## 4. Backups, logs e pedidos de exclusão
 
-Logs operacionais são mantidos por período limitado compatível com segurança e diagnóstico. Dados excluídos podem permanecer temporariamente em backups restritos até a rotação normal. Um pedido de exclusão verificado remove ou anonimiza dados, salvo retenção necessária por lei, prevenção à fraude, segurança, disputas ou exercício de direitos. Contato: **${OPERATOR_CONTACT_EMAIL.pt}**.`,
+Logs operacionais são mantidos por período limitado compatível com segurança e diagnóstico. Dados excluídos podem permanecer temporariamente em backups restritos até a rotação normal (cerca de 14 dias para o banco de dados). Um pedido de exclusão verificado remove ou anonimiza dados, salvo retenção necessária por lei, prevenção à fraude, segurança, disputas ou exercício de direitos. Contato: **${OPERATOR_CONTACT_EMAIL.pt}**.`,
   },
   refunds: {
     en: `## 1. Mandatory rights
@@ -395,11 +409,23 @@ Pinar uses the following core providers to operate the hosted service. A provide
 
 ### Cloudflare, Inc. and its affiliates
 
-**Purpose:** application hosting and delivery, Workers execution, D1 database, R2 object storage, Workers AI inference, security controls, logs, and transactional email infrastructure. **Typical processing locations:** global Cloudflare network and the locations described in Cloudflare's contractual documentation. [Cloudflare subprocessors](https://www.cloudflare.com/gdpr/subprocessors/cloudflare-services/).
+**Purpose:** proxy, CDN, and protection in front of pinar.dev; R2 object storage for the uploaded files, such as screenshots and attachments; and transactional email, such as the login codes, through Cloudflare Email. **Typical processing location:** global Cloudflare network. [Cloudflare subprocessors](https://www.cloudflare.com/gdpr/subprocessors/cloudflare-services/).
+
+### Hetzner Online GmbH
+
+**Purpose:** hosts the Pinar Cloud application server and the database, including the backups. **Typical processing location:** Germany (Falkenstein).
 
 ### Stripe, LLC and its affiliates
 
 **Purpose:** Checkout, payment processing, subscription status, fraud prevention, receipts, refunds, and billing records. Pinar does not receive full card details. Stripe may also act as an independent controller for parts of payment processing. [Stripe service providers and subprocessors](https://stripe.com/legal/service-providers).
+
+### Vercel Inc. (Vercel AI Gateway)
+
+**Purpose:** forwards the AI requests of Pinar Cloud — the assistant, the search of your pins, the automatic choice of a new capture's collection, voice transcription, and written reproduction steps — to AI providers. **Typical processing location:** United States. Vercel and the AI providers act as processors of Pinar and, for third-party data that you control, as subprocessors; processing may take place outside Brazil in the circumstances described in the Privacy Policy. [Vercel's terms and privacy policy](https://vercel.com/legal).
+
+### AI providers through the Vercel AI Gateway
+
+**Purpose:** generate the assistant's answers, the descriptions of session screenshots, the embeddings used for search and for the automatic collection choice, the transcription of the voice recorded on a pin, and the written reproduction steps of a session. For each request, the gateway chooses the provider that serves the model Pinar configured. Pinar reaches these providers only through the gateway, with no direct integration. **Typical processing locations:** the United States and other countries.
 
 ## 3. Changes
 
@@ -412,11 +438,23 @@ O Pinar utiliza os provedores essenciais abaixo para operar o serviço hospedado
 
 ### Cloudflare, Inc. e afiliadas
 
-**Finalidade:** hospedagem e entrega da aplicação, execução de Workers, banco D1, armazenamento de objetos R2, inferência por Workers AI, controles de segurança, logs e infraestrutura de e-mail transacional. **Locais típicos de tratamento:** rede global da Cloudflare e locais descritos na documentação contratual da empresa. [Suboperadores da Cloudflare](https://www.cloudflare.com/gdpr/subprocessors/cloudflare-services/).
+**Finalidade:** proxy, CDN e proteção à frente do pinar.dev; armazenamento de objetos R2 para os arquivos enviados, como screenshots e anexos; e e-mail transacional, como os códigos de login, pelo Cloudflare Email. **Local típico de tratamento:** rede global da Cloudflare. [Suboperadores da Cloudflare](https://www.cloudflare.com/gdpr/subprocessors/cloudflare-services/).
+
+### Hetzner Online GmbH
+
+**Finalidade:** hospedagem dos servidores da aplicação e do banco de dados, com os backups. **Local típico de tratamento:** Alemanha (Falkenstein).
 
 ### Stripe, LLC e afiliadas
 
 **Finalidade:** Checkout, processamento de pagamentos, status de assinatura, prevenção à fraude, recibos, reembolsos e registros de cobrança. O Pinar não recebe os dados completos do cartão. O Stripe também pode atuar como controlador independente em partes do processamento do pagamento. [Provedores e suboperadores do Stripe](https://stripe.com/legal/service-providers).
+
+### Vercel Inc. (Vercel AI Gateway)
+
+**Finalidade:** encaminha os pedidos de IA do Pinar Cloud — o assistente, a busca nos seus pins, a escolha automática da coleção de uma captura nova, a transcrição de voz e os passos escritos de reprodução — a provedores de IA. **Local típico de tratamento:** Estados Unidos. A Vercel e os provedores de IA atuam como operadores do Pinar e, para dados de terceiros que você controla, como suboperadores; o tratamento pode ocorrer fora do Brasil nas hipóteses da Política de Privacidade. [Termos e política de privacidade da Vercel](https://vercel.com/legal).
+
+### Provedores de IA por meio do Vercel AI Gateway
+
+**Finalidade:** gerar as respostas do assistente, as descrições dos screenshots das sessões, os embeddings usados na busca e na escolha automática da coleção, a transcrição do áudio gravado num pin e os passos escritos de reprodução de uma sessão. Para cada pedido, o gateway escolhe o provedor que oferece o modelo configurado pelo Pinar. O Pinar só alcança esses provedores pelo gateway, sem integração direta. **Locais típicos de tratamento:** Estados Unidos e outros países.
 
 ## 3. Alterações
 

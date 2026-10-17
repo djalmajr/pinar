@@ -137,8 +137,8 @@ test("paid checkout sends current consent on the first click", async ({ page }) 
   expect(notesPrecedeSupport).toBe(true);
   await expect(legalNote.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
-  await expect(legalNote.getByText("Version 2026-09-22.")).toBeVisible();
-  await expect(legalNote.getByText("Version 2026-09-22.")).toHaveCSS("display", "inline");
+  await expect(legalNote.getByText("Version 2026-10-17.")).toBeVisible();
+  await expect(legalNote.getByText("Version 2026-10-17.")).toHaveCSS("display", "inline");
   const freeFooter = page.getByRole("link", { exact: true, name: "Use Free" })
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
   await expect(freeFooter.getByText("By continuing, you accept the")).toHaveCount(0);
@@ -177,10 +177,10 @@ function assertCheckoutConsent(body: Record<string, unknown> | null) {
   expect(body?.offer).toBe("pro_year");
   expect(body?.locale).toBe("en");
   expect(body?.legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-09-22",
+    acceptableUseVersion: "2026-10-17",
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-09-22",
-    termsVersion: "2026-09-22",
+    privacyVersion: "2026-10-17",
+    termsVersion: "2026-10-17",
   });
 }

@@ -345,6 +345,7 @@ function hit(overrides: Partial<PinSearchHit> = {}): PinSearchHit {
     caption: null,
     comment: "Contraste baixo no botão",
     number: 2,
+    pinId: "p2",
     score: 0.8765,
     sessionId: "s1",
     sessionTitle: "Checkout",
@@ -421,17 +422,17 @@ describe("pinar_pins_search", () => {
   test("hits come back in <dados> as { hits } with pin, session and a 2-decimal score", async () => {
     const pinSearch = makePinSearch([
       hit(),
-      hit({ caption: "Botão azul do rodapé", comment: "Checkout lento", number: 7, score: 0.1234, sessionId: "s2", sessionTitle: "Pagamento", url: "https://site.example/pay" }),
-      hit({ number: 1, score: 1 }),
+      hit({ caption: "Botão azul do rodapé", comment: "Checkout lento", number: 7, pinId: "p7", score: 0.1234, sessionId: "s2", sessionTitle: "Pagamento", url: "https://site.example/pay" }),
+      hit({ number: 1, pinId: "p1", score: 1 }),
     ]);
     const set = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read"], pinSearch, surface: "local" });
     const result = (await execute(set, "pinar_pins_search", { query: "contraste" })) as ToolResult;
     assert.equal(result.truncated, false);
     assert.deepEqual(dataJson(result), {
       hits: [
-        { caption: null, comment: "Contraste baixo no botão", pin: 2, score: 0.88, session: "Checkout", sessionId: "s1", url: "https://site.example/checkout" },
-        { caption: "Botão azul do rodapé", comment: "Checkout lento", pin: 7, score: 0.12, session: "Pagamento", sessionId: "s2", url: "https://site.example/pay" },
-        { caption: null, comment: "Contraste baixo no botão", pin: 1, score: 1, session: "Checkout", sessionId: "s1", url: "https://site.example/checkout" },
+        { caption: null, comment: "Contraste baixo no botão", pin: 2, pinId: "p2", score: 0.88, session: "Checkout", sessionId: "s1", url: "https://site.example/checkout" },
+        { caption: "Botão azul do rodapé", comment: "Checkout lento", pin: 7, pinId: "p7", score: 0.12, session: "Pagamento", sessionId: "s2", url: "https://site.example/pay" },
+        { caption: null, comment: "Contraste baixo no botão", pin: 1, pinId: "p1", score: 1, session: "Checkout", sessionId: "s1", url: "https://site.example/checkout" },
       ],
     });
     const empty = (await execute(

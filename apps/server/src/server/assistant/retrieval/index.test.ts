@@ -564,6 +564,7 @@ describe("searchPins", () => {
       caption: null,
       comment: "Contrast is too low",
       number: 1,
+      pinId: "p1",
       score: all[1]!.score,
       sessionId: "s1",
       sessionTitle: "Title s1",

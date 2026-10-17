@@ -271,6 +271,7 @@ describe("local pin index runtime", () => {
       caption: "Marcador 1 legenda",
       comment: "O contraste do botão comprar está baixo",
       number: 1,
+      pinId: "pin_contrast",
       score: hits[0]!.score,
       sessionId: "cap_checkout",
       sessionTitle: "Checkout",

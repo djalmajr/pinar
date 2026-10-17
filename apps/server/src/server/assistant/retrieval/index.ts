@@ -60,6 +60,7 @@ export interface PinSearchHit {
   caption: string | null;
   comment: string;
   number: number;
+  pinId: string;
   score: number;
   sessionId: string;
   sessionTitle: string;
@@ -304,6 +305,7 @@ export async function searchPins(deps: PinIndexDeps, input: { limit: number; que
       caption: entry.caption || null,
       comment: pin.comment,
       number: pin.number,
+      pinId: entry.pinId,
       score,
       sessionId: entry.sessionId,
       sessionTitle: session.page.title,

@@ -549,7 +549,7 @@ describe("assistant http handler", () => {
     const pinSearch = {
       async search(input: { limit: number; query: string }) {
         searches.push(input);
-        return [{ caption: null, comment: "Contraste baixo", number: 3, score: 0.9, sessionId: "s1", sessionTitle: "Checkout", url: "https://site.example/c" }];
+        return [{ caption: null, comment: "Contraste baixo", number: 3, pinId: "p3", score: 0.9, sessionId: "s1", sessionTitle: "Checkout", url: "https://site.example/c" }];
       },
     };
     const offered: string[][] = [];

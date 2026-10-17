@@ -90,6 +90,7 @@ function pinSearchHitData(hit: PinSearchHit) {
     caption: hit.caption,
     comment: hit.comment,
     pin: hit.number,
+    pinId: hit.pinId,
     score: Math.round(hit.score * 100) / 100,
     session: hit.sessionTitle,
     sessionId: hit.sessionId,

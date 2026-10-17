@@ -85,6 +85,11 @@ env:
   # empty keeps the defaults of filing/constants.ts.
   FILING_SIMILARITY_MIN: ""
   FILING_SIMILARITY_MARGIN: ""
+  # Optional (F5): the master key of the BYOK keys (32 bytes in base64;
+  # empty keeps BYOK unavailable), and the EdgeR egress guard of the user
+  # endpoints, which nothing reads as a switch until EDG-38 (A55).
+  BYOK_MASTER_KEY: ""
+  BYOK_EGRESS: ""
   ADMIN_API_KEY: ""
   AUTH_PEPPER: ""
   # Optional: "true" switches the assistant on. Absent or empty stays off.

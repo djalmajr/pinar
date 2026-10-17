@@ -169,7 +169,7 @@ describe("upcoming release content", () => {
     if (upcoming) {
       assert.deepEqual(
         upcoming.changes.map((change) => change.id),
-        ["mcp-crud", "focused-handoff"],
+        ["assistant", "automatic-capture-destination", "assistant-credits"],
       );
     }
     assert.equal("tag" in (upcoming ?? {}), false);
@@ -181,8 +181,9 @@ describe("upcoming release content", () => {
       assert.match(release.date, /^\d{4}-\d{2}-\d{2}$/);
     }
     assert.equal(findProductRelease(english, "upcoming"), null);
-    assert.equal(findProductRelease(english, "mcp-crud"), null);
-    assert.equal(findProductRelease(english, "focused-handoff"), null);
+    assert.equal(findProductRelease(english, "assistant"), null);
+    assert.equal(findProductRelease(english, "automatic-capture-destination"), null);
+    assert.equal(findProductRelease(english, "assistant-credits"), null);
     assert.equal(findProductRelease(english, "v0.5.1")?.tag, "v0.5.1");
   });
 
@@ -260,6 +261,17 @@ describe("upcoming release content", () => {
       const label = content.ui.upcomingRelease;
       assert.ok(label, content.language);
       assert.match(label, unreleasedLabel[content.language], content.language);
+    }
+  });
+
+  test("states the assistant's per-message cost as Pinar Cloud usage in every locale", async () => {
+    for (const content of await loadEveryReleaseLocale()) {
+      const change = content.upcoming?.changes.find((item) => item.id === "assistant-credits");
+      assert.ok(change, content.language);
+      assert.match(change.title, /Pinar Cloud/, content.language);
+      assert.match(change.description, /Pinar Cloud/, content.language);
+      assert.match(change.description, /\b3\b/, content.language);
+      assert.match(change.description, /\bPro\b/, content.language);
     }
   });
 });

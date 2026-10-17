@@ -16,6 +16,7 @@ const locale = {
     releaseNavigation: "Release navigation",
     releaseNotFound: "Release not found",
     releaseNotFoundDescription: "This release is not in the published history.",
+    upcomingRelease: "Upcoming · not released yet",
     viewDetails: "View details",
     whatChanged: "What changed",
   },
@@ -610,6 +611,24 @@ const locale = {
           description:
             "Sensitive-field redaction, manual masks, versioned consent, and published service policies established the cloud safety boundary.",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "An assistant for your captures",
+    summary: "Next up: a chat that answers questions about your work and organizes it once you confirm, a capture setting that picks the collection for you, and assistant messages in Pinar Cloud that use AI credits.",
+    changes: {
+      "assistant": {
+        title: "Ask the assistant about your captures",
+        description: "A new chat in the workspace, in the local app and in Pinar Cloud, answers questions about your projects, collections, sessions, batches, and pins, including what appears in a pin’s screenshot. It also creates, renames, moves, deletes, comments on, concludes, and reopens items, always as a proposal: nothing changes until you confirm, and some actions can be undone from the same card. In the local app it uses the AI you set up in Settings.",
+      },
+      "automatic-capture-destination": {
+        title: "Let Pinar choose the collection for new captures",
+        description: "Turn on “Choose the collection automatically” in Settings → Capture and Pinar files each new capture into one of your existing collections. When it is not sure, the capture goes to the Inbox, and captures from the same batch stay together. Sessions filed this way show a mark; moving the session corrects the choice and removes the mark. The option needs AI to be available.",
+      },
+      "assistant-credits": {
+        title: "Assistant messages use Pinar Cloud credits",
+        description: "In Pinar Cloud, the assistant is part of Pro and each message you send uses 3 AI credits; a reply that fails gives them back, and confirming or undoing a proposal costs nothing. These are the same credits as voice transcription, and credit packs can only be bought with Pro. The assistant in the local app uses no Pinar credits.",
       },
     },
   },

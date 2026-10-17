@@ -18,6 +18,7 @@ const locale = {
     releaseNotFound: "Versão não encontrada",
     releaseNotFoundDescription:
       "Essa versão não existe no histórico publicado.",
+    upcomingRelease: "Próxima versão · ainda não publicada",
     viewDetails: "Ver detalhes",
     whatChanged: "O que mudou",
   },
@@ -612,6 +613,24 @@ const locale = {
           description:
             "Redação de campos sensíveis, máscaras manuais, consentimento versionado e políticas publicadas estabeleceram o limite de segurança da nuvem.",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "Um assistente para as suas capturas",
+    summary: "Na próxima versão: um chat que responde sobre o seu trabalho e o organiza depois da sua confirmação, uma opção de captura que escolhe a coleção por você e mensagens ao assistente no Pinar Cloud que usam créditos de IA.",
+    changes: {
+      "assistant": {
+        title: "Pergunte ao assistente sobre as suas capturas",
+        description: "Um novo chat no workspace, no aplicativo local e no Pinar Cloud, responde a perguntas sobre seus projetos, coleções, sessões, lotes e pins, inclusive sobre o que aparece na captura de tela de um pin. Ele também cria, renomeia, move, apaga, comenta, conclui e reabre itens, sempre como proposta: nada muda até você confirmar, e algumas ações podem ser desfeitas no próprio cartão. No aplicativo local, ele usa a IA que você configurou nas Configurações.",
+      },
+      "automatic-capture-destination": {
+        title: "O Pinar escolhe a coleção das capturas novas",
+        description: "Ligue “Escolher a coleção automaticamente” em Configurações → Captura e o Pinar coloca cada captura nova numa das suas coleções. Na dúvida, a captura vai para a Caixa de entrada, e as capturas de um mesmo lote ficam juntas. As sessões arquivadas assim mostram um selo; mover a sessão corrige a escolha e tira o selo. A opção precisa da IA disponível.",
+      },
+      "assistant-credits": {
+        title: "Mensagens ao assistente usam créditos do Pinar Cloud",
+        description: "No Pinar Cloud, o assistente faz parte do Pro e cada mensagem enviada usa 3 créditos de IA; uma resposta que falha devolve os créditos, e confirmar ou desfazer uma proposta não custa nada. São os mesmos créditos da transcrição por voz, e os pacotes de créditos só podem ser comprados com o Pro. No aplicativo local, o assistente não usa créditos do Pinar.",
       },
     },
   },

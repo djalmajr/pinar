@@ -223,6 +223,10 @@ const locale = {
       caption:
         "Les crédits IA sont vendus en option avec une validité de douze mois, séparés du stockage du plan et de la cadence de facturation.",
     },
+    assistant: {
+      alt: "Workspace Pinar avec le panneau de l’assistant ouvert à côté des cartes de session, montrant une question, la réponse et une carte de proposition avec Confirmer et Refuser.",
+      caption: "L’assistant répond dans un panneau latéral et propose chaque changement sur une carte : rien ne bouge dans le workspace avant votre confirmation.",
+    },
   },
   articles: {
     "install-pinar": {
@@ -729,8 +733,14 @@ const locale = {
     },
     "ai-features": {
       title: "Fonctions d’IA et comment les tester",
-      summary: "Testez la transcription vocale et transformez un parcours enregistré dans le navigateur en étapes rédigées concises.",
+      summary: "Testez la transcription vocale, transformez un parcours enregistré dans le navigateur en étapes rédigées concises et voyez où intervient l’assistant.",
       sections: [
+        {
+          heading: "Posez vos questions à l’assistant",
+          paragraphs: [
+            "L’assistant est un chat qui répond aux questions sur vos projets, sessions et épingles et les organise une fois chaque proposition confirmée. L’application locale le fait fonctionner avec l’IA que vous avez configurée ; dans Pinar Cloud, il fait partie de Pro et chaque message utilise 3 crédits IA. [Posez vos questions à l’assistant](/help/agents/assistant) explique son fonctionnement.",
+          ],
+        },
         {
           heading: "La reproduction dans Pinar Cloud",
           paragraphs: [
@@ -740,7 +750,7 @@ const locale = {
         {
           heading: "Transcrire un commentaire vocal",
           paragraphs: [
-            "Commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, puis arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Dans Pinar Cloud, la transcription vocale nécessite un compte Pro et utilise des crédits IA ; le guide Transcription vocale et crédits IA Pinar Cloud détaille les paliers de facturation et les remboursements. Dans l’application locale, la voix utilise le modèle de transcription défini dans Paramètres → Assistant IA sur votre propre endpoint compatible OpenAI, sans crédits. La clé API de l’endpoint doit autoriser la transcription audio.",
+            "Commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, puis arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Dans Pinar Cloud, la transcription vocale nécessite un compte Pro et utilise des crédits IA ; le guide Crédits IA Pinar Cloud pour la voix et l’assistant détaille les paliers de facturation et les remboursements. Dans l’application locale, la voix utilise le modèle de transcription défini dans Paramètres → Assistant IA sur votre propre endpoint compatible OpenAI, sans crédits. La clé API de l’endpoint doit autoriser la transcription audio.",
           ],
         },
         {
@@ -758,12 +768,12 @@ const locale = {
         {
           heading: "Utiliser votre propre IA dans l’application locale",
           paragraphs: [
-            "L’application locale peut transcrire les commentaires vocaux et les nettoyer avec une IA que vous fournissez au lieu de Pinar Cloud. Ouvrez Paramètres → Assistant IA et choisissez un mode : « Désactivée » désactive l’IA, « IA locale » utilise un serveur sur le même ordinateur, et « BYOK » connecte directement à un fournisseur distant avec votre propre clé. Les deux modes actifs prennent un endpoint compatible OpenAI et le modèle exact qu’il expose, plus un modèle de transcription facultatif : laissez ce champ vide pour garder la voix désactivée.",
+            "L’application locale peut transcrire les commentaires vocaux, les nettoyer et faire fonctionner l’assistant avec une IA que vous fournissez au lieu de Pinar Cloud. Ouvrez Paramètres → Assistant IA et choisissez un mode : « Désactivée » désactive l’IA, « IA locale » utilise un serveur sur le même ordinateur, et « BYOK » connecte directement à un fournisseur distant avec votre propre clé. Les deux modes actifs prennent un endpoint compatible OpenAI et le modèle exact qu’il expose, plus un modèle de transcription facultatif : laissez ce champ vide pour garder la voix désactivée.",
             "Avec « BYOK », la clé API est stockée dans le coffre de credentials de votre système d’exploitation, pas dans les préférences de Pinar. « Tester la connexion » et « Enregistrer » vérifient le modèle et le modèle de transcription avant de se terminer. Si seul le modèle de transcription échoue, le message dit pourquoi — par exemple que la clé manque d’autorisation audio — et l’enregistrement fonctionne toujours pour les fonctions qui n’ont pas besoin de la voix. Les commentaires vocaux nécessitent un endpoint qui autorise la transcription audio. Le [guide d’IA locale et BYOK](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) couvre la configuration, la confidentialité et les exigences de modèle.",
           ],
           bullets: [
-            "La transcription vocale et le nettoyage dans l’application locale utilisent directement votre fournisseur et aucun crédit Pinar Cloud. L’action « Générer les étapes rédigées » du visualiseur n’est proposée que dans Pinar Cloud.",
-            "Les requêtes vont de l’application locale uniquement vers votre endpoint ; il n’y a pas de repli silencieux vers Pinar Cloud.",
+            "La transcription vocale, le nettoyage et l’assistant dans l’application locale utilisent directement votre fournisseur et aucun crédit Pinar Cloud. L’action « Générer les étapes rédigées » du visualiseur n’est proposée que dans Pinar Cloud.",
+            "Les requêtes vont de l’application locale uniquement vers votre endpoint ; elles ne basculent jamais d’elles-mêmes vers Pinar Cloud.",
           ],
         },
         {
@@ -775,6 +785,74 @@ const locale = {
           bullets: [
             "Avant d’enregistrer le pin, relisez la transcription d’origine dans le panneau vocal ou choisissez « Utiliser la transcription » pour l’insérer dans le commentaire. La transcription d’origine est aussi copiée dans le presse-papiers ; elle n’est pas enregistrée séparément avec le pin.",
             "Le nettoyage est désactivé par défaut. Activez-le dans les options de l’extension pour les captures locales, ou dans Paramètres → « Utilisation de l’IA » pour Pinar Cloud.",
+          ],
+        },
+      ],
+    },
+    assistant: {
+      title: "Posez vos questions à l’assistant",
+      summary: "Interrogez un chat sur vos projets, sessions et épingles, et laissez l’assistant les organiser une fois chaque changement confirmé.",
+      sections: [
+        {
+          heading: "Ce qu’est l’assistant",
+          paragraphs: [
+            "L’assistant est un chat intégré à Pinar, dans l’application locale et dans Pinar Cloud. Il répond aux questions sur vos projets, collections, sessions, lots et épingles, y compris sur ce qui apparaît dans la capture d’écran d’une épingle.",
+            "Il peut aussi organiser votre travail : créer, renommer, déplacer et supprimer des éléments, commenter des épingles, les conclure ou les rouvrir. Il le fait toujours par une proposition, et rien ne change tant que vous ne l’avez pas confirmée.",
+          ],
+        },
+        {
+          heading: "Ouvrir l’assistant",
+          paragraphs: [
+            "Dans le workspace, choisissez le bouton « Assistant » en haut de la page pour ouvrir le panneau du chat. Écrivez dans « Posez une question à l’assistant… » et appuyez sur `Enter` pour envoyer ; `Shift+Enter` commence une nouvelle ligne.",
+            "Si l’IA n’est pas encore configurée dans l’application locale, le panneau affiche « Ouvrir les paramètres IA ». Dans Pinar Cloud sans Pro, il affiche « Voir les offres ».",
+          ],
+        },
+        {
+          heading: "Ce que vous pouvez demander",
+          paragraphs: [
+            "Posez vos questions avec vos propres mots, sur tout ce que vous avez capturé. Voici quelques exemples de questions et de demandes :",
+          ],
+          bullets: [
+            "« Quelles épingles de la collection Checkout sont encore ouvertes ? »",
+            "« Que montre la capture d’écran de l’épingle 3 ? »",
+            "« Déplacez les sessions sur l’en-tête vers la collection Design. »",
+            "« Concluez l’épingle 2 et commentez que la correction est en ligne. »",
+          ],
+        },
+        {
+          heading: "Rien ne change sans votre confirmation",
+          paragraphs: [
+            "Quand vous demandez un changement, l’assistant répond par une carte qui le décrit. Rien ne change tant que vous n’avez pas choisi « Confirmer » ; choisissez « Refuser » pour l’écarter. Une carte qui attend trop longtemps expire, et vous pouvez redemander.",
+            "Certaines actions peuvent être annulées depuis la même carte : une fois exécutées, la carte affiche « Annuler » et pendant combien de temps c’est encore possible. Les actions irréversibles sont signalées par « Impossible à annuler » avant votre confirmation.",
+          ],
+        },
+        {
+          heading: "Dans l’application locale",
+          paragraphs: [
+            "L’application locale utilise l’IA que vous avez configurée dans Paramètres → Assistant IA et ne dépense aucun crédit Pinar. Sans modèle de recherche sémantique, l’assistant cherche dans vos épingles d’après leur texte.",
+          ],
+        },
+        {
+          heading: "Dans Pinar Cloud : Pro et crédits",
+          paragraphs: [
+            "Dans Pinar Cloud, l’assistant fait partie de Pro. Chaque message que vous envoyez utilise 3 crédits IA, et une réponse qui échoue les rend. Confirmer ou annuler une proposition n’utilise aucun crédit.",
+            "Ce sont les mêmes crédits que ceux de la transcription vocale, et les packs de crédits ne peuvent être achetés qu’avec Pro. [Crédits IA Pinar Cloud pour la voix et l’assistant](/help/cloud/ai-credits) détaille les soldes et les remboursements.",
+          ],
+        },
+        {
+          heading: "Laisser Pinar choisir la collection",
+          paragraphs: [
+            "Dans Paramètres → « Capture », activez « Choisir la collection automatiquement ». Pinar choisit alors une collection pour chaque nouvelle capture parmi celles que vous avez déjà ; en cas de doute, la capture va dans la « Boîte de réception ». Les captures d’un même lot restent ensemble. L’option a besoin d’une IA disponible.",
+          ],
+          bullets: [
+            "Une session classée ainsi affiche une petite marque. Survolez-la ou donnez-lui le focus pour lire « Classée automatiquement. Déplacez-la pour corriger. »",
+            "Si la collection ne convient pas, déplacez la session vers la bonne. Cela corrige le choix et retire la marque.",
+          ],
+        },
+        {
+          heading: "Confidentialité",
+          paragraphs: [
+            "Les commentaires et les captures d’écran utilisés par l’assistant vont au fournisseur d’IA que vous avez configuré dans l’application locale, ou aux fournisseurs d’IA de Pinar dans Pinar Cloud, où la capture d’écran sert aussi à décrire l’épingle et à la retrouver par la recherche ; [Où vivent vos données](/help/privacy/where-data-lives) donne le détail.",
           ],
         },
       ],
@@ -1021,25 +1099,25 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Transcription vocale et crédits IA Pinar Cloud",
-      summary:
-        "Comprenez comment les enregistrements vocaux réservent, dépensent, rechargent ou remboursent les crédits Pinar Cloud.",
+      title: "Crédits IA Pinar Cloud pour la voix et l’assistant",
+      summary: "Comprenez comment la voix et l’assistant dépensent les crédits Pinar Cloud, quand ils sont rendus et comment en acheter.",
       sections: [
         {
-          heading: "Coût de la transcription vocale",
+          heading: "Ce qui utilise des crédits",
           paragraphs: [
-            "La transcription vocale Pinar Cloud est la seule fonction Pinar qui consomme des crédits IA. Un enregistrement jusqu’à 60 secondes réserve 1 crédit ; de 61 à 120 secondes, 2 crédits. En cas de succès, la réservation est consommée. Une transcription échouée la rembourse et une réservation non soldée après cinq minutes est remboursée automatiquement.",
+            "Dans Pinar Cloud, la transcription vocale et l’assistant utilisent des crédits IA. Un enregistrement vocal jusqu’à 60 secondes réserve 1 crédit ; de 61 à 120 secondes, 2 crédits. En cas de succès, la réservation est consommée. Une transcription échouée la rembourse et une réservation non soldée après cinq minutes est remboursée automatiquement.",
+            "Chaque message envoyé à l’assistant dans Pinar Cloud utilise 3 crédits, et une réponse qui échoue les rend. Confirmer ou annuler une proposition n’utilise aucun crédit. Dans l’application locale, l’assistant utilise l’IA que vous avez configurée et aucun crédit Pinar.",
             "Enregistrer une chronologie de reproduction et générer ses étapes rédigées ne débite aucun crédit IA.",
           ],
         },
         {
           heading: "Soldes",
           paragraphs: [
-            "Le premier abonnement Pro du compte accorde 500 crédits une seule fois. Un renouvellement, une réactivation ou un changement de plan ne les accorde pas de nouveau. Les packs achetés ajoutent 500 crédits pour 12 mois.",
+            "Le premier abonnement Pro du compte accorde 500 crédits une seule fois. Un renouvellement, une réactivation ou un changement de plan ne les accorde pas de nouveau. Les packs Pinar Cloud achetés ajoutent 500 crédits pour 12 mois et ne peuvent être achetés qu’avec Pro. La voix et l’assistant puisent dans le même solde.",
           ],
         },
         {
-          heading: "Relancer la transcription vocale et consulter l’historique",
+          heading: "Relancer une demande et consulter l’historique",
           paragraphs: [
             "Dans Pinar Cloud, si une transcription est déjà en cours, attendez sa fin au lieu de renvoyer l’enregistrement. Les requêtes échouées remboursent la réservation lorsque c’est possible. Si le solde est trop faible, l’extension conserve le commentaire saisi et indique qu’il faut davantage de crédits.",
             "Le solde qui expire le plus tôt est utilisé en premier. Le menu du compte affiche les crédits restants ; il n’y a pas de recharge mensuelle ou annuelle.",
@@ -1047,6 +1125,7 @@ const locale = {
           bullets: [
             "Si une transcription est déjà en cours, attendez sa fin au lieu de renvoyer le même enregistrement.",
             "Si une réservation expire ou est remboursée, enregistrez ou envoyez de nouveau le commentaire vocal.",
+            "Si une réponse de l’assistant échoue, ses crédits sont rendus ; renvoyez le message quand vous le souhaitez.",
             "Si le workspace affiche zéro crédit, vérifiez le solde avant d’acheter un autre pack de 500 crédits.",
             "Si vous envoyez trop de requêtes IA dans la même minute, la requête est refusée temporairement ; attendez une minute et réessayez.",
           ],

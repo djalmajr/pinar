@@ -223,6 +223,10 @@ const locale = {
       caption:
         "KI-Guthaben werden als Add-on mit zwölfmonatiger Gültigkeit verkauft, getrennt vom Planspeicher und dem Abrechnungsrhythmus.",
     },
+    assistant: {
+      alt: "Pinar-Arbeitsbereich mit geöffnetem Assistentenbereich neben den Sitzungskarten, mit einer Frage, der Antwort und einer Vorschlagskarte mit Bestätigen und Ablehnen.",
+      caption: "Der Assistent antwortet in einem Seitenbereich und schlägt jede Änderung auf einer Karte vor, sodass sich im Arbeitsbereich nichts ändert, bevor du bestätigst.",
+    },
   },
   articles: {
     "install-pinar": {
@@ -729,8 +733,14 @@ const locale = {
     },
     "ai-features": {
       title: "KI-Funktionen und ihre Tests",
-      summary: "Teste Sprachtranskription und verwandle einen aufgezeichneten Browserablauf in knappe, ausformulierte Reproduktionsschritte.",
+      summary: "Teste Sprachtranskription, verwandle einen aufgezeichneten Browserablauf in knappe, ausformulierte Reproduktionsschritte und sieh, wo der Assistent hilft.",
       sections: [
+        {
+          heading: "Den Assistenten fragen",
+          paragraphs: [
+            "Der Assistent ist ein Chat, der Fragen zu deinen Projekten, Sitzungen und Pins beantwortet und sie ordnet, sobald du jeden Vorschlag bestätigst. Die lokale App betreibt ihn mit der KI, die du eingerichtet hast; in Pinar Cloud gehört er zu Pro, und jede Nachricht verbraucht 3 KI-Credits. [Den Assistenten fragen](/help/agents/assistant) erklärt, wie er funktioniert.",
+          ],
+        },
         {
           heading: "Reproduktion in Pinar Cloud",
           paragraphs: [
@@ -740,7 +750,7 @@ const locale = {
         {
           heading: "Sprachkommentar transkribieren",
           paragraphs: [
-            "Beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe dann, um die Transkription in den Kommentar einzufügen, oder sende sie direkt. In Pinar Cloud benötigt die Sprachtranskription ein Pro-Konto und verbraucht KI-Credits; der Leitfaden Sprachtranskription und Pinar-Cloud-KI-Credits erklärt die Kostenstufen und Erstattungen. In der lokalen App nutzt Sprache das in Einstellungen → KI-Assistent hinterlegte Transkriptionsmodell auf deinem eigenen OpenAI-kompatiblen Endpunkt, ohne Credits. Der API-Schlüssel des Endpunkts muss Audio-Transkription erlauben.",
+            "Beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe dann, um die Transkription in den Kommentar einzufügen, oder sende sie direkt. In Pinar Cloud benötigt die Sprachtranskription ein Pro-Konto und verbraucht KI-Credits; der Leitfaden Pinar-Cloud-KI-Credits für Sprache und Assistent erklärt die Kostenstufen und Erstattungen. In der lokalen App nutzt Sprache das in Einstellungen → KI-Assistent hinterlegte Transkriptionsmodell auf deinem eigenen OpenAI-kompatiblen Endpunkt, ohne Credits. Der API-Schlüssel des Endpunkts muss Audio-Transkription erlauben.",
           ],
         },
         {
@@ -758,12 +768,12 @@ const locale = {
         {
           heading: "Eigene KI in der lokalen App nutzen",
           paragraphs: [
-            "Die lokale App kann Sprachkommentare transkribieren und mit KI bereinigen, die du bereitstellst, statt mit Pinar Cloud. Öffne Einstellungen → KI-Assistent und wähle einen Modus: „Deaktiviert“ schaltet die KI ab, „Lokale KI“ nutzt einen Server auf demselben Computer, und „BYOK“ verbindet sich direkt mit einem Remote-Anbieter mit deinem eigenen Schlüssel. Beide aktiven Modi nehmen einen OpenAI-kompatiblen Endpunkt und das genaue Modell, das er anbietet, plus ein optionales Transkriptionsmodell an: Lass das Feld leer, um Sprache auszulassen.",
+            "Die lokale App kann Sprachkommentare transkribieren, bereinigen und den Assistenten betreiben, mit KI, die du bereitstellst, statt mit Pinar Cloud. Öffne Einstellungen → KI-Assistent und wähle einen Modus: „Deaktiviert“ schaltet die KI ab, „Lokale KI“ nutzt einen Server auf demselben Computer, und „BYOK“ verbindet sich direkt mit einem Remote-Anbieter mit deinem eigenen Schlüssel. Beide aktiven Modi nehmen einen OpenAI-kompatiblen Endpunkt und das genaue Modell, das er anbietet, plus ein optionales Transkriptionsmodell an: Lass das Feld leer, um Sprache auszulassen.",
             "Bei „BYOK“ wird der API-Schlüssel im Credentials-Vault deines Betriebssystems gespeichert, nicht in den Pinar-Einstellungen. „Verbindung testen“ und „Speichern“ prüfen das Modell und das Transkriptionsmodell, bevor sie fertig sind. Wenn nur das Transkriptionsmodell fehlschlägt, sagt die Nachricht warum — zum Beispiel, dass dem Schlüssel die Audio-Berechtigung fehlt — und das Speichern funktioniert weiterhin für die Funktionen, die keine Stimme brauchen. Sprachkommentare brauchen einen Endpunkt, der Audio-Transkription erlaubt. Der [Leitfaden Lokale KI und BYOK](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) behandelt Einrichtung, Datenschutz und Modellvoraussetzungen.",
           ],
           bullets: [
-            "Sprachtranskription und Bereinigung in der lokalen App nutzen deinen Anbieter direkt und verbrauchen keine Pinar-Cloud-Credits. Die „Ausformulierte Schritte erzeugen“-Aktion im Viewer wird nur in Pinar Cloud angeboten.",
-            "Anfragen gehen nur von der lokalen App zu deinem Endpunkt; es gibt keinen stillen Fallback auf Pinar Cloud.",
+            "Sprachtranskription, Bereinigung und der Assistent in der lokalen App nutzen deinen Anbieter direkt und verbrauchen keine Pinar-Cloud-Credits. Die „Ausformulierte Schritte erzeugen“-Aktion im Viewer wird nur in Pinar Cloud angeboten.",
+            "Anfragen gehen nur von der lokalen App zu deinem Endpunkt; sie wechseln nie von selbst zu Pinar Cloud.",
           ],
         },
         {
@@ -775,6 +785,74 @@ const locale = {
           bullets: [
             "Bevor du den Pin speicherst, prüfe die ursprüngliche Transkription im Sprachbereich oder wähle „Transkription verwenden“, um sie in den Kommentar einzufügen. Die ursprüngliche Transkription wird außerdem in die Zwischenablage kopiert; sie wird nicht separat mit dem Pin gespeichert.",
             "Die Bereinigung ist standardmäßig aus. Schalte sie in den Erweiterungsoptionen für lokale Aufnahmen ein, oder in Einstellungen → „KI-Nutzung“ für Pinar Cloud.",
+          ],
+        },
+      ],
+    },
+    assistant: {
+      title: "Den Assistenten fragen",
+      summary: "Frag in einem Chat nach deinen Projekten, Sitzungen und Pins und lass den Assistenten sie ordnen, sobald du jede Änderung bestätigst.",
+      sections: [
+        {
+          heading: "Was der Assistent ist",
+          paragraphs: [
+            "Der Assistent ist ein Chat in Pinar, in der lokalen App und in Pinar Cloud. Er beantwortet Fragen zu deinen Projekten, Sammlungen, Sitzungen, Stapeln und Pins, auch dazu, was auf dem Screenshot eines Pins zu sehen ist.",
+            "Er kann deine Arbeit auch ordnen: Elemente erstellen, umbenennen, verschieben und löschen, Pins kommentieren, abschließen oder wieder öffnen. Das tut er immer über einen Vorschlag, und nichts ändert sich, bevor du ihn bestätigst.",
+          ],
+        },
+        {
+          heading: "Den Assistenten öffnen",
+          paragraphs: [
+            "Wähle im Arbeitsbereich oben auf der Seite die Schaltfläche „Assistent“, um den Chatbereich zu öffnen. Schreib in „Frag den Assistenten…“ und drück `Enter` zum Senden; `Shift+Enter` beginnt eine neue Zeile.",
+            "Ist in der lokalen App noch keine KI eingerichtet, zeigt der Bereich „KI-Einstellungen öffnen“. In Pinar Cloud ohne Pro zeigt er „Pläne ansehen“.",
+          ],
+        },
+        {
+          heading: "Was du fragen kannst",
+          paragraphs: [
+            "Frag in deinen eigenen Worten nach allem, was du erfasst hast. Einige Beispiele für Fragen und Bitten:",
+          ],
+          bullets: [
+            "„Welche Pins in der Sammlung Checkout sind noch offen?“",
+            "„Was zeigt der Screenshot von Pin 3?“",
+            "„Verschiebe die Sitzungen zum Header in die Sammlung Design.“",
+            "„Schließe Pin 2 ab und kommentiere, dass die Korrektur live ist.“",
+          ],
+        },
+        {
+          heading: "Nichts ändert sich ohne deine Bestätigung",
+          paragraphs: [
+            "Wenn du um eine Änderung bittest, antwortet der Assistent mit einer Karte, die sie beschreibt. Nichts ändert sich, bevor du „Bestätigen“ wählst; mit „Ablehnen“ verwirfst du sie. Eine Karte, die zu lange wartet, läuft ab, und du kannst erneut fragen.",
+            "Manche Aktionen lassen sich auf derselben Karte rückgängig machen: Nach der Ausführung zeigt die Karte „Rückgängig“ und wie lange das noch möglich ist. Aktionen, die sich nicht rückgängig machen lassen, sind schon vor dem Bestätigen mit „Kann nicht rückgängig gemacht werden“ markiert.",
+          ],
+        },
+        {
+          heading: "In der lokalen App",
+          paragraphs: [
+            "Die lokale App nutzt die KI, die du in Einstellungen → KI-Assistent eingerichtet hast, und verbraucht keine Pinar-Credits. Ohne ein Modell für semantische Suche durchsucht der Assistent deine Pins nach ihrem Text.",
+          ],
+        },
+        {
+          heading: "In Pinar Cloud: Pro und Credits",
+          paragraphs: [
+            "In Pinar Cloud gehört der Assistent zu Pro. Jede Nachricht, die du sendest, verbraucht 3 KI-Credits, und eine fehlgeschlagene Antwort gibt sie zurück. Einen Vorschlag zu bestätigen oder rückgängig zu machen kostet keine Credits.",
+            "Es sind dieselben Credits wie bei der Sprachtranskription, und Credit-Pakete können nur mit Pro gekauft werden. [Pinar-Cloud-KI-Credits für Sprache und Assistent](/help/cloud/ai-credits) erklärt Guthaben und Erstattungen.",
+          ],
+        },
+        {
+          heading: "Pinar die Sammlung wählen lassen",
+          paragraphs: [
+            "Schalte in Einstellungen → „Aufnahme“ die Option „Sammlung automatisch wählen“ ein. Pinar wählt dann für jede neue Aufnahme eine deiner vorhandenen Sammlungen; im Zweifel landet die Aufnahme im „Posteingang“. Aufnahmen aus demselben Stapel bleiben zusammen. Die Option braucht verfügbare KI.",
+          ],
+          bullets: [
+            "Eine so abgelegte Sitzung zeigt eine kleine Markierung. Zeig darauf oder fokussiere sie, um „Automatisch abgelegt. Zum Korrigieren verschieben.“ zu lesen.",
+            "Ist die Sammlung falsch, verschieb die Sitzung in die richtige. Das korrigiert die Wahl und entfernt die Markierung.",
+          ],
+        },
+        {
+          heading: "Datenschutz",
+          paragraphs: [
+            "Die Kommentare und Screenshots, die der Assistent verwendet, gehen in der lokalen App an den KI-Anbieter, den du eingerichtet hast, und in Pinar Cloud an die KI-Anbieter von Pinar, wo der Screenshot auch dazu dient, den Pin zu beschreiben und auffindbar zu machen; [Wo deine Daten liegen](/help/privacy/where-data-lives) erklärt die Details.",
           ],
         },
       ],
@@ -1021,25 +1099,25 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Sprachtranskription und Pinar-Cloud-KI-Credits",
-      summary:
-        "Erfahre, wie Sprachaufnahmen Pinar Cloud Credits reservieren, verbrauchen, auffüllen oder erstatten.",
+      title: "Pinar-Cloud-KI-Credits für Sprache und Assistent",
+      summary: "Erfahre, wie Sprache und Assistent Pinar Cloud Credits verbrauchen, wann sie zurückkommen und wie du mehr kaufst.",
       sections: [
         {
-          heading: "Kosten der Sprachtranskription",
+          heading: "Was Credits verbraucht",
           paragraphs: [
-            "Die Sprachtranskription von Pinar Cloud ist die einzige Pinar-Funktion, die KI-Credits verbraucht. Eine Aufnahme bis 60 Sekunden reserviert 1 Credit; 61 bis 120 Sekunden reservieren 2. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene Transkription erstattet sie; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet.",
+            "In Pinar Cloud verbrauchen die Sprachtranskription und der Assistent KI-Credits. Eine Sprachaufnahme bis 60 Sekunden reserviert 1 Credit; 61 bis 120 Sekunden reservieren 2. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene Transkription erstattet sie; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet.",
+            "Jede Nachricht an den Assistenten in Pinar Cloud verbraucht 3 Credits, und eine fehlgeschlagene Antwort gibt sie zurück. Einen Vorschlag zu bestätigen oder rückgängig zu machen kostet keine Credits. In der lokalen App nutzt der Assistent die KI, die du eingerichtet hast, und keine Pinar-Credits.",
             "Das Aufzeichnen einer Reproduktionszeitleiste und das Erzeugen ihrer ausformulierten Schritte zieht keine KI-Credits ab.",
           ],
         },
         {
           heading: "Guthaben",
           paragraphs: [
-            "Das erste Pro-Abonnement des Kontos gewährt einmalig 500 Credits. Verlängerung, Reaktivierung oder Planwechsel gewähren sie nicht erneut. Gekaufte Pakete fügen 500 Credits für bis zu 12 Monate hinzu.",
+            "Das erste Pro-Abonnement des Kontos gewährt einmalig 500 Credits. Verlängerung, Reaktivierung oder Planwechsel gewähren sie nicht erneut. Gekaufte Pinar-Cloud-Pakete fügen 500 Credits für bis zu 12 Monate hinzu und können nur mit Pro gekauft werden. Sprache und Assistent nutzen dasselbe Guthaben.",
           ],
         },
         {
-          heading: "Sprachtranskription wiederholen und Verlauf prüfen",
+          heading: "Eine Anfrage wiederholen und Verlauf prüfen",
           paragraphs: [
             "Läuft in Pinar Cloud bereits eine Transkription, warte auf ihren Abschluss, statt die Aufnahme erneut zu senden. Fehlgeschlagene Anfragen erstatten die Reservierung, wenn möglich. Bei zu niedrigem Guthaben behält die Erweiterung den geschriebenen Kommentar und meldet den zusätzlichen Bedarf.",
             "Das zuerst ablaufende Guthaben wird zuerst verwendet. Das Kontomenü zeigt die verbleibenden Credits; es gibt keine monatliche oder jährliche Auffüllung.",
@@ -1047,6 +1125,7 @@ const locale = {
           bullets: [
             "Läuft bereits eine Transkription, warte auf ihren Abschluss, statt dieselbe Aufnahme erneut zu senden.",
             "Läuft eine Reservierung ab oder wird sie erstattet, nimm den Sprachkommentar erneut auf oder sende ihn noch einmal.",
+            "Schlägt eine Antwort des Assistenten fehl, kommen ihre Credits zurück; sende die Nachricht erneut, wenn du so weit bist.",
             "Zeigt der Workspace null Credits, prüfe das Restguthaben, bevor du ein weiteres 500-Credit-Paket kaufst.",
             "Schickst du innerhalb einer Minute zu viele KI-Anfragen, wird die Anfrage vorübergehend abgewiesen; warte eine Minute und versuche es erneut.",
           ],

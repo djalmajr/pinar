@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { parseVisualCapture, sessionFromCapture, type Session } from "@pinar/shared";
 import {
+  findOwnedSession,
   handleCloudApiRequest,
   handleCloudPublicRequest,
   type CloudEnv,
@@ -2839,20 +2840,34 @@ describe("session edits keep a concurrent move (keepPlacement)", () => {
   const claim = (db: Database) => (db.query("SELECT filing_collection_id FROM batches WHERE id = 'batch_race'").get() as
     { filing_collection_id: string } | null)?.filing_collection_id ?? null;
 
-  const edits: Array<{ edit: (env: CloudEnv, cookie: string) => Promise<void>; name: string; written: (stored: Record<string, unknown>) => void }> = [
+  // What a path answers: the MCP tool's error text, or the web route's
+  // status and error (null on success).
+  type Answer = { error: string | null; status: number | null };
+  const mcpAnswer = (result: Awaited<ReturnType<typeof callTool>>): Answer => ({
+    error: result.result.isError ? result.text : null,
+    status: null,
+  });
+  const webAnswer = async (response: Response): Promise<Answer> => {
+    const body = (await response.json()) as { error?: string };
+    return { error: response.status === 200 ? null : body.error ?? null, status: response.status };
+  };
+
+  // `gone` is the path's own answer for a session findOwnedSession misses.
+  const edits: Array<{
+    edit: (env: CloudEnv, cookie: string) => Promise<Answer>;
+    gone: Answer;
+    name: string;
+    written: (stored: Record<string, unknown>) => void;
+  }> = [
     {
-      edit: async (env) => {
-        const result = await callTool(env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_race" }, MANAGE_TOKEN);
-        assert.equal(result.result.isError, undefined, result.text);
-      },
+      edit: async (env) => mcpAnswer(await callTool(env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_race" }, MANAGE_TOKEN)),
+      gone: { error: "Session not found", status: null },
       name: "pinar.update_session (updateMcpSession)",
       written: (stored) => assert.equal(stored.title, "Renamed"),
     },
     {
-      edit: async (env) => {
-        const result = await callTool(env, "pinar.create_pin", { comment: "Agent pin", sessionId: "session_race" }, MANAGE_TOKEN);
-        assert.equal(result.result.isError, undefined, result.text);
-      },
+      edit: async (env) => mcpAnswer(await callTool(env, "pinar.create_pin", { comment: "Agent pin", sessionId: "session_race" }, MANAGE_TOKEN)),
+      gone: { error: "Session not found", status: null },
       name: "pinar.create_pin (createMcpPin)",
       written: (stored) => {
         assert.equal(stored.pin_count, 2);
@@ -2860,38 +2875,44 @@ describe("session edits keep a concurrent move (keepPlacement)", () => {
       },
     },
     {
-      edit: async (env) => {
-        const result = await callTool(env, "pinar.edit_pin_note", { comment: "agent note", pinId: "session_race:p1", sessionId: "session_race" }, MANAGE_TOKEN);
-        assert.equal(result.result.isError, undefined, result.text);
-      },
+      edit: async (env) => mcpAnswer(await callTool(env, "pinar.edit_pin_note", { comment: "agent note", pinId: "session_race:p1", sessionId: "session_race" }, MANAGE_TOKEN)),
+      gone: { error: "Resource not found", status: null },
       name: "pinar.edit_pin_note",
       written: (stored) => assert.match(String(stored.pins_json), /agent note/),
     },
     {
-      edit: async (env, cookie) => {
-        const response = await webApi(env, cookie, "/api/sessions/session_race/pins/session_race%3Ap1", { comment: "web note" });
-        assert.equal(response.status, 200, await response.clone().text());
-      },
+      edit: async (env, cookie) => webAnswer(await webApi(env, cookie, "/api/sessions/session_race/pins/session_race%3Ap1", { comment: "web note" })),
+      gone: { error: "Session not found", status: 404 },
       name: "PATCH /api/sessions/:id/pins/:pinId (editPinNote)",
       written: (stored) => assert.match(String(stored.pins_json), /web note/),
     },
     {
-      edit: async (env, cookie) => {
-        const response = await webApi(env, cookie, "/api/sessions/session_race", { pins: [{ diagnosis: DIAGNOSIS, pinId: "session_race:p1" }] });
-        assert.equal(response.status, 200, await response.clone().text());
-      },
+      edit: async (env, cookie) => webAnswer(await webApi(env, cookie, "/api/sessions/session_race", { pins: [{ diagnosis: DIAGNOSIS, pinId: "session_race:p1" }] })),
+      gone: { error: "Session not found", status: 404 },
       name: "PATCH /api/sessions/:id (updateSessionFields)",
       written: (stored) => assert.match(String(stored.pins_json), /Flex container lacks align-items/),
     },
   ];
 
-  for (const { edit, name, written } of edits) {
+  // A deletion, as DELETE /api/history/:id writes it: the session's agent
+  // runs, reviews, comments, index entries and the row; the batch stays.
+  const deleteSession = (db: Database) => () => {
+    db.query("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?").run("session_race", "usr_mcp");
+    db.query("DELETE FROM pin_review_events WHERE capture_id = ?").run("session_race");
+    db.query("DELETE FROM pin_reviews WHERE capture_id = ?").run("session_race");
+    db.query("DELETE FROM pin_comments WHERE capture_id = ?").run("session_race");
+    db.query("DELETE FROM pin_index WHERE session_id = ?").run("session_race");
+    db.query("DELETE FROM sessions WHERE id = ? AND user_id = ?").run("session_race", "usr_mcp");
+  };
+
+  for (const { edit, gone, name, written } of edits) {
     test(`${name}: a move that lands after its read survives the edit, and the edit is written`, async () => {
       const db = migratedDatabase();
       try {
         const { cookie, seeded } = await raceSetup(db);
         const race = racingEnv(db, seeded, moveToTarget(db));
-        await edit(race.env, cookie);
+        const answer = await edit(race.env, cookie);
+        assert.equal(answer.error, null, JSON.stringify(answer));
         assert.ok(race.landed(), "the move landed between the read and the write");
         const stored = row(db);
         assert.deepEqual(
@@ -2905,7 +2926,44 @@ describe("session edits keep a concurrent move (keepPlacement)", () => {
         db.close();
       }
     });
+
+    test(`${name}: a session deleted after its read stays deleted, and the edit answers as for a missing session`, async () => {
+      const db = migratedDatabase();
+      try {
+        const { cookie, seeded } = await raceSetup(db);
+        const race = racingEnv(db, seeded, deleteSession(db));
+        const answer = await edit(race.env, cookie);
+        assert.ok(race.landed(), "the deletion landed between the read and the write");
+        assert.deepEqual(answer, gone);
+        assert.equal(db.query("SELECT id FROM sessions WHERE id = 'session_race'").get(), null, "the row is not brought back");
+        assert.equal(claim(db), "collection_mcp", "the batch claim is untouched");
+        assert.deepEqual(db.query("SELECT capture_id FROM pin_reviews WHERE capture_id = 'session_race'").all(), [], "no review is opened for it");
+      } finally {
+        db.close();
+      }
+    });
   }
+
+  test("persistSession with keepPlacement writes only the owner's existing row, and says whether it did", async () => {
+    const db = migratedDatabase();
+    try {
+      const { seeded: env } = await raceSetup(db);
+      const owner = { email: "mcp@example.test", id: "usr_mcp", isPermanent: true, kind: "account" as const, plan: "pro" as const };
+      const session = (await findOwnedSession(env, owner, "session_race"))!;
+      assert.equal(await persistSession(env, { ...session, page: { ...session.page, title: "Mine" } }, "batch_race", { keepPlacement: true }), true);
+      assert.equal(row(db).title, "Mine");
+      // The same id under another owner is neither updated nor created.
+      assert.equal(await persistSession(env, { ...session, page: { ...session.page, title: "Theirs" }, userId: "usr_other" }, "batch_race", { keepPlacement: true }), false);
+      assert.equal(row(db).title, "Mine");
+      assert.equal(await persistSession(env, { ...session, id: "session_never" }, null, { keepPlacement: true }), false);
+      assert.equal(db.query("SELECT id FROM sessions WHERE id = 'session_never'").get(), null);
+      // A capture write still upserts and reports it.
+      assert.equal(await persistSession(env, { ...session, id: "session_new" }, null), true);
+      assert.notEqual(db.query("SELECT id FROM sessions WHERE id = 'session_new'").get(), null);
+    } finally {
+      db.close();
+    }
+  });
 
   test("a batch deleted after the edit read stays deleted: the edit brings back neither the batch id nor the claim", async () => {
     const db = migratedDatabase();

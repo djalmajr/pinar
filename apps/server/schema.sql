@@ -60,7 +60,8 @@ CREATE TABLE ai_credit_usages (
     'pin_diagnosis',
     'design_system',
     'reproduction',
-    'voice_pin'
+    'voice_pin',
+    'assistant_turn'
   )),
   resource_id TEXT NOT NULL,
   model TEXT NOT NULL,

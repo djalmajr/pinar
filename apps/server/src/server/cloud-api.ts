@@ -123,7 +123,7 @@ import {
   resetCloudPinIndexMemoryForTests,
 } from "./assistant/retrieval/store-cloud";
 import type { AssistantChainLink, AssistantCircuitBreaker } from "./assistant/chain";
-import type { AssistantStatus } from "./assistant/http";
+import type { AssistantRequestDeps, AssistantStatus } from "./assistant/http";
 import type { AssistantEndpoint } from "./assistant/models";
 import type { PinSearchService } from "./assistant/retrieval/index";
 import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
@@ -387,7 +387,7 @@ interface AiUsageHistoryEntry {
   completedAt: string | null;
   createdAt: string;
   credits: number;
-  feature: "voice_pin";
+  feature: "assistant_turn" | "voice_pin";
   status: AiCreditUsageRecord["status"];
 }
 
@@ -469,6 +469,7 @@ export const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const SHOTS_PREFIX = "shots/";
 export type AiFeature =
+  | "assistant_turn"
   | "component_export"
   | "design_system"
   | "pin_diagnosis"
@@ -500,7 +501,11 @@ export const AI_FEATURE_SPECS: Record<"reproduction", AiFeatureSpec> = {
   },
 };
 const AI_RESERVATION_TIMEOUT_MS = 5 * 60 * 1000;
+// Credits of one assistant turn in the Cloud, staging included (F4 contract
+// §2, D1).
+export const ASSISTANT_TURN_CREDITS = 3;
 const AI_FEATURES = new Set<AiFeature>([
+  "assistant_turn",
   "component_export",
   "design_system",
   "pin_diagnosis",
@@ -1235,12 +1240,12 @@ async function findAiCreditUsage(env: CloudEnv, principal: Principal, requestId:
 /**
  * The account view is a compact billing history, not inference telemetry. Keep
  * model names, prompts, resource ids, and retired features out of the response
- * that reaches the browser. Voice transcription is the only credit-bearing AI
- * operation exposed to accounts.
+ * that reaches the browser. Voice transcription and assistant turns are the
+ * credit-bearing AI operations exposed to accounts.
  */
 async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 25): Promise<AiUsageHistoryEntry[]> {
   const toEntry = (usage: AiCreditUsageRecord): AiUsageHistoryEntry | null => {
-    if (usage.feature !== "voice_pin") return null;
+    if (usage.feature !== "voice_pin" && usage.feature !== "assistant_turn") return null;
     return {
       completedAt: usage.completedAt,
       createdAt: usage.createdAt,
@@ -1252,7 +1257,7 @@ async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 2
 
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature = 'voice_pin' ORDER BY created_at DESC, rowid DESC LIMIT ?",
+      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature IN ('voice_pin', 'assistant_turn') ORDER BY created_at DESC, rowid DESC LIMIT ?",
     ).bind(principal.kind, principal.id, limit).all();
     return (result.results || []).map(aiUsageFromRow).map(toEntry).filter((entry): entry is AiUsageHistoryEntry => entry !== null);
   }
@@ -1306,7 +1311,7 @@ async function reserveAiCreditUsage(
   principal: Principal,
   requestId: string,
   resourceId: string,
-  spec: AiFeatureSpec,
+  spec: Pick<AiFeatureSpec, "credits" | "feature" | "model">,
 ): Promise<AiReservation | null> {
   const existing = await findAiCreditUsage(env, principal, requestId);
   if (existing) return { kind: "existing", usage: existing };
@@ -1367,22 +1372,25 @@ async function reserveAiCreditUsage(
   return null;
 }
 
+// `model` replaces the reserved one when the model that answered is only
+// known at the end (the assistant chain's link); a null cost is unknown.
 async function completeAiCreditUsage(
   env: CloudEnv,
   usage: AiCreditUsageRecord,
   resultJson: string,
   inputTokens: number,
   outputTokens: number,
-  costUsdMicros: number,
+  costUsdMicros: number | null,
+  model: string = usage.model,
 ) {
   const completedAt = currentDate().toISOString();
   if (env.DB) {
     await env.DB.prepare(`
       UPDATE ai_credit_usages
       SET status = 'succeeded', result_json = ?, input_tokens = ?, output_tokens = ?,
-        cost_usd_micros = ?, completed_at = ?
+        cost_usd_micros = ?, completed_at = ?, model = ?
       WHERE id = ? AND status = 'reserved'
-    `).bind(resultJson, inputTokens, outputTokens, costUsdMicros, completedAt, usage.id).run();
+    `).bind(resultJson, inputTokens, outputTokens, costUsdMicros, completedAt, model, usage.id).run();
     const settled = await findAiCreditUsage(env, {
       id: usage.ownerId,
       isPermanent: false,
@@ -1392,9 +1400,11 @@ async function completeAiCreditUsage(
     if (settled?.status !== "succeeded") throw new Error("ai_usage_settlement_failed");
     return settled;
   }
+  if (usage.status !== "reserved") throw new Error("ai_usage_settlement_failed");
   usage.completedAt = completedAt;
   usage.costUsdMicros = costUsdMicros;
   usage.inputTokens = inputTokens;
+  usage.model = model;
   usage.outputTokens = outputTokens;
   usage.resultJson = resultJson;
   usage.status = "succeeded";
@@ -4001,6 +4011,15 @@ async function createCheckout(request: Request, env: CloudEnv) {
   if (!priceId) return json({ error: "Stripe price is not configured" }, 500);
   const principal = await resolvePrincipal(request, env);
   const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
+  // AI credits are sold only to an account whose plan includes AI (Pro or
+  // complimentary Pro), trial or not (decision A42): everything that spends
+  // them is Pro only.
+  if (offer === "ai_credits_500" && !(account && planIncludesAi(effectiveAccountPlan(account)))) {
+    return json({
+      code: "cloud_pro_required_for_addon",
+      error: "Pro subscription required for add-ons",
+    }, 402);
+  }
   if (!subscription && cloudTrialEnabled(env)) {
     const trial = account ? cloudTrialForAccount(env, account) : null;
     if (!trial || trial.state === "active" || trial.state === "expired") {
@@ -8603,6 +8622,53 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
   });
 }
 
+// The credits of a Cloud turn (F4 contract §2, decision A39): the turn
+// reserves ASSISTANT_TURN_CREDITS under turn:<assistant message id> for the
+// resource assistant:<thread id>, with the model the chain starts from; the
+// UNIQUE (owner, request id) keeps a second reservation of the same message
+// from charging again (it gets the first one). Consuming records the model
+// that answered, the tokens, the cost and result_json; a refund that fails
+// is logged and left to the sweeper.
+export function cloudAssistantTurnMeter(
+  env: CloudEnv,
+  principal: Principal,
+  model: string,
+): NonNullable<AssistantRequestDeps["meterTurn"]> {
+  return async ({ messageId, threadId }) => {
+    const account = await findAccountById(env, principal.id);
+    if (account) await ensureInitialProCredits(env, account);
+    const reservation = await reserveAiCreditUsage(env, principal, `turn:${messageId}`, `assistant:${threadId}`, {
+      credits: ASSISTANT_TURN_CREDITS,
+      feature: "assistant_turn",
+      model,
+    });
+    if (!reservation) {
+      return { aiCredits: await aiCreditBalance(env, principal), creditsRequired: ASSISTANT_TURN_CREDITS, reserved: false };
+    }
+    const usage = reservation.usage;
+    return {
+      consume: (charge) => completeAiCreditUsage(
+        env,
+        usage,
+        charge.resultJson,
+        charge.inputTokens,
+        charge.outputTokens,
+        charge.costUsdMicros,
+        charge.model,
+      ),
+      refund: async (errorCode) => {
+        try {
+          await refundAiCreditUsage(env, usage, errorCode);
+        } catch (error) {
+          console.error("ai_credit_refund_failed", JSON.stringify({ error: String(error), usageId: usage.id }));
+          throw error;
+        }
+      },
+      reserved: true,
+    };
+  };
+}
+
 // The AssistantEndpoint of a chain link: the appliance as before, or the
 // gateway's OpenAI-compatible endpoint (F4 contract §4) with its key.
 function cloudAssistantEndpoint(env: CloudEnv, link: AssistantChainLink): AssistantEndpoint {
@@ -8653,7 +8719,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   // the SDK's @vercel/oidc dependency is replaced by a stub, see
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
-  const { assistantChainModel, assistantChainOpen, createAssistantCircuitBreaker } = await import("./assistant/chain");
+  const { assistantChainLinkName, assistantChainModel, assistantChainOpen, createAssistantCircuitBreaker } = await import("./assistant/chain");
   const breaker = cloudAssistantBreaker ??= createAssistantCircuitBreaker();
   const origin = new URL(request.url).origin;
   const pinSearch = await cloudPinSearch(env, principal);
@@ -8674,6 +8740,9 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
           ? { apiKey: env.AI_GATEWAY_API_KEY, zeroDataRetention: env.AI_GATEWAY_ZERO_DATA_RETENTION === "true" }
           : null,
       }),
+    // 3 credits a turn (F4 contract §2); the model the chain starts from is
+    // the reservation's until the link that answered replaces it.
+    meterTurn: cloudAssistantTurnMeter(env, principal, chain ? assistantChainLinkName(chain[0]) : ""),
     ...(pinSearch ? { pinSearch } : {}),
     rateLimitTurn: () =>
       withinRateLimits(env, "assistant-turn", [

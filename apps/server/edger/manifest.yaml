@@ -33,6 +33,11 @@ cron:
   - schedule: "0 3 * * *"
     path: /_internal/cron/daily
     method: POST
+  # Every 5 minutes: refunds AI credit reservations left open (an assistant
+  # turn whose process died).
+  - schedule: "*/5 * * * *"
+    path: /_internal/cron/frequent
+    method: POST
 # External egress only. The database host is intentionally absent from the
 # repository: the sqld topology of the cluster is still under study, and the
 # installer adds each environment's database host.

@@ -303,6 +303,57 @@ describe("origin defense (EDG-27)", () => {
   });
 });
 
+describe("frequent cron route (F4/S2 sweeper)", () => {
+  function frequentRequest(init: RequestInit = { method: "POST", headers: { "x-edger-internal": "true" } }) {
+    return new Request("https://pinar.test/_internal/cron/frequent", init);
+  }
+
+  function frequentEntry() {
+    const calls: string[] = [];
+    const tanstackRequests: Request[] = [];
+    const fetch = createEdgerFetch({
+      frequentJobs: [{ name: "refundStaleAiReservations", run: async () => { calls.push("frequent:refundStaleAiReservations"); } }],
+      jobs: JOB_NAMES.map((name) => ({ name, run: async () => { calls.push(name); } })),
+      log: () => {},
+      tanstackFetch: async (request) => {
+        tanstackRequests.push(request);
+        return new Response("tanstack");
+      },
+    });
+    return { calls, fetch, tanstackRequests };
+  }
+
+  test("runs only the frequent jobs for an authorized POST", async () => {
+    const { calls, fetch } = frequentEntry();
+    const response = await fetch(frequentRequest());
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), JSON.stringify({ ok: true, jobs: [{ job: "refundStaleAiReservations", ok: true }] }));
+    assert.deepEqual(calls, ["frequent:refundStaleAiReservations"]);
+  });
+
+  test("is protected like the daily route: no POST or no exact internal header is a plain 404", async () => {
+    for (const init of [
+      { method: "GET", headers: { "x-edger-internal": "true" } },
+      { method: "POST" },
+      { method: "POST", headers: { "x-edger-internal": "TRUE" } },
+    ] as RequestInit[]) {
+      const { calls, fetch, tanstackRequests } = frequentEntry();
+      const response = await fetch(frequentRequest(init));
+      assert.equal(response.status, 404);
+      assert.equal(await response.text(), "Not found");
+      assert.deepEqual(calls, []);
+      assert.deepEqual(tanstackRequests, []);
+    }
+  });
+
+  test("without frequent jobs the route answers an empty report", async () => {
+    const fetch = createEdgerFetch({ jobs: [], log: () => {}, tanstackFetch: async () => new Response("tanstack") });
+    const response = await fetch(frequentRequest());
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), JSON.stringify({ ok: true, jobs: [] }));
+  });
+});
+
 describe("edger entry wiring", () => {
   test("default export exposes the fetch handler", () => {
     assert.equal(typeof edgerEntry.fetch, "function");

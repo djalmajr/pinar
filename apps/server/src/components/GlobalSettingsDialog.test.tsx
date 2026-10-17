@@ -74,7 +74,7 @@ afterAll(() => {
   mock.module("@/lib/delivery-preferences", () => deliveryPreferences);
 });
 
-const { CaptureDestinationSettings, GlobalSettingsDialog } = await import("./GlobalSettingsDialog");
+const { aiUsageHistory, CaptureDestinationSettings, GlobalSettingsDialog } = await import("./GlobalSettingsDialog");
 
 const STAMP = { createdAt: "2026-10-17T00:00:00.000Z", ownerId: "owner", updatedAt: "2026-10-17T00:00:00.000Z" };
 const PROJECTS: ProjectTreeProject[] = [{
@@ -195,6 +195,30 @@ describe("Settings → Capture: automatic collection", () => {
     const { destination, toggle } = render({ available: false });
     expect(toggle.disabled).toBe(true);
     expect(destination.disabled).toBe(true);
+  });
+});
+
+describe("Settings → AI usage: voice and assistant", () => {
+  test("lists the voice pin and the assistant turn, and drops other features and malformed items", () => {
+    const entry = (feature: string, extra: Record<string, unknown> = {}) => ({
+      completedAt: "2026-10-01T12:00:01.000Z",
+      createdAt: "2026-10-01T12:00:00.000Z",
+      credits: feature === "assistant_turn" ? 3 : 1,
+      feature,
+      status: "succeeded",
+      ...extra,
+    });
+    expect(aiUsageHistory({
+      aiUsage: [
+        entry("assistant_turn"),
+        entry("voice_pin", { status: "refunded" }),
+        entry("session_summary"),
+        entry("assistant_turn", { credits: 0 }),
+        entry("assistant_turn", { status: "lost" }),
+      ],
+    }) as unknown[]).toEqual([entry("assistant_turn"), entry("voice_pin", { status: "refunded" })]);
+    expect(aiUsageHistory({})).toBeNull();
+    expect(enUi["settings.aiUsageAssistantTurn"]).toBe("Assistant message");
   });
 });
 

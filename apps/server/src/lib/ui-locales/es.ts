@@ -68,6 +68,8 @@ const messages: UiMessages = {
   "assistant.errorIncomplete": "El asistente no pudo completar esta respuesta. Inténtalo de nuevo.",
   "assistant.errorFailed": "El asistente no está disponible ahora. Inténtalo en un momento.",
   "assistant.errorRateLimited": "Demasiadas preguntas en poco tiempo. Espera un instante.",
+  "assistant.errorNoCredits": "Créditos de IA insuficientes: cada mensaje usa {required} y te {count, plural, one {queda # crédito} other {quedan # créditos}}.",
+  "assistant.buyCredits": "Comprar créditos",
   "assistant.errorNetwork": "No se pudo conectar con Pinar. Comprueba tu conexión.",
   "assistant.proposal.create_project": "Crear el proyecto “{name}”",
   "assistant.proposal.rename_project": "Renombrar el proyecto “{from}” como “{to}”",
@@ -170,6 +172,7 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "Reproducción",
   "settings.aiUsageSessionSummary": "Resumen de sesión",
   "settings.aiUsageVoicePin": "Pin de voz",
+  "settings.aiUsageAssistantTurn": "Mensaje del asistente",
   "settings.voicePostProcessing": "Limpiar transcripciones de voz",
   "settings.voicePostProcessingDescription": "Elimina muletillas y falsos comienzos y recupera el comentario deseado. Solo disponible en Pinar Cloud y desactivado por defecto.",
   "settings.generalDescription":

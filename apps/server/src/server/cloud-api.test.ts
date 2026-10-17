@@ -2036,6 +2036,9 @@ describe("remote installation isolation", () => {
       STRIPE_SECRET_KEY: "sk_test_example",
     };
     const stripeRequests: RequestInit[] = [];
+    // AI credits are sold only to a Pro account (A42); the other offers go
+    // through without one.
+    const pro = await seedCloudWebSessionForTests({ email: "catalog-pro@example.test", plan: "pro" }, env);
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
       stripeRequests.push(init || {});
@@ -2048,7 +2051,10 @@ describe("remote installation isolation", () => {
           const checkoutClaim = `${requestId}_claim`;
           const response = await handleCloudApiRequest(requestForCountry("/api/stripe/checkout", country, {
             body: JSON.stringify(checkoutRequest({ checkoutClaim, offer: offer.offer, requestId })),
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              ...(offer.offer === "ai_credits_500" ? { cookie: pro.cookie } : {}),
+            },
             method: "POST",
           }), env);
           assert.equal(response.status, 200);
@@ -2086,6 +2092,57 @@ describe("remote installation isolation", () => {
         }
         requestIndex += 1;
       }
+    }
+  });
+
+  test("AI credits are sold only to Pro (A42): free and anonymous get 402, the other offers do not change", async () => {
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      COMPLIMENTARY_PRO_USER_IDS: "usr_gift_pro_checkout",
+      STRIPE_PRICE_AI_CREDITS_500: "price_us_ai",
+      STRIPE_PRICE_STORAGE_1GB_12M: "price_us_storage_1",
+      STRIPE_PRICE_YEARLY: "price_us_year",
+      STRIPE_SECRET_KEY: "sk_test_example",
+    };
+    const free = await seedCloudWebSessionForTests({ email: "a42-free@example.test", plan: "free" }, env);
+    const pro = await seedCloudWebSessionForTests({ email: "a42-pro@example.test", plan: "pro" }, env);
+    const gift = await seedCloudWebSessionForTests({ email: "a42-gift@example.test", id: "usr_gift_pro_checkout", plan: "free" }, env);
+    let stripeCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      stripeCalls += 1;
+      return Response.json({ url: "https://checkout.stripe.test/a42" });
+    };
+    let sequence = 0;
+    const checkout = (offer: string, cookie?: string) => {
+      sequence += 1;
+      const requestId = `checkout_a42_${offer}_${String(sequence).padStart(4, "0")}`;
+      return handleCloudApiRequest(requestForCountry("/api/stripe/checkout", "US", {
+        body: JSON.stringify(checkoutRequest({ checkoutClaim: `${requestId}_claim`, offer, requestId })),
+        headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+        method: "POST",
+      }), env);
+    };
+    try {
+      for (const cookie of [undefined, free.cookie]) {
+        const denied = await checkout("ai_credits_500", cookie);
+        assert.equal(denied.status, 402);
+        assert.deepEqual(await jsonBody(denied), {
+          code: "cloud_pro_required_for_addon",
+          error: "Pro subscription required for add-ons",
+        });
+      }
+      assert.equal(stripeCalls, 0, "a refused purchase never reaches Stripe");
+      assert.equal((await checkout("ai_credits_500", pro.cookie)).status, 200);
+      assert.equal((await checkout("ai_credits_500", gift.cookie)).status, 200, "a complimentary Pro buys too");
+      assert.equal(stripeCalls, 2);
+      // Without the trial the other offers stay open to everyone.
+      assert.equal((await checkout("pro_year")).status, 200);
+      assert.equal((await checkout("pro_year", free.cookie)).status, 200);
+      assert.equal((await checkout("storage_1gb_12m", free.cookie)).status, 200);
+      assert.equal(stripeCalls, 5);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 

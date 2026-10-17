@@ -12,6 +12,12 @@
 // reason: the probability of the best collection label for `decisions`,
 // the best cosine (floored at 0) for `similarity`, 0 when no engine
 // answered.
+//
+// For `similarity`, confident enough means the best cosine reaches
+// FILING_SIMILARITY_MIN and leads the second by FILING_SIMILARITY_MARGIN
+// (F3.5 §1): the deployment's plain decimals in 0-1, read from the
+// environment at each call (filingSimilarityThresholds), the defaults of
+// constants.ts when a value is absent or invalid.
 
 import type { AssistantEndpoint } from "../assistant/models";
 import type { EmbeddingEndpoint } from "../assistant/retrieval/embeddings";
@@ -21,7 +27,9 @@ import {
   FILING_SIMILARITY_MARGIN,
   FILING_SIMILARITY_MIN,
   FILING_TIMEOUT_MS,
+  filingSimilarityThresholds,
   type FilingCandidate,
+  type FilingSimilarityThresholds,
 } from "./constants";
 import { decideCollection } from "./decisions";
 import { rankBySimilarity } from "./similarity";
@@ -32,7 +40,9 @@ export {
   FILING_SIMILARITY_MARGIN,
   FILING_SIMILARITY_MIN,
   FILING_TIMEOUT_MS,
+  filingSimilarityThresholds,
   type FilingCandidate,
+  type FilingSimilarityThresholds,
 };
 
 // /v1/decisions takes up to 20 options, and the last one is
@@ -80,8 +90,23 @@ function mostRecentlyUsed(candidates: FilingCandidate[], limit: number): FilingC
   return candidates.filter((candidate) => kept.has(candidate));
 }
 
+// The env the similarity thresholds are read from (F3.5 §1): the worker's
+// (Deno) environment on the Cloud, the node process's on the local server.
+// A runtime without readable env yields undefined, and the defaults apply:
+// the read never throws and a capture is never broken by it.
+function readFilingEnv(name: string): string | undefined {
+  try {
+    const deno = (globalThis as { Deno?: { env?: { get(name: string): string | undefined } } }).Deno;
+    if (deno?.env) return deno.env.get(name);
+  } catch {
+    // The env is not readable in this runtime (no permission).
+  }
+  const processEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return processEnv?.[name];
+}
+
 async function runEngine(
-  input: { candidates: FilingCandidate[]; engine: FilingEngine; fetch?: typeof fetch; text: string },
+  input: { candidates: FilingCandidate[]; engine: FilingEngine; fetch?: typeof fetch; similarity: FilingSimilarityThresholds; text: string },
   signal: AbortSignal,
 ): Promise<FilingChoice> {
   const { engine } = input;
@@ -114,8 +139,8 @@ async function runEngine(
   // A lone collection has no rival to be confused with.
   const chosen =
     best !== undefined &&
-    best.score >= FILING_SIMILARITY_MIN &&
-    (second === undefined || best.score - second.score >= FILING_SIMILARITY_MARGIN);
+    best.score >= input.similarity.min &&
+    (second === undefined || best.score - second.score >= input.similarity.margin);
   return {
     collectionId: chosen ? best.candidate.collectionId : null,
     confidence: Math.max(0, best?.score ?? 0),
@@ -146,6 +171,9 @@ export async function chooseCollection(input: {
     reason: deadline.aborted ? "timeout" : "error",
   });
   if (signal.aborted) return failed();
+  // The deployment's similarity thresholds (F3.5 §1), resolved per call:
+  // an absent or invalid value keeps the default and never throws.
+  const similarity = filingSimilarityThresholds(readFilingEnv);
 
   // The engine is raced against the signal, so the answer never waits past
   // the deadline, even for a fetch or centroid lookup that ignores it.
@@ -155,7 +183,7 @@ export async function chooseCollection(input: {
     signal.addEventListener("abort", onAbort, { once: true });
   });
   try {
-    return await Promise.race([runEngine(input, signal), aborted]);
+    return await Promise.race([runEngine({ ...input, similarity }, signal), aborted]);
   } catch {
     return failed();
   } finally {

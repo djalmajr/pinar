@@ -74,13 +74,18 @@ const gatewayUsage = (input: number, output: number, cache: { read?: number; wri
   outputTokens: { reasoning: undefined, text: undefined, total: output },
 });
 
-function gatewayAnswer(text: string, options: { cost?: unknown; input?: number; output?: number } = {}): Part[] {
+function gatewayAnswer(text: string, options: { cost?: unknown; marketCost?: unknown; input?: number; output?: number } = {}): Part[] {
   const finish: Part = {
     finishReason: { raw: "stop", unified: "stop" },
     type: "finish",
     usage: gatewayUsage(options.input ?? 10, options.output ?? 5),
   };
-  if (options.cost !== undefined) finish.providerMetadata = { gateway: { cost: options.cost } };
+  if (options.cost !== undefined || options.marketCost !== undefined) {
+    const gateway: Record<string, unknown> = {};
+    if (options.cost !== undefined) gateway["cost"] = options.cost;
+    if (options.marketCost !== undefined) gateway["marketCost"] = options.marketCost;
+    finish.providerMetadata = { gateway };
+  }
   return [
     { type: "stream-start", warnings: [] },
     { id: "t1", type: "text-start" },
@@ -663,6 +668,52 @@ describe("cost", () => {
       { costSource: "gateway", costUsdMicros: 4541, fallback: false, link: 0, model: `gateway:${HAIKU}` },
     );
     assert.deepEqual(billing.usage, { inputTokens: 10, outputTokens: 5, totalTokens: 15 });
+  });
+
+  test("BYOK: cost is 0 and the real cost is the marketCost, rounded up", async () => {
+    // The 2026-10-17 live shape: anthropic/claude-haiku-5.5, credentialType "byok".
+    const fake = fakeFetch({ [HAIKU]: [answers("ok", { cost: "0", marketCost: "0.0000035" })] });
+    const { outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: fake.fetch }));
+    const billing = billingOf(outcome);
+    assert.deepEqual(
+      { costSource: billing.costSource, costUsdMicros: billing.costUsdMicros, fallback: billing.fallback, link: billing.link, model: billing.model },
+      // 0.0000035 USD = 3.5 micros, rounded up to 4; not the 0 of cost.
+      { costSource: "gateway", costUsdMicros: 4, fallback: false, link: 0, model: `gateway:${HAIKU}` },
+    );
+  });
+
+  test("system credential: cost and marketCost equal give the same result as the cost alone", async () => {
+    // The 2026-10-17 live shape: credentialType "system", all three equal.
+    const fake = fakeFetch({ [HAIKU]: [answers("ok", { cost: "0.0000264", marketCost: "0.0000264" })] });
+    const { outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: fake.fetch }));
+    const billing = billingOf(outcome);
+    assert.deepEqual([billing.costSource, billing.costUsdMicros], ["gateway", 27], "0.0000264 USD = 26.4 micros, rounded up to 27");
+  });
+
+  test("with a malformed marketCost the cost is used; with a malformed cost the marketCost is used", async () => {
+    const costWins = fakeFetch({ [HAIKU]: [answers("ok", { cost: "0.000005", marketCost: "n/a" })] });
+    const { outcome: costOutcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: costWins.fetch }));
+    const billingCost = billingOf(costOutcome);
+    assert.deepEqual([billingCost.costSource, billingCost.costUsdMicros], ["gateway", 5]);
+    const marketWins = fakeFetch({ [HAIKU]: [answers("ok", { cost: "-0.1", marketCost: "0.000005" })] });
+    const { outcome: marketOutcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: marketWins.fetch }));
+    const billingMarket = billingOf(marketOutcome);
+    assert.deepEqual([billingMarket.costSource, billingMarket.costUsdMicros], ["gateway", 5]);
+  });
+
+  test("a numeric marketCost is not a decimal string and does not shadow the cost", async () => {
+    const fake = fakeFetch({ [HAIKU]: [answers("ok", { cost: "0.000002", marketCost: 0.0000035 })] });
+    const { outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: fake.fetch }));
+    const billing = billingOf(outcome);
+    assert.deepEqual([billing.costSource, billing.costUsdMicros], ["gateway", 2]);
+  });
+
+  test("with both figures malformed the worst-case table is used", async () => {
+    const fake = fakeFetch({ [HAIKU]: [answers("ok", { cost: "-0.1", marketCost: "n/a", input: 1000, output: 200 })] });
+    const { outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: fake.fetch }));
+    const billing = billingOf(outcome);
+    // 1000 × 0.00000055 + 200 × 0.00000275 = 0.0011 USD = 1100 micros
+    assert.deepEqual([billing.costSource, billing.costUsdMicros], ["table", 1100]);
   });
 
   for (const [name, cost] of [["without metadata", undefined], ["with a malformed cost", "-0.1"], ["with a numeric cost", 0.0045]] as const) {

@@ -348,7 +348,8 @@ describe("confirmProposal", () => {
     assert.ok(result.kind === "ok");
     assert.equal(result.proposal.status, "failed");
     assert.equal(result.proposal.errorCode, "proposal_unknown_outcome");
-    assert.ok(!JSON.stringify(result.proposal).includes("D1"));
+    // The host's message, not "D1" alone: random ids can contain those two letters.
+    assert.ok(!JSON.stringify(result.proposal).includes("dropped the connection"));
   });
 
   test("a second confirm inside the execution window is proposal_in_progress; the host runs once", async () => {

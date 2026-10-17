@@ -811,6 +811,197 @@ describe("remote installation isolation", () => {
     assert.notEqual(((await call("/api/sessions/mem_auto")).body.session as Session).collectionId, ready);
   });
 
+  test("in memory, an edit keeps a re-save into another collection that lands while it reads its body (keepPlacement)", async () => {
+    const web = await seedCloudWebSessionForTests({ email: "placement@example.test", plan: "pro" }, TEST_ENV);
+    const headers = { cookie: web.cookie, "content-type": "application/json", origin: "https://pinar.test" };
+    const call = async (path: string, init: { body?: unknown; method?: string } = {}) => {
+      const response = await api(path, {
+        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+        headers,
+        method: init.method || "GET",
+      });
+      return { body: await jsonBody(response), status: response.status };
+    };
+    const project = (await call("/api/projects", { body: { name: "Placement" }, method: "POST" })).body.project as { id: string };
+    const collection = async (name: string) => (
+      (await call(`/api/projects/${project.id}/collections`, { body: { name }, method: "POST" })).body.collection as { id: string }
+    ).id;
+    const from = await collection("From");
+    const to = await collection("To");
+    await persistSession(TEST_ENV, sessionFromCapture(parseVisualCapture({
+      captureId: "mem_place",
+      createdAt: "2026-10-17T00:00:00.000Z",
+      page: { title: "Placement", url: "https://example.test/placement" },
+      pins: [{ comment: "first", kind: "element", number: 1 }],
+      screenshot: { missing: true },
+    }, "mem_place"), {
+      byteSize: 1,
+      collectionId: from,
+      filedBy: "auto",
+      id: "mem_place",
+      includeScreenshot: false,
+      plan: "pro",
+      position: 0,
+      shotUrl: null,
+      userId: web.accountId,
+    }));
+    // A session already in To, so a re-save there gets another position.
+    await persistSession(TEST_ENV, sessionFromCapture(parseVisualCapture({
+      captureId: "mem_filler",
+      createdAt: "2026-10-16T00:00:00.000Z",
+      page: { title: "Filler", url: "https://example.test/filler" },
+      pins: [{ comment: "filler", kind: "element", number: 1 }],
+      screenshot: { missing: true },
+    }, "mem_filler"), {
+      byteSize: 1,
+      collectionId: to,
+      id: "mem_filler",
+      includeScreenshot: false,
+      plan: "pro",
+      position: 0,
+      shotUrl: null,
+      userId: web.accountId,
+    }));
+    const read = async () => (await call("/api/sessions/mem_place")).body.session as Session;
+    const pinId = String((await read()).pins[0]?.pinId);
+
+    // Both routes read the session, then wait for the body: the body is held
+    // until a re-save by POST /api/history (a capture write, which places the
+    // session and replaces its in-memory entry) has moved it. The move route
+    // edits the entry in place, so it would not exercise the stale read.
+    const heldEdit = (path: string, body: unknown) => {
+      let reading!: () => void;
+      const started = new Promise<void>((resolve) => {
+        reading = resolve;
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          reading();
+          await gate;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
+          controller.close();
+        },
+      }, { highWaterMark: 0 });
+      const response = api(path, { body: stream, duplex: "half", headers, method: "PATCH" } as RequestInit);
+      return { release, response, started };
+    };
+    const raced = async (path: string, body: unknown, target: string, batchId: string | null) => {
+      const before = await read();
+      const edit = heldEdit(path, body);
+      await edit.started;
+      const resaved = await call("/api/history", {
+        body: {
+          collectionId: target,
+          createdAt: "2026-10-17T00:00:00.000Z",
+          id: "mem_place",
+          page: { title: "Placement", url: "https://example.test/placement" },
+          pins: [{ comment: "first", number: 1 }],
+          ...(batchId ? { batch: { id: batchId, label: "Batch", startedAt: "2026-10-17T00:00:00.000Z" } } : {}),
+        },
+        method: "POST",
+      });
+      assert.equal(resaved.status, 201, JSON.stringify(resaved.body));
+      const moved = await read();
+      assert.equal(moved.collectionId, target);
+      assert.notEqual(moved.position, before.position, "the re-save changes the position too");
+      edit.release();
+      const response = await edit.response;
+      assert.equal(response.status, 200, await response.clone().text());
+      const after = await read();
+      assert.equal(after.collectionId, target, "the move survives the edit");
+      assert.equal(after.position, moved.position);
+      assert.equal(Object.hasOwn(after, "filedBy"), false, "the move's cleared mark survives too");
+      assert.equal((after as Session & { batchId?: string | null }).batchId ?? null, batchId, "the re-save's batch survives too");
+      return after;
+    };
+
+    const noted = await raced(`/api/sessions/mem_place/pins/${encodeURIComponent(pinId)}`, { comment: "edited note" }, to, "mem_place_batch");
+    assert.equal(noted.pins[0]?.comment, "edited note");
+    const diagnosis = {
+      acceptedAt: "2026-10-17T00:00:00.000Z",
+      cause: "Flex container lacks align-items",
+      confidence: "high",
+      fix: ".row { align-items: center; }",
+      properties: ["align-items"],
+      version: 1,
+    };
+    const patched = await raced("/api/sessions/mem_place", { pins: [{ diagnosis, pinId }] }, from, null);
+    assert.equal(patched.pins[0]?.diagnosis?.cause, "Flex container lacks align-items");
+    assert.equal(patched.pins[0]?.comment, "edited note");
+  });
+
+  test("in memory, an edit of a session deleted while it reads its body answers 404 and brings nothing back (keepPlacement)", async () => {
+    const web = await seedCloudWebSessionForTests({ email: "deleted@example.test", plan: "pro" }, TEST_ENV);
+    const headers = { cookie: web.cookie, "content-type": "application/json", origin: "https://pinar.test" };
+    const project = (await jsonBody(await api("/api/projects", { body: JSON.stringify({ name: "Deleted" }), headers, method: "POST" }))).project as { id: string };
+    const collection = (await jsonBody(await api(`/api/projects/${project.id}/collections`, {
+      body: JSON.stringify({ name: "Kept" }),
+      headers,
+      method: "POST",
+    }))).collection as { id: string };
+    const stored = (id: string) => sessionFromCapture(parseVisualCapture({
+      captureId: id,
+      createdAt: "2026-10-17T00:00:00.000Z",
+      page: { title: "Doomed", url: "https://example.test/doomed" },
+      pins: [{ comment: "first", kind: "element", number: 1 }],
+      screenshot: { missing: true },
+    }, id), {
+      byteSize: 1,
+      collectionId: collection.id,
+      id,
+      includeScreenshot: false,
+      plan: "pro",
+      position: 0,
+      shotUrl: null,
+      userId: web.accountId,
+    });
+
+    // Both routes read the session, then wait for the body: it is held until
+    // DELETE /api/history/:id has removed the session.
+    const raced = async (id: string, path: string, body: unknown) => {
+      await persistSession(TEST_ENV, stored(id));
+      let reading!: () => void;
+      const started = new Promise<void>((resolve) => {
+        reading = resolve;
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          reading();
+          await gate;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
+          controller.close();
+        },
+      }, { highWaterMark: 0 });
+      const response = api(path, { body: stream, duplex: "half", headers, method: "PATCH" } as RequestInit);
+      await started;
+      assert.equal((await api(`/api/history/${id}`, { headers, method: "DELETE" })).status, 200);
+      release();
+      const answered = await response;
+      assert.equal(answered.status, 404);
+      assert.deepEqual(await answered.json(), { error: "Session not found" });
+      assert.equal((await api(`/api/sessions/${id}`, { headers })).status, 404, "the session is not brought back");
+    };
+    await raced("mem_doomed_note", "/api/sessions/mem_doomed_note/pins/mem_doomed_note%3Ap1", { comment: "too late" });
+    await raced("mem_doomed_patch", "/api/sessions/mem_doomed_patch", { reproduction: null });
+
+    // persistSession itself: no entry, or another owner's entry, is not written.
+    assert.equal(await persistSession(TEST_ENV, stored("mem_never"), null, { keepPlacement: true }), false);
+    assert.equal((await api("/api/sessions/mem_never", { headers })).status, 404);
+    await persistSession(TEST_ENV, stored("mem_owned"));
+    const foreign = { ...stored("mem_owned"), page: { title: "Theirs", url: "https://example.test/theirs" }, userId: "usr_someone_else" };
+    assert.equal(await persistSession(TEST_ENV, foreign, null, { keepPlacement: true }), false);
+    const kept = (await jsonBody(await api("/api/sessions/mem_owned", { headers }))).session as Session;
+    assert.equal(kept.page.title, "Doomed");
+  });
+
   test("expires extension codes, validates origins and constrains returnTo", async () => {
     setCloudNowForTests("2026-08-16T12:00:00.000Z");
     await register(identityA);

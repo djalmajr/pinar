@@ -2958,7 +2958,8 @@ export async function updateMcpSession(
     if (!withReproduction) throw new McpToolError("reproduction is invalid");
     next = withReproduction;
   }
-  await persistSession(env, next, session.batchId ?? null);
+  // Deleted since the read: the same answer as a session never found.
+  if (!(await persistSession(env, next, session.batchId ?? null, { keepPlacement: true }))) return null;
   const stored = await findOwnedSession(env, principal, id);
   return decorateCloudSession(env, stored || next);
 }
@@ -3002,7 +3003,9 @@ async function createMcpPin(
     ...(colorCollides ? {} : { color: paletteColor }),
   }, session.id, session.pins.length);
   const next: Session = { ...session, pins: [...session.pins, pin] };
-  await persistSession(env, next, session.batchId ?? null);
+  if (!(await persistSession(env, next, session.batchId ?? null, { keepPlacement: true }))) {
+    throw new McpToolError("Session not found");
+  }
   const stored = await findOwnedSession(env, principal, sessionId);
   const created = stored?.pins.find((item) => (item.pinId || item.id) === pinId);
   if (!created) throw new McpToolError("Pin not found");
@@ -5444,6 +5447,25 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
   return true;
 }
 
+// The columns of a session row an upsert rewrites, without its place.
+const SESSION_CONTENT_UPDATE = `url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
+       shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
+       created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
+       is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
+       include_screenshot=excluded.include_screenshot`;
+// The session's place: its collection, position, batch and automatic-filing mark.
+const SESSION_PLACEMENT_UPDATE = `collection_id=excluded.collection_id, position=excluded.position,
+       batch_id=excluded.batch_id, filed_by=excluded.filed_by`;
+
+// The session's content over the stored entry's place (the in-memory twin of
+// keepPlacement): its collection, position and automatic-filing mark.
+function withStoredPlacement(session: Session, stored: Session): Session {
+  const next: Session = { ...session, collectionId: stored.collectionId, position: stored.position };
+  if (stored.filedBy === "auto") next.filedBy = "auto";
+  else delete next.filedBy;
+  return next;
+}
+
 // Writes the whole row, `filedBy` included: an edit keeps the automatic-filing
 // mark because it starts from the stored session; a new capture is marked by
 // passing `filedBy: "auto"` on the session it saves.
@@ -5455,22 +5477,57 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
 // session's owner only (`user_id`); without a batch, or without a claim, no
 // claim is written. moveSession and deleteCollectionContainer update the
 // claim on their own paths.
-export async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
+//
+// `keepPlacement` is for edits of a stored session (its title, URL, pins or
+// notes), which start from a read of the row: only the owner's existing row
+// is updated (UPDATE … WHERE id AND user_id), with its content alone. It keeps
+// the collection, position, batch and filing mark it has at the write, so a
+// move that lands between that read and the write is not undone, and the
+// claim is not touched (the place did not change); a row deleted since the
+// read is not brought back. Only the capture writes (uploadShot, saveHistory,
+// createMcpSession) place the session.
+//
+// Resolves to whether the row was written: always for a capture write, and
+// for an edit only when the owner's row still existed. The pin index mark
+// and the open reviews follow a written row only.
+export async function persistSession(
+  env: CloudEnv,
+  session: Session,
+  batchId: string | null = null,
+  options: { keepPlacement?: boolean } = {},
+): Promise<boolean> {
   const capture = captureFromSession(session);
-  const claimCollectionId = batchId ? session.collectionId || "" : "";
-  if (env.DB) {
+  const claimCollectionId = batchId && !options.keepPlacement ? session.collectionId || "" : "";
+  let written = true;
+  if (env.DB && options.keepPlacement) {
+    const result = await env.DB.prepare(`
+      UPDATE sessions SET url = ?, title = ?, shot_id = ?, shot_url = ?, pin_count = ?, pins_json = ?,
+        created_at = ?, plan = ?, is_permanent = ?, byte_size = ?, include_screenshot = ?
+      WHERE id = ? AND user_id = ?
+    `).bind(
+      session.page.url || "",
+      session.page.title || "",
+      session.shotId || "",
+      session.shotUrl || "",
+      capture.pins.length,
+      encodeVisualCaptureJson(capture),
+      session.createdAt,
+      session.plan || "free",
+      session.isPermanent ? 1 : 0,
+      session.byteSize || 0,
+      session.includeScreenshot === false ? 0 : 1,
+      session.id,
+      session.userId || "",
+    ).run();
+    written = Number(result.meta?.changes ?? 0) > 0;
+  } else if (env.DB) {
+    const update = `${SESSION_CONTENT_UPDATE},\n       ${SESSION_PLACEMENT_UPDATE}`;
     const upsert = env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
          plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id, filed_by
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
-       shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
-       created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
-       is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-       collection_id=excluded.collection_id, position=excluded.position,
-       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id,
-       filed_by=excluded.filed_by`,
+       ON CONFLICT(id) DO UPDATE SET ${update}`,
     ).bind(
       session.id,
       session.page.url || "",
@@ -5500,14 +5557,22 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
     } else {
       await upsert.run();
     }
+  } else if (options.keepPlacement) {
+    const stored = memorySessions.get(session.id);
+    written = Boolean(stored && stored.userId === session.userId);
+    if (stored && written) {
+      memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, withStoredPlacement(session, stored)), cloudSessionBatchId(stored)));
+    }
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
     if (claimCollectionId) claimFollowsMemoryBatch(session.userId || "", batchId, claimCollectionId);
   }
+  if (!written) return false;
   // Title, URL, notes or pins may have changed: the pin index of the session
   // is stale for its next pass (best effort, never fails the write).
   await markCloudPinIndexSessionStale(env, session.id);
   await ensureOpenPinReviews(env, session);
+  return true;
 }
 
 function parseFilesJson(value: unknown) {
@@ -6275,7 +6340,9 @@ async function editPinNote(request: Request, env: CloudEnv, captureId: string, p
     pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
   };
   try {
-    await persistSession(env, patched, session.batchId ?? null);
+    if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+      return json({ error: "Session not found" }, 404);
+    }
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
@@ -6624,7 +6691,9 @@ async function updateSessionFields(request: Request, env: CloudEnv, id: string) 
   const patched = applySessionPatch(session, body);
   if (!patched) return json({ error: "invalid session patch" }, 400);
   try {
-    await persistSession(env, patched, session.batchId ?? null);
+    if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+      return json({ error: "Session not found" }, 404);
+    }
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
@@ -8170,7 +8239,9 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             ...session,
             pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
           };
-          await persistSession(context.env, patched, session.batchId ?? null);
+          if (!(await persistSession(context.env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+            throw new McpToolError("Resource not found");
+          }
           const updatedPin = patched.pins.find((item) => (item.pinId || item.id) === pinId);
           if (!updatedPin) throw new McpToolError("Pin not found");
           return { ok: true, pin: updatedPin };

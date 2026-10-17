@@ -4,13 +4,14 @@
 // Endpoints (cloudRetrievalEndpoints), by the first link of ASSISTANT_CHAIN
 // (F4 contract §4, decision A46: the environment never decides the
 // provider, so the hub is the same in every environment):
-// - appliance: the OpenAI-compatible endpoint of AI_BASE_URL (AI_API_KEY,
-//   AI_MODEL) - the assistant's chat endpoint. The embedding endpoint is
-//   the same base URL and key with AI_EMBEDDING_MODEL; without it the
-//   entries are text-only and the search is textual. Vision uses the chat
-//   endpoint only when detectRetrievalCapabilities finds image input for
-//   AI_MODEL, and the filing engine is `decisions` when AI_MODEL declares
-//   it;
+// - appliance: the OpenAI-compatible endpoint of AI_BASE_URL with
+//   AI_API_KEY - the assistant's chat endpoint, with the chain's appliance
+//   link as the model (AI_MODEL in the default chain, without
+//   ASSISTANT_CHAIN). The embedding endpoint is the same base URL and key
+//   with AI_EMBEDDING_MODEL; without it the entries are text-only and the
+//   search is textual. Vision uses the chat endpoint only when
+//   detectRetrievalCapabilities finds image input for the chat model, and
+//   the filing engine is `decisions` when the chat model declares it;
 // - gateway: the gateway's OpenAI-compatible endpoint
 //   (GATEWAY_OPENAI_BASE_URL) with AI_GATEWAY_API_KEY, and the chain's
 //   privacy options (AI_GATEWAY_ZERO_DATA_RETENTION) on every call, and
@@ -84,10 +85,11 @@ export interface CloudPinEnv {
 }
 
 // The assistant's appliance chat endpoint (the OpenAI-compatible endpoint
-// of AI_BASE_URL), or null without the AI configuration.
-function cloudChatEndpoint(env: CloudPinEnv): AssistantEndpoint | null {
-  if (!env.AI_BASE_URL || !env.AI_API_KEY || !env.AI_MODEL) return null;
-  return { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL, kind: "appliance", model: env.AI_MODEL, thinkingControl: true };
+// of AI_BASE_URL), or null without its configuration (AI_BASE_URL and
+// AI_API_KEY) or without a chat model.
+function cloudChatEndpoint(env: CloudPinEnv, model: string): AssistantEndpoint | null {
+  if (!env.AI_BASE_URL || !env.AI_API_KEY || !model) return null;
+  return { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL, kind: "appliance", model, thinkingControl: true };
 }
 
 type CloudRetrievalHub =
@@ -96,20 +98,22 @@ type CloudRetrievalHub =
 
 // The hub of the first link of the chain; null when there is none or when
 // that hub lacks its configuration (A46: the same in every environment).
+// The appliance's chat model comes from the chain's appliance link, like
+// the chat; AI_MODEL serves only the default chain (no ASSISTANT_CHAIN).
 function cloudRetrievalHub(env: CloudPinEnv): CloudRetrievalHub | null {
-  const appliance = (): CloudRetrievalHub | null => {
-    const chat = cloudChatEndpoint(env);
+  const appliance = (model: string): CloudRetrievalHub | null => {
+    const chat = cloudChatEndpoint(env, model);
     return chat ? { chat, hub: "appliance" } : null;
   };
   const csv = env.ASSISTANT_CHAIN?.trim();
-  if (!csv) return appliance();
+  if (!csv) return appliance(env.AI_MODEL ?? "");
   let first: AssistantChainLink;
   try {
     first = parseAssistantChain(csv)[0]!;
   } catch {
     return null;
   }
-  if (first.hub === "appliance") return appliance();
+  if (first.hub === "appliance") return appliance(first.model);
   if (!env.AI_GATEWAY_API_KEY) return null;
   return {
     chat: { apiKey: env.AI_GATEWAY_API_KEY, baseUrl: GATEWAY_OPENAI_BASE_URL, kind: "openai-compatible", model: first.model, thinkingControl: false },

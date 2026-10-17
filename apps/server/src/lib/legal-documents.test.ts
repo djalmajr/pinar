@@ -64,27 +64,54 @@ describe("public legal documents", () => {
     }
   });
 
-  it("names the Pinar Cloud assistant's AI providers and what reaches them, in English and Portuguese", () => {
+  it("names the CentralIT appliance as the Pinar Cloud AI provider and what reaches it, in English and Portuguese", () => {
     const body = (id: Parameters<typeof legalDocument>[0], language: "en" | "pt") => legalDocument(id, language).body;
     for (const language of ["en", "pt"] as const) {
       const subprocessors = body("subprocessors", language);
-      for (const provider of [/### Vercel Inc\. \(Vercel AI Gateway\)/, /Anthropic/, /DeepSeek/, /Z\.ai/, /### CentralIT/]) {
-        assert.match(subprocessors, provider);
-      }
+      assert.match(subprocessors, /### CentralIT/);
+      // The gateway and the model providers left the public texts (A46), and the
+      // zero-retention wording went with them (A47).
+      assert.doesNotMatch(subprocessors, /Vercel/i);
+      assert.doesNotMatch(subprocessors, /gateway/i);
+      assert.doesNotMatch(subprocessors, /Anthropic|DeepSeek|Z\.ai/);
+      assert.doesNotMatch(subprocessors, language === "en" ? /zero data retention/i : /retenção zero de dados/i);
       const privacy = body("privacy", language);
-      assert.match(privacy, language === "en" ? /Vercel AI Gateway \(Vercel Inc\., United States\)/ : /Vercel AI Gateway \(Vercel Inc\., Estados Unidos\)/);
+      assert.match(privacy, language === "en" ? /an AI appliance operated by CentralIT, in Brazil/ : /um appliance de IA operado pela CentralIT, no Brasil/);
       assert.match(privacy, language === "en" ? /processed by CentralIT, in Brazil/ : /processados pela CentralIT, no Brasil/);
+      assert.doesNotMatch(privacy, /Vercel/i);
+      assert.doesNotMatch(privacy, /gateway/i);
+      assert.doesNotMatch(privacy, language === "en" ? /zero data retention/i : /retenção zero de dados/i);
       assert.match(body("retention", language), language === "en" ? /90 days after its last message/ : /90 dias após a última mensagem/);
     }
     const privacyEn = body("privacy", "en");
     const privacyPt = body("privacy", "pt");
-    // Training is always disallowed; zero data retention is not claimed.
-    assert.match(privacyEn, /disallows using it to train models/);
-    assert.match(privacyPt, /proíbe usá-lo para treinar modelos/);
-    assert.match(privacyEn, /Zero data retention is not currently requested/);
-    assert.match(privacyPt, /A retenção zero de dados não é solicitada hoje/);
-    assert.match(body("subprocessors", "en"), /zero data retention is not currently requested/);
-    assert.match(body("subprocessors", "pt"), /a retenção zero de dados não é solicitada hoje/);
+    // The appliance keeps only the request metadata and does not train on the data (A46).
+    assert.match(privacyEn, /never the prompt, the answer, or the image/);
+    assert.match(privacyPt, /nunca o prompt, a resposta ou a imagem/);
+    assert.match(privacyEn, /does not use the data to train models/);
+    assert.match(privacyPt, /não usa os dados para treinar modelos/);
+    // Background indexing covers only accounts that already use the AI features (A49).
+    assert.match(privacyEn, /used to search your pins, on accounts that use the assistant or have turned on the automatic collection choice/);
+    assert.match(privacyPt, /usadas para buscar seus pins, nas contas que usam o assistente ou ligaram a escolha automática da coleção/);
+    assert.match(privacyEn, /index, before you ask, only the sessions with pins of accounts that have already had a conversation with the assistant or turned on “Choose the collection automatically”/);
+    assert.match(privacyPt, /indexar, antes de você perguntar, só as sessões com pins de contas que já conversaram com o assistente ou ligaram “Escolher a coleção automaticamente”/);
+    // The customer carries the burden for third-party data, in the Policy and the Terms (A48).
+    const termsEn = body("terms", "en");
+    const termsPt = body("terms", "pt");
+    assert.match(privacyEn, /you are the controller of that data/);
+    assert.match(privacyEn, /you instruct Pinar to process it with the AI provider/);
+    assert.match(privacyEn, /Pinar acts as a processor of that data/);
+    assert.match(privacyPt, /você é o controlador desses dados/);
+    assert.match(privacyPt, /você instrui o Pinar a tratá-lo com o provedor de IA/);
+    assert.match(privacyPt, /o Pinar atua como operador desses dados/);
+    assert.match(termsEn, /you are the controller/);
+    assert.match(termsEn, /instructs Pinar to process it with the AI provider/);
+    assert.match(termsEn, /Pinar acting as a processor/);
+    assert.match(termsEn, /see the Privacy Policy/);
+    assert.match(termsPt, /você é o controlador/);
+    assert.match(termsPt, /instrui o Pinar a tratá-lo com o provedor de IA/);
+    assert.match(termsPt, /o Pinar atuando como operador/);
+    assert.match(termsPt, /veja a Política de Privacidade/);
     // The screenshot goes to the AI for search whatever the agent-copy option
     // says (A24), quoted with the option's real label.
     assert.match(privacyEn, new RegExp(`even when “${englishMessages["dashboard.includeScreenshot"]}” is off`));

@@ -109,7 +109,11 @@ export function createOpenAiCompatibleAi(config: OpenAiCompatibleAiConfig): AiRu
     // retries once, same fields and same blob, without response_format.
     const first = await send(true);
     const response = first.status === 400 || first.status === 422 ? await send(false) : first;
-    if (!response.ok) throw new Error(`ai request failed: ${response.status}`);
+    // F4c: the statusCode rides on the error so the voice/text chain
+    // (voice-chain.ts) can classify the refusal (401/403 fatal, 402 budget,
+    // 429 transient) instead of passing to the next link; the message stays
+    // as it was for the consumers that read it.
+    if (!response.ok) throw Object.assign(new Error(`ai request failed: ${response.status}`), { statusCode: response.status });
     let parsed: unknown = {};
     try {
       parsed = await response.json();
@@ -166,7 +170,9 @@ export function createOpenAiCompatibleAi(config: OpenAiCompatibleAiConfig): AiRu
       redirect: "error",
       signal,
     });
-    if (!response.ok) throw new Error(`ai request failed: ${response.status}`);
+    // F4c: the statusCode rides on the error, as in transcribe, so the
+    // chain's classification sees the refusal (voice-chain.ts).
+    if (!response.ok) throw Object.assign(new Error(`ai request failed: ${response.status}`), { statusCode: response.status });
     let parsed: unknown = {};
     try {
       parsed = await response.json();

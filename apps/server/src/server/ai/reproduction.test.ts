@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
 import { resetCloudMemoryStateForTests, type CloudEnv } from "../cloud-api";
+import { createOpenAiCompatibleAi } from "../edger/openai-compatible-ai";
 import {
   aiEnv,
   api,
@@ -310,5 +311,178 @@ describe("POST /api/ai/reproduction", () => {
     assert.equal(response.status, 404);
     assert.deepEqual(await response.json(), { error: "Session not found" });
     assert.equal((await getJson("/api/sessions/repro_session_030", paid.cookie, paid.env)).status, 404, "the session is not brought back");
+  });
+});
+
+// ---------- appliance chains (F4c): the link's own model and the refusal ----------
+
+interface ApplianceCall {
+  model: string;
+  url: string;
+}
+
+// A fake global fetch for the OpenAI-compatible appliance: the chain builds
+// its own adapter with the runtime fetch, so the route reaches this stub. It
+// records the model of each call — the form field for the transcription, the
+// JSON body for the text.
+function fakeAppliance(handler: (url: string, call: ApplianceCall) => Response) {
+  const calls: ApplianceCall[] = [];
+  const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    let call: ApplianceCall;
+    if (init?.body instanceof FormData) {
+      call = { model: String(init.body.get("model") ?? ""), url };
+    } else {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      call = { model: String(body.model ?? ""), url };
+    }
+    calls.push(call);
+    return handler(url, call);
+  }) as typeof fetch;
+  return { calls, fn };
+}
+
+async function withAppliance<T>(fake: ReturnType<typeof fakeAppliance>, fn: () => Promise<T>): Promise<T> {
+  const real = globalThis.fetch;
+  globalThis.fetch = fake.fn;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+// The EdgeR's edgerCloudEnv shape: the AI_BASE_URL/AI_API_KEY pair plus an
+// env.AI adapter with the configured models — the adapter whose model used
+// to replace the link's model.
+function edgeREnv(base: CloudEnv): CloudEnv {
+  return {
+    ...base,
+    AI: createOpenAiCompatibleAi({
+      apiKey: "edge-key",
+      baseUrl: "https://llm.example.test/v1",
+      chatModel: "configured-chat",
+      transcriptionModel: "configured-stt",
+    }) as unknown as Ai,
+    AI_API_KEY: "edge-key",
+    AI_BASE_URL: "https://llm.example.test/v1",
+    AI_MODEL: "configured-chat",
+    AI_TRANSCRIPTION_MODEL: "configured-stt",
+  };
+}
+
+describe("reproduction appliance chains (F4c)", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+  });
+
+  test("the appliance link sends the link's model, not the EdgeR adapter's configured model", async () => {
+    const env = edgeREnv({
+      ...TEST_ENV,
+      AI_TEXT_CHAIN: "appliance:requested-chat",
+    });
+    const fake = fakeAppliance((url) => {
+      assert.ok(url.endsWith("/chat/completions"), url);
+      return Response.json({
+        choices: [{ message: { content: JSON.stringify(GENERATED) } }],
+        usage: { completion_tokens: 300, prompt_tokens: 900 },
+      });
+    });
+    const paid = await paidProCookie(env, "repro-appliance-model@example.test");
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_appl_model",
+      pins: [{ comment: "The error toast never appears", number: 1, pinId: "pin_repro_appl_model" }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+
+    const response = await withAppliance(fake, () => postJson("/api/ai/reproduction", {
+      language: "pt",
+      requestId: "repro_request_appliance_model_01",
+      sessionId: "repro_session_appl_model",
+    }, paid.cookie, paid.env));
+
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await jsonBody(response);
+    assert.equal(body.ok, true);
+    assert.equal(fake.calls.length, 1);
+    assert.equal(fake.calls[0].model, "requested-chat", "the link's model crossed, not the configured one");
+    const stored = await jsonBody(await getJson("/api/sessions/repro_session_appl_model", paid.cookie, paid.env));
+    assert.ok(isRecord(stored.session) && isRecord(stored.session.reproduction) && isRecord(stored.session.reproduction.generated), "the result persisted");
+  });
+
+  test("a 401 on the first appliance link ends the chain after one call (refusal)", async () => {
+    const env = edgeREnv({
+      ...TEST_ENV,
+      AI_TEXT_CHAIN: "appliance:requested-chat,appliance:fallback-chat",
+    });
+    const fake = fakeAppliance((_url, call) => {
+      if (call.model === "requested-chat") {
+        return Response.json({ error: { message: "invalid key" } }, { status: 401 });
+      }
+      return Response.json({
+        choices: [{ message: { content: JSON.stringify(GENERATED) } }],
+        usage: { completion_tokens: 300, prompt_tokens: 900 },
+      });
+    });
+    const paid = await paidProCookie(env, "repro-appliance-401@example.test");
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_appl_401",
+      pins: [{ comment: "The error toast never appears", number: 1, pinId: "pin_repro_appl_401" }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+
+    const response = await withAppliance(fake, () => postJson("/api/ai/reproduction", {
+      language: "pt",
+      requestId: "repro_request_appliance_401_01",
+      sessionId: "repro_session_appl_401",
+    }, paid.cookie, paid.env));
+
+    assert.equal(response.status, 503);
+    const body = await jsonBody(response);
+    assert.equal(body.code, "ai_inference_failed");
+    assert.equal(body.error, "Reproduction generation unavailable");
+    assert.equal(fake.calls.length, 1, "a 401 does not pass to the next link");
+    const stored = await jsonBody(await getJson("/api/sessions/repro_session_appl_401", paid.cookie, paid.env));
+    assert.ok(isRecord(stored.session));
+    const session = stored.session as { reproduction?: Record<string, unknown> };
+    assert.ok(isRecord(session.reproduction), "the session and its recording are intact");
+    assert.equal("generated" in session.reproduction, false, "nothing persisted");
+  });
+
+  test("a 503 on the first appliance link passes to the second and persists its result", async () => {
+    const env = edgeREnv({
+      ...TEST_ENV,
+      AI_TEXT_CHAIN: "appliance:requested-chat,appliance:fallback-chat",
+    });
+    const fake = fakeAppliance((_url, call) => {
+      if (call.model === "requested-chat") {
+        return Response.json({ error: { message: "overloaded" } }, { status: 503 });
+      }
+      return Response.json({
+        choices: [{ message: { content: JSON.stringify(GENERATED) } }],
+        usage: { completion_tokens: 300, prompt_tokens: 900 },
+      });
+    });
+    const paid = await paidProCookie(env, "repro-appliance-503@example.test");
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_appl_503",
+      pins: [{ comment: "The error toast never appears", number: 1, pinId: "pin_repro_appl_503" }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+
+    const response = await withAppliance(fake, () => postJson("/api/ai/reproduction", {
+      language: "pt",
+      requestId: "repro_request_appliance_503_01",
+      sessionId: "repro_session_appl_503",
+    }, paid.cookie, paid.env));
+
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await jsonBody(response);
+    assert.equal(body.ok, true);
+    assert.equal(fake.calls.length, 2);
+    assert.equal(fake.calls[0].model, "requested-chat");
+    assert.equal(fake.calls[1].model, "fallback-chat");
+    const stored = await jsonBody(await getJson("/api/sessions/repro_session_appl_503", paid.cookie, paid.env));
+    assert.ok(isRecord(stored.session) && isRecord(stored.session.reproduction) && isRecord(stored.session.reproduction.generated), "the fallback's result persisted");
   });
 });

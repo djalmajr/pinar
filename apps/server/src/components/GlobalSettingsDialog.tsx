@@ -145,15 +145,14 @@ function serverDefaultDestination(projects: ProjectTreeProject[]) {
   return null;
 }
 
-// GET /api/preferences says whether the server can choose a collection (AI
-// configured and a way to choose). A server that omits the field counts as
-// able; only an explicit false turns the switch off.
-export function autoCaptureDestinationAvailable(body: unknown) {
-  return !(isRecord(body) && body.autoCaptureDestinationAvailable === false);
-}
-
-export function CaptureDestinationSettings({ autoAvailable, projects }: { autoAvailable: boolean; projects: ProjectTreeProject[] }) {
-  const { autoCaptureDestination, available, captureDestination, patch } = useDeliveryPreferences();
+export function CaptureDestinationSettings({ projects }: { projects: ProjectTreeProject[] }) {
+  const {
+    autoCaptureDestination,
+    autoCaptureDestinationAvailable: autoAvailable,
+    available,
+    captureDestination,
+    patch,
+  } = useDeliveryPreferences();
   const { t } = useServerI18n();
   // Without a way to choose, the server ignores the setting and files by the
   // manual destination, so the switch reads off and the destination stays editable.
@@ -294,7 +293,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   const [aiUsageStatus, setAiUsageStatus] = useState<AiUsageStatus>("idle");
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
-  const [autoCaptureAvailable, setAutoCaptureAvailable] = useState(true);
   const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
   const runtime = pinarRuntime();
   const authSession = useAuthSession();
@@ -332,20 +330,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
       cancelled = true;
     };
   }, [open]);
-
-  // Read on every visit to Capture: setting up AI in this same dialog can
-  // make automatic filing available.
-  useEffect(() => {
-    if (!open || section !== "capture") return undefined;
-    const controller = new AbortController();
-    void fetch("/api/preferences", { cache: "no-store", signal: controller.signal })
-      .then(async (response) => response.ok ? response.json() as Promise<unknown> : null)
-      .then((body) => {
-        if (!controller.signal.aborted && body !== null) setAutoCaptureAvailable(autoCaptureDestinationAvailable(body));
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [open, section]);
 
   useEffect(() => {
     if (!open || !showPaidAi) return undefined;
@@ -771,7 +755,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                 </SettingRow>
               </section>
               <section className={cn("flex flex-col gap-5", section !== "capture" && "hidden")}>
-                <CaptureDestinationSettings autoAvailable={autoCaptureAvailable} projects={projects} />
+                <CaptureDestinationSettings projects={projects} />
                 <div className="flex flex-col gap-5">
                   <SectionHeading>{t("settings.handoffHeading")}</SectionHeading>
                   <SettingRow description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>

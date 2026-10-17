@@ -83,6 +83,32 @@ describe("collection chip: automatically filed mark", () => {
     expect(manual.html).not.toContain(AUTO_FILED);
   });
 
+  test("inside a collection the card title carries the mark, once, only for filedBy auto", () => {
+    const card = render(<SessionIdentity heading session={session("a", "auto")} showFiledMark />);
+    expect(card.marked).toBe(true);
+    // The mark sits beside the title, in the same row as the h3.
+    expect(card.html).toMatch(new RegExp(`<h3[^>]*>Page a</h3><span[^>]*aria-label="${AUTO_FILED}"`));
+    expect(render(<SessionIdentity heading session={session("b")} showFiledMark />).html).not.toContain(AUTO_FILED);
+  });
+
+  test("across collections the card title stays plain: the footer chip carries the mark", () => {
+    expect(render(<SessionIdentity heading session={session("a", "auto")} />).html).not.toContain(AUTO_FILED);
+  });
+
+  test("inside a collection the table cell carries the mark beside the title, without a chip", () => {
+    const row = render(<SessionIdentity session={session("a", "auto")} showFiledMark />);
+    expect(row.marked).toBe(true);
+    expect(row.html).not.toContain("Design");
+    expect(row.html).toMatch(new RegExp(`>Page a</span><span[^>]*aria-label="${AUTO_FILED}"`));
+    expect(render(<SessionIdentity session={session("b")} showFiledMark />).html).not.toContain(AUTO_FILED);
+  });
+
+  test("a session without a title still shows the mark inside a collection", () => {
+    const untitled: Session = { ...session("c", "auto"), page: { title: "", url: "https://example.test/c" } };
+    expect(render(<SessionIdentity heading session={untitled} showFiledMark />).marked).toBe(true);
+    expect(render(<SessionIdentity session={untitled} showFiledMark />).marked).toBe(true);
+  });
+
   test("a grouped batch is marked when any of its captures is", () => {
     const first = session("first");
     const marked: SessionGroup = { ...first, batchId: "batch", captures: [first, session("filed", "auto")] };

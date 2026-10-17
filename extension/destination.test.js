@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
+import vm from "node:vm";
 import { collectionDestination, defaultDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
 
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
@@ -279,5 +280,30 @@ describe("capture destination", () => {
     assert.match(backgroundSrc, /setDeliveryPreferences\(\{ captureDestination: destination \}\)/);
     assert.match(backgroundSrc, /mode: remotePrefs\?\.copyOnFinishBatch \?\? settings\.copyOnFinishBatch/);
     assert.match(backgroundSrc, /includeViewer = remotePrefs\?\.includeViewer \?\? settings\.includeViewer !== false/);
+  });
+
+  test("passes the automatic destination from the server answer to the options page", () => {
+    // The real preference helpers of background.js, from the language set to
+    // the patch merge that both the GET and the PATCH answers go through.
+    const helpers = backgroundSrc.slice(
+      backgroundSrc.indexOf("const SUPPORTED_PREF_LANGUAGES"),
+      backgroundSrc.indexOf("function deliveryPatchFromMessage"),
+    );
+    const context = vm.createContext({});
+    vm.runInContext(`${helpers}\nglobalThis.prefs = { localDeliveryPreferences, mergeDeliveryPreferencesPatch };`, context);
+    const { localDeliveryPreferences, mergeDeliveryPreferencesPatch } = context.prefs;
+    const fromServer = (body) => mergeDeliveryPreferencesPatch(localDeliveryPreferences({}), { includeScreenshot: true, ...body });
+
+    // Without the server (or before it answers) the extension is manual.
+    assert.equal(localDeliveryPreferences({}).autoCaptureDestination, false);
+    assert.equal(fromServer({ autoCaptureDestination: true }).autoCaptureDestination, true);
+    assert.equal(fromServer({ autoCaptureDestination: false }).autoCaptureDestination, false);
+    // An older server without the field, and malformed values, stay manual.
+    assert.equal(fromServer({}).autoCaptureDestination, false);
+    assert.equal(fromServer({ autoCaptureDestination: "yes" }).autoCaptureDestination, false);
+    assert.equal(fromServer({ autoCaptureDestination: null }).autoCaptureDestination, false);
+    // preferences:get answers with these preferences, and the options page reads the field.
+    assert.match(backgroundSrc, /getDeliveryPreferences\(\)\s*\.then\(\(prefs\) => sendResponse\(\{ \.\.\.prefs, ok: true \}\)\)/);
+    assert.match(optionsSrc, /setAutoCaptureDestination\(response\.autoCaptureDestination === true\)/);
   });
 });

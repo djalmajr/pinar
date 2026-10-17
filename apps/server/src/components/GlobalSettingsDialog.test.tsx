@@ -41,7 +41,11 @@ mock.module("@pinar/ui", () => ({
   },
 }));
 
-type PreferencesValue = DeliveryPreferences & { available: boolean; patch: (partial: Partial<DeliveryPreferences>) => Promise<void> };
+type PreferencesValue = DeliveryPreferences & {
+  autoCaptureDestinationAvailable: boolean;
+  available: boolean;
+  patch: (partial: Partial<DeliveryPreferences>) => Promise<void>;
+};
 const deliveryPreferences = { ...(await import("@/lib/delivery-preferences")) };
 const patches: Array<Partial<DeliveryPreferences>> = [];
 let preferences: PreferencesValue | null = null;
@@ -55,7 +59,7 @@ afterAll(() => {
   mock.module("@/lib/delivery-preferences", () => deliveryPreferences);
 });
 
-const { autoCaptureDestinationAvailable, CaptureDestinationSettings } = await import("./GlobalSettingsDialog");
+const { CaptureDestinationSettings } = await import("./GlobalSettingsDialog");
 
 const STAMP = { createdAt: "2026-10-17T00:00:00.000Z", ownerId: "owner", updatedAt: "2026-10-17T00:00:00.000Z" };
 const PROJECTS: ProjectTreeProject[] = [{
@@ -75,9 +79,10 @@ const AUTO_LABEL = enUi["settings.autoCaptureDestination"];
 const DESTINATION_LABEL = enUi["settings.captureDestination"];
 const UNAVAILABLE = enUi["settings.autoCaptureDestinationUnavailable"];
 
-function render({ autoAvailable = true, ...overrides }: Partial<DeliveryPreferences & { available: boolean }> & { autoAvailable?: boolean } = {}) {
+function render(overrides: Partial<DeliveryPreferences & { autoCaptureDestinationAvailable: boolean; available: boolean }> = {}) {
   preferences = {
     ...DEFAULT_DELIVERY_PREFERENCES,
+    autoCaptureDestinationAvailable: true,
     available: true,
     ...overrides,
     patch: async (partial) => {
@@ -88,7 +93,7 @@ function render({ autoAvailable = true, ...overrides }: Partial<DeliveryPreferen
   cascaders.clear();
   const html = renderToStaticMarkup(
     <ServerI18nProvider initialLanguage="en" initialMessages={enUi}>
-      <CaptureDestinationSettings autoAvailable={autoAvailable} projects={PROJECTS} />
+      <CaptureDestinationSettings projects={PROJECTS} />
     </ServerI18nProvider>,
   );
   const toggle = switches.get(AUTO_LABEL);
@@ -128,15 +133,15 @@ describe("Settings → Capture: automatic collection", () => {
     expect(off.destinationDisabledAttribute).toBe(false);
   });
 
-  test("unavailable, the switch is disabled with the reason and the selector stays editable", () => {
-    const unavailable = render({ autoAvailable: false, autoCaptureDestination: true });
+  test("unavailable in the preferences, the switch is disabled with the reason and the selector stays editable", () => {
+    const unavailable = render({ autoCaptureDestination: true, autoCaptureDestinationAvailable: false });
     expect(unavailable.toggle.disabled).toBe(true);
     // Without a way to choose, the server files by the manual destination.
     expect(unavailable.toggle.checked).toBe(false);
     expect(unavailable.destination.disabled).toBe(false);
     expect(unavailable.html).toContain(UNAVAILABLE);
 
-    const available = render({ autoAvailable: true });
+    const available = render({ autoCaptureDestinationAvailable: true });
     expect(available.toggle.disabled).toBe(false);
     expect(available.html).not.toContain(UNAVAILABLE);
   });
@@ -145,16 +150,5 @@ describe("Settings → Capture: automatic collection", () => {
     const { destination, toggle } = render({ available: false });
     expect(toggle.disabled).toBe(true);
     expect(destination.disabled).toBe(true);
-  });
-
-  test("only an explicit false from the server means unavailable", () => {
-    expect(autoCaptureDestinationAvailable({ autoCaptureDestinationAvailable: false })).toBe(false);
-    expect(autoCaptureDestinationAvailable({ autoCaptureDestinationAvailable: true })).toBe(true);
-    // A server without the field (before the automatic filing) counts as able.
-    expect(autoCaptureDestinationAvailable({ includeScreenshot: true })).toBe(true);
-    expect(autoCaptureDestinationAvailable({ autoCaptureDestinationAvailable: "false" })).toBe(true);
-    expect(autoCaptureDestinationAvailable({ autoCaptureDestinationAvailable: 0 })).toBe(true);
-    expect(autoCaptureDestinationAvailable(null)).toBe(true);
-    expect(autoCaptureDestinationAvailable("false")).toBe(true);
   });
 });

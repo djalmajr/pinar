@@ -11,7 +11,7 @@
 // section is Pro-only, so there is nothing else to show. The key is a
 // password field: after a save only its last four characters are shown and
 // the draft never stays in state, so it cannot reach a log or a toast.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -413,19 +413,23 @@ export function ByokSettings({ open }: { open: boolean }) {
   const [busy, setBusy] = useState<ByokBusy>("idle");
   const [error, setError] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // Every open and close starts a new generation. A request that began in an
+  // older one drops its answer and its finally, so a late reply never lands
+  // on a reopened form.
+  const generation = useRef(0);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async (opened: number, signal?: AbortSignal) => {
     let response: Response;
     let value: unknown;
     try {
       response = await fetch("/api/byok", { cache: "no-store", signal });
       value = await response.json().catch(() => null);
     } catch {
-      if (signal?.aborted) return;
+      if (signal?.aborted || opened !== generation.current) return;
       setStatus("hidden");
       return;
     }
-    if (signal?.aborted) return;
+    if (signal?.aborted || opened !== generation.current) return;
     // S4: the subpanel does not appear when the view cannot be read — no
     // "coming soon", and the section is Pro-only anyway.
     if (byokHidden(response, value)) {
@@ -442,6 +446,7 @@ export function ByokSettings({ open }: { open: boolean }) {
   }, []);
 
   useEffect(() => {
+    generation.current += 1;
     if (!open) {
       setStatus("loading");
       setView(null);
@@ -454,24 +459,27 @@ export function ByokSettings({ open }: { open: boolean }) {
       return;
     }
     const controller = new AbortController();
-    void load(controller.signal);
+    void load(generation.current, controller.signal);
     return () => controller.abort();
   }, [load, open]);
 
-  // The answer of POST /api/byok/test: the new view; a 409 byok_changed
-  // reloads the current view (carried by the answer, refetched otherwise)
-  // and shows the cause; anything else shows its own error text.
-  async function runTest() {
+  // The answer of POST /api/byok/test: the new view. The test runs on the
+  // saved settings, so it updates the view and leaves the drafts alone —
+  // unsaved edits survive it. A 409 byok_changed means the settings changed
+  // elsewhere: it reloads the view and the drafts (carried by the answer,
+  // refetched otherwise) and shows the cause; anything else shows its own
+  // error text.
+  async function runTest(opened: number) {
     setBusy("testing");
     setError(null);
     try {
       const response = await fetch("/api/byok/test", { method: "POST" });
       const value: unknown = await response.json().catch(() => null);
+      if (opened !== generation.current) return;
       if (response.ok) {
         const parsed = byokViewFrom(value);
         if (parsed !== null) {
           setView(parsed.configured ? parsed : null);
-          setDrafts(byokDraftsOf(parsed));
           return;
         }
       }
@@ -482,16 +490,18 @@ export function ByokSettings({ open }: { open: boolean }) {
           setView(carried.configured ? carried : null);
           setDrafts(byokDraftsOf(carried));
         } else {
-          await load();
+          await load(opened);
+          if (opened !== generation.current) return;
         }
         setError(t("byok.errorChanged"));
         return;
       }
       setError(t(byokApiErrorKey(code)));
     } catch {
+      if (opened !== generation.current) return;
       setError(t("byok.errorUnknown"));
     } finally {
-      setBusy("idle");
+      if (opened === generation.current) setBusy("idle");
     }
   }
 
@@ -501,6 +511,7 @@ export function ByokSettings({ open }: { open: boolean }) {
   // lands, and it never reaches an error message or a toast.
   async function save() {
     if (busy !== "idle") return;
+    const opened = generation.current;
     setBusy("saving");
     setError(null);
     try {
@@ -516,6 +527,7 @@ export function ByokSettings({ open }: { open: boolean }) {
         method: "PUT",
       });
       const value: unknown = await response.json().catch(() => null);
+      if (opened !== generation.current) return;
       if (!response.ok) {
         setError(t(byokApiErrorKey(byokErrorKey(value))));
         setBusy("idle");
@@ -531,8 +543,9 @@ export function ByokSettings({ open }: { open: boolean }) {
       setDrafts(byokDraftsOf(parsed));
       setKeyDraft("");
       setKeyEditing(false);
-      await runTest();
+      await runTest(opened);
     } catch {
+      if (opened !== generation.current) return;
       setError(t("byok.errorUnknown"));
       setBusy("idle");
     }
@@ -541,11 +554,13 @@ export function ByokSettings({ open }: { open: boolean }) {
   // DELETE /api/byok after the AlertDialog.
   async function remove() {
     if (busy !== "idle") return;
+    const opened = generation.current;
     setBusy("removing");
     setError(null);
     try {
       const response = await fetch("/api/byok", { method: "DELETE" });
       const value: unknown = await response.json().catch(() => null);
+      if (opened !== generation.current) return;
       const parsed = byokViewFrom(value);
       if (!response.ok || parsed === null || parsed.configured) throw new Error("remove failed");
       setView(null);
@@ -555,9 +570,10 @@ export function ByokSettings({ open }: { open: boolean }) {
       setRemoveOpen(false);
       toast.success(t("byok.removed"));
     } catch {
+      if (opened !== generation.current) return;
       setError(t("byok.removeError"));
     } finally {
-      setBusy("idle");
+      if (opened === generation.current) setBusy("idle");
     }
   }
 
@@ -569,7 +585,7 @@ export function ByokSettings({ open }: { open: boolean }) {
 
   function test() {
     if (busy !== "idle" || view === null) return;
-    void runTest();
+    void runTest(generation.current);
   }
 
   if (!open || status !== "ready") return null;

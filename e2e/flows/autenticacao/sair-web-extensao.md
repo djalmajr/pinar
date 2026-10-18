@@ -3,7 +3,7 @@ id: auth-sair-web-extensao
 name: Encerrar sessões web e da extensão separadamente
 reference: apps/server/src/components/AppShell.tsx; apps/extension/src/options/OptionsApp.tsx; apps/server/src/server/cloud-api.ts
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Conta paga autenticada na web e na extensão
 ---

@@ -5,7 +5,7 @@ reference: apps/extension/src/options/OptionsApp.tsx; extension/background.js; a
 persona: usuario-pago
 entry: "chrome-extension://<extension-id>/dist/options.html"
 preconditions:
-  - Extensão configurada para staging como instalação Free
+  - Extensão unpacked apontando para o Cloud local como instalação Free
   - Projeto, coleção, sessão e créditos Free criados pela fixture
   - Conta paga E2E existente
 ---

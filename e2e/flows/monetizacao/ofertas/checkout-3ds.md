@@ -3,8 +3,9 @@ id: checkout-3ds
 name: Concluir autenticação 3DS de teste
 reference: apps/server/src/pages/Pricing.tsx; apps/server/src/pages/Success.tsx; apps/server/src/server/cloud-api.ts
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige Stripe Test hospedado, e o único ambiente com ele (staging) foi desativado; o Cloud local usa credenciais Stripe inertes
   - Stripe Sandbox/Test configurado
   - Cartão Stripe Test que exige 3DS
 ---

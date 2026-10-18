@@ -3,7 +3,7 @@ id: auth-codigo-extensao-invalido-expirado
 name: Rejeitar código temporário inválido, usado ou expirado
 reference: apps/server/src/pages/SignIn.tsx; apps/server/src/server/cloud-api.ts
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Cookies de sessão do Pinar ausentes
   - Um código válido e um código expirado de instalações E2E

@@ -3,7 +3,7 @@ id: workspace-destino-invalido-fallback
 name: Voltar com segurança para Personal e Inbox
 reference: extension/destination.js; apps/server/src/server/cloud-api.ts; apps/cli/src/history.mjs
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Extensão aponta para coleção que será removida ou pertence a outro principal
 ---

@@ -5,6 +5,8 @@ Atualizado em 2026-08-18 durante a execução sequencial dos fluxos em
 Browser, correção local ainda não entregue e dependências externas. Uma
 suspeita sem reprodução não é classificada como defeito.
 
+Registro histórico: o staging foi desativado em 2026-10-18. Uma nova validação usa o Cloud local; as menções a validar no staging abaixo não têm mais destino.
+
 ## Confirmadas no staging e corrigidas localmente
 
 | Fluxo | Evidência no staging | Correção local | Regressão | Estado de entrega |

@@ -3,7 +3,7 @@ id: publico-consultar-politicas
 name: Consultar políticas legais versionadas em português e inglês
 reference: apps/server/src/pages/LegalDocument.tsx; apps/server/src/lib/legal-documents.ts; apps/server/src/components/ServerFooter.tsx
 persona: visitante
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Site público disponível
 ---

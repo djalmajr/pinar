@@ -3,9 +3,8 @@ id: publico-abrir-workspace-sem-sessao
 name: Abrir o workspace sem sessão do Pinar
 reference: apps/server/src/pages/Landing.tsx; apps/server/src/routes/app.tsx; apps/server/src/pages/SignIn.tsx
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
-  - Cloudflare Access do staging já aprovado
   - Cookies de sessão do Pinar ausentes
 ---
 

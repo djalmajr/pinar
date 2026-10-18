@@ -3,9 +3,9 @@ id: publico-alternar-idioma-tema
 name: Detectar e alternar idioma e tema nas páginas públicas
 reference: apps/server/src/components/ServerHeader.tsx; apps/server/src/lib/i18n.tsx; apps/server/src/routes/__root.tsx
 persona: accessibility
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
-  - Staging acessível no ponto de entrada
+  - Cloud local (`bun run dev:cloud`) acessível no ponto de entrada
   - Primeira execução usa um perfil sem `pinar-language` salvo
   - Locale do navegador configurado como `pt-BR`
 ---

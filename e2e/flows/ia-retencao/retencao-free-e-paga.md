@@ -3,7 +3,7 @@ id: retencao-free-e-paga
 name: Aplicar retenção Free e Pro cancelado
 reference: apps/server/src/server/cloud-api.ts; apps/server/src/lib/entitlements.ts
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Sessões E2E equivalentes em instalação Free e conta Pro
   - Relógio controlável além de sete e noventa dias

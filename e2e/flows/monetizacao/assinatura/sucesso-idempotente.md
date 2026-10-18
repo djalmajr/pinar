@@ -3,8 +3,9 @@ id: assinatura-sucesso-idempotente
 name: Reabrir sucesso sem duplicar concessões
 reference: apps/server/src/pages/Success.tsx; apps/server/src/server/cloud-api.ts
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige Stripe Test hospedado, e o único ambiente com ele (staging) foi desativado; o Cloud local usa credenciais Stripe inertes
   - Checkout Test recém-concluído
   - Claim de sucesso preservado pela própria navegação
 ---

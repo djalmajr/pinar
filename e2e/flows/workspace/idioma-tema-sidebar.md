@@ -3,7 +3,7 @@ id: workspace-idioma-tema-sidebar
 name: Persistir preferências e layout do workspace
 reference: apps/server/src/components/AppShell.tsx; apps/server/src/components/HistorySidebar.tsx; apps/server/src/lib/i18n.tsx
 persona: accessibility
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Workspace autenticado com sessões
 ---

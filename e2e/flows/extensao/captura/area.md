@@ -3,7 +3,7 @@ id: captura-area
 name: Anotar uma região livre
 reference: extension/content.js; extension/crop.js; extension/coordinates.js
 persona: usuario-extensao
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Extensão carregada no Chrome
 ---

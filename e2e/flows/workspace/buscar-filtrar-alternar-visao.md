@@ -3,7 +3,7 @@ id: workspace-buscar-filtrar-alternar-visao
 name: Buscar, filtrar pins e alternar grade ou tabela
 reference: apps/server/src/pages/HistoryDashboard.tsx; apps/server/src/server/cloud-api.ts
 persona: usuario-extensao
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Sessões E2E com títulos, URLs, comentários e quantidades de pins distintas
 ---

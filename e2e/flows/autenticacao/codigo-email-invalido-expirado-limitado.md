@@ -3,7 +3,7 @@ id: auth-codigo-email-invalido-expirado-limitado
 name: Proteger OTP contra erro, expiração e abuso
 reference: apps/server/src/pages/SignIn.tsx; apps/server/src/server/cloud-api.ts
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Conta paga E2E existente
   - Relógio/fixtures capazes de produzir desafios expirados

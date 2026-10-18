@@ -3,8 +3,9 @@ id: checkout-creditos-ia
 name: Comprar 500 créditos de IA
 reference: apps/server/src/pages/Pricing.tsx; apps/server/src/server/cloud-api.ts
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige Stripe Test hospedado, e o único ambiente com ele (staging) foi desativado; o Cloud local usa credenciais Stripe inertes
   - Conta E2E autenticada
   - Stripe Sandbox/Test configurado
 ---

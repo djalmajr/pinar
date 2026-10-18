@@ -3,7 +3,7 @@ id: extensao-closed-loop
 name: Validar o closed loop pin → agente → correção → aceite
 reference: tests/e2e/extensao/closed-loop.e2e.test.ts; packages/shared/src/loop-metrics/; docs/release-closed-loop.md
 persona: revisor
-entry: "https://stg.pinar.dev/app"
+entry: "http://127.0.0.1:3000/app"
 preconditions:
   - Extensão Pinar carregada no Chrome
   - Sessão local ou cloud autenticada

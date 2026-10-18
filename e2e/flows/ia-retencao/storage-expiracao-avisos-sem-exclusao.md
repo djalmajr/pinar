@@ -3,7 +3,7 @@ id: storage-expiracao-avisos-sem-exclusao
 name: Avisar em 30, 7 e 1 dias e nunca apagar automaticamente
 reference: apps/server/src/server/cloud-api.ts; apps/server/src/lib/entitlements.ts
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Conta E2E com pack de storage e uso acima da quota base
   - Relógio controlável até a expiração

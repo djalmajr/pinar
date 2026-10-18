@@ -3,8 +3,9 @@ id: assinatura-reativar
 name: Desfazer cancelamento agendado
 reference: apps/server/src/components/AppShell.tsx; apps/server/src/server/cloud-api.ts; apps/server/src/server/stripe-subscription-state.ts
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige Stripe Test hospedado, e o único ambiente com ele (staging) foi desativado; o Cloud local usa credenciais Stripe inertes
   - Assinatura Pro Test com cancelamento ao fim do período
 ---
 

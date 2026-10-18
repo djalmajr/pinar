@@ -3,7 +3,7 @@ id: ia-idempotencia-rate-limit
 name: Repetir pedido sem novo débito e respeitar limite
 reference: apps/server/src/server/cloud-api.ts; apps/server/src/pages/WebViewer.tsx
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Conta E2E autenticada com créditos
   - Sessão própria

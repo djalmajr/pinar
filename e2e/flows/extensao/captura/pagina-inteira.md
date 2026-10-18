@@ -3,7 +3,7 @@ id: captura-pagina-inteira
 name: Produzir screenshot além do viewport
 reference: extension/full-page.js; extension/background.js; extension/crop.js
 persona: power-user
-entry: "https://stg.pinar.dev/pricing"
+entry: "http://127.0.0.1:3000/pricing"
 preconditions:
   - Extensão carregada no Chrome
   - Página maior que um viewport

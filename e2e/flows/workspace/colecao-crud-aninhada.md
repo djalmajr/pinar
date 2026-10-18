@@ -3,7 +3,7 @@ id: workspace-colecao-crud-aninhada
 name: Criar, aninhar, renomear e excluir coleção
 reference: apps/server/src/pages/HistoryDashboard.tsx; apps/server/src/components/HistorySidebar.tsx; apps/server/src/lib/collection-tree.ts
 persona: power-user
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Projeto E2E selecionado
 ---

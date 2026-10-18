@@ -14,6 +14,7 @@
 
 import {
   ByokCallError,
+  byokAbortRace,
   byokEgressErrorCause,
   byokReadBody,
   byokResponseCause,
@@ -50,17 +51,19 @@ export { ByokCallError };
 async function byokCallEgress(egress: ByokEgress, url: string, init: RequestInit, timeoutMs: number): Promise<string> {
   let response: Response;
   let bodyText: string;
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
-    const signal = AbortSignal.timeout(timeoutMs);
-    response = await egress(url, {
+    // Raced with the deadline: an egress that ignores the signal cannot
+    // hold the call past it.
+    response = await byokAbortRace(egress(url, {
       ...init,
       redirect: "error",
       signal,
-    });
+    }), signal);
     bodyText = await byokReadBody(response, BYOK_CALL_BODY_LIMIT, signal);
   } catch (error) {
     if (error instanceof ByokCallError) throw error;
-    throw new ByokCallError(byokEgressErrorCause(error));
+    throw new ByokCallError(byokEgressErrorCause(error, signal));
   }
   if (!response.ok) throw new ByokCallError(byokResponseCause(response, bodyText));
   return bodyText;

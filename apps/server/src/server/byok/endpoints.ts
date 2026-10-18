@@ -95,7 +95,7 @@ export function byokSlotEgress(egress: ByokEgress, ownerId: string): ByokEgress 
       const body = await byokResponseBodyRead(response, BYOK_RESPONSE_BODY_LIMIT, init?.signal ?? undefined);
       if (body.kind === "limit") throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
       if (body.kind === "abort") throw new ByokCallError({ cause: "timeout", retryAfterSeconds: null });
-      if (body.kind === "error") throw new ByokCallError(byokEgressErrorCause(body.error));
+      if (body.kind === "error") throw new ByokCallError(byokEgressErrorCause(body.error, init?.signal ?? undefined));
       // A 2xx without a body (204, 205, or a null body) stays bodyless: a
       // runtime may refuse a body on those statuses, and the caller's
       // parse then refuses the empty answer as invalid_response.
@@ -103,7 +103,7 @@ export function byokSlotEgress(egress: ByokEgress, ownerId: string): ByokEgress 
       return new Response(bodyless ? null : body.bytes, { headers: response.headers, status: response.status, statusText: response.statusText });
     } catch (error) {
       if (error instanceof ByokCallError) throw error;
-      throw new ByokCallError(byokEgressErrorCause(error));
+      throw new ByokCallError(byokEgressErrorCause(error, init?.signal ?? undefined));
     } finally {
       // Idempotent: every path settles the call with the slot released.
       byokSlotRelease(ownerId)();

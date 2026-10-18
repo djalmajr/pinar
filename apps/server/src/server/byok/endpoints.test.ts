@@ -510,6 +510,42 @@ describe("byokSlotEgress (F5/S3c)", () => {
     assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
   });
 
+  test("an already aborted signal, or one aborted inside the egress, settles at once as timeout and frees the slot", async () => {
+    const deaf = byokSlotEgress(async () => new Promise<Response>(() => {}), "owner-aborted");
+    const already = new AbortController();
+    already.abort(new Error("the caller gave up"));
+    await assert.rejects(deaf("https://byok.test/v1/embeddings", { signal: already.signal }), (error: unknown) => {
+      assert.ok(error instanceof ByokCallError);
+      assert.equal(error.cause, "timeout");
+      return true;
+    });
+    const inside = new AbortController();
+    const abortsInside = byokSlotEgress(() => {
+      inside.abort(new Error("aborted while starting"));
+      return new Promise<Response>(() => {});
+    }, "owner-aborted");
+    await assert.rejects(abortsInside("https://byok.test/v1/embeddings", { signal: inside.signal }), (error: unknown) => {
+      assert.ok(error instanceof ByokCallError);
+      assert.equal(error.cause, "timeout");
+      return true;
+    });
+    const after = byokSlotEgress(async () => new Response("done", { status: 200 }), "owner-aborted");
+    assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
+    assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
+  });
+
+  test("the caller's abort while waiting for the headers is a timeout, like during the body", async () => {
+    const deaf = byokSlotEgress(async () => new Promise<Response>(() => {}), "owner-caller-abort");
+    const ac = new AbortController();
+    const pending = deaf("https://byok.test/v1/embeddings", { signal: ac.signal });
+    setTimeout(() => ac.abort(new Error("the caller abandoned the call")), 10);
+    await assert.rejects(pending, (error: unknown) => {
+      assert.ok(error instanceof ByokCallError);
+      assert.equal(error.cause, "timeout", "not endpoint_unreachable");
+      return true;
+    });
+  });
+
   test("a bodyless 2xx (204, 205, a null body) stays bodyless, and its parse refuses it", async () => {
     for (const status of [200, 204, 205]) {
       const egress = byokSlotEgress(async () => new Response(null, { status }), "owner-bodyless");

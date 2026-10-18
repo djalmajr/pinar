@@ -14,7 +14,8 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, describe, test } from "node:test";
 import { jsonSchema, streamText, tool } from "ai";
-import { ByokAssistantTurnError } from "./cause";
+import { ByokAssistantTurnError, ByokCallError } from "./cause";
+import { byokChat } from "./call";
 import { byokCrypto } from "./crypto";
 import { untestedCapabilities } from "./api";
 import type { ByokEgress } from "./fetch";
@@ -572,6 +573,42 @@ const imageMessage = () => ({
     { text: "what is in the image?", type: "text" as const },
   ],
   role: "user" as const,
+});
+
+describe("byokTurnFetch with an egress that ignores the signal", () => {
+  test("the turn's call settles at the signal as timeout, and an already aborted one at once", async () => {
+    const fetchOf = byokTurnFetch(async () => new Promise<Response>(() => {}));
+    await assert.rejects(fetchOf(`${BASE_URL}/chat/completions`, { signal: AbortSignal.timeout(20) }), (error: unknown) => {
+      assert.ok(error instanceof ByokAssistantTurnError);
+      assert.equal(error.cause, "timeout");
+      return true;
+    });
+    const already = new AbortController();
+    already.abort(new Error("the client went away"));
+    await assert.rejects(fetchOf(`${BASE_URL}/chat/completions`, { signal: already.signal }), (error: unknown) => {
+      assert.ok(error instanceof ByokAssistantTurnError);
+      assert.equal(error.cause, "timeout");
+      return true;
+    });
+  });
+});
+
+describe("byokChat with an egress that ignores the signal", () => {
+  test("the call settles at its deadline as timeout", async () => {
+    const started = Date.now();
+    await assert.rejects(
+      byokChat(
+        { apiKey: TEST_KEY, baseUrl: BASE_URL, egress: async () => new Promise<Response>(() => {}), model: "chat-1" },
+        { maxTokens: 16, messages: [{ content: "hi", role: "user" }], timeoutMs: 20 },
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof ByokCallError);
+        assert.equal(error.cause, "timeout");
+        return true;
+      },
+    );
+    assert.ok(Date.now() - started < 2_000);
+  });
 });
 
 describe("byokAssistantModel", () => {

@@ -98,6 +98,24 @@ async function detectWith(egress: ByokEgress, over: Partial<typeof endpoint> = {
   return await detectByokCapabilities({ endpoint: { ...endpoint, ...over }, egress, now });
 }
 
+describe("detectByokCapabilities with an egress that ignores the signal", () => {
+  test("every call settles at its deadline as timeout", async () => {
+    const started = Date.now();
+    const result = await detectByokCapabilities({
+      egress: async () => new Promise<Response>(() => {}),
+      endpoint,
+      now: "2026-10-18T00:00:00.000Z",
+      timeoutMs: 20,
+    });
+    assert.ok(Date.now() - started < 2_000, "the detection did not wait past the deadlines");
+    for (const name of ["chat", "tools", "vision", "embeddings", "transcription"] as const) {
+      const capability = result[name] as { error?: string | null; ok: boolean };
+      assert.equal(capability.ok, false, name);
+      if (capability.error !== "model_not_configured") assert.equal(capability.error, "timeout", name);
+    }
+  });
+});
+
 describe("detectByokCapabilities (F5/S2)", () => {
   test("the appliance shortcut reads the catalog and makes no test call", async () => {
     const { calls, egress } = fakeEgress([jsonStatus(applianceCatalog(), 200)]);

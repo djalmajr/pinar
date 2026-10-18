@@ -137,9 +137,11 @@ export function byokResponseCause(response: Response, bodyText: string | undefin
 }
 
 /** The cause of the error the egress threw (its refusal, the deadline, the network). */
-export function byokEgressErrorCause(error: unknown): ByokCause {
+export function byokEgressErrorCause(error: unknown, signal?: AbortSignal): ByokCause {
   if (error instanceof ByokEgressUnavailableError) return { cause: "egress_unavailable", retryAfterSeconds: null };
-  if (isAbort(error)) return { cause: "timeout", retryAfterSeconds: null };
+  // The call's own signal ended it (the deadline, the caller's abort),
+  // whatever the reason it carries: the same timeout in every phase.
+  if (signal?.aborted === true || isAbort(error)) return { cause: "timeout", retryAfterSeconds: null };
   return { cause: "endpoint_unreachable", retryAfterSeconds: null };
 }
 
@@ -207,8 +209,17 @@ export async function byokReadBody(response: Response, maxBytes: number, signal?
  * neither side is left unprocessed. Without a signal the promise stands
  * alone.
  */
-export function byokAbortRace<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+export function byokAbortRace<T>(value: Promise<T> | T, signal: AbortSignal | undefined): Promise<T> {
+  // An egress may answer synchronously (a test fake): it is still a promise here.
+  const promise = Promise.resolve(value);
   if (signal === undefined) return promise;
+  if (signal.aborted) {
+    // Already aborted (before the call, or synchronously inside it): no
+    // abort event will fire again. The promise's late outcome is handled.
+    promise.catch(() => {});
+    const reason = signal.reason;
+    return Promise.reject(reason instanceof Error ? reason : new Error("the call's signal aborted the read"));
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       cleanup();

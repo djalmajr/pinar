@@ -44,6 +44,7 @@ import type { CloudEnv, Principal } from "../cloud-api";
 import { capabilitiesOf } from "./api";
 import {
   ByokAssistantTurnError,
+  byokAbortRace,
   byokEgressErrorCause,
   byokReadBody,
   byokResponseCause,
@@ -280,7 +281,9 @@ export function byokTurnFetch(egress: ByokEgress): typeof fetch {
   const guarded = guardRedirects(byokEgressAsFetch(egress));
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     try {
-      const response = await guarded(input, init);
+      // Raced with the call's signal: an egress that ignores it cannot hold
+      // the turn, and its slot, past the deadline.
+      const response = await byokAbortRace(guarded(input, init), init?.signal ?? undefined);
       if (response.ok) {
         // The 2xx body guarded mid-stream (contract §4 "Streaming"): a cut
         // by the guard (size or time) or a dropped network surfaces as an
@@ -299,7 +302,7 @@ export function byokTurnFetch(egress: ByokEgress): typeof fetch {
       throw new ByokAssistantTurnError(byokResponseCause(response, bodyText));
     } catch (error) {
       if (error instanceof ByokAssistantTurnError) throw error;
-      throw new ByokAssistantTurnError(byokEgressErrorCause(error));
+      throw new ByokAssistantTurnError(byokEgressErrorCause(error, init?.signal ?? undefined));
     }
   }) as typeof fetch;
 }

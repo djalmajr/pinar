@@ -28,6 +28,7 @@
 
 import type { AssistantEndpoint } from "../assistant/models";
 import { decodeVector, type EmbeddingEndpoint } from "../assistant/retrieval/embeddings";
+import { identityMatches } from "../assistant/retrieval/index";
 import type { PinIndexEntry } from "../assistant/retrieval/types";
 import { captureFilingText } from "./capture-text";
 import {
@@ -88,8 +89,10 @@ async function beforeDeadline<T>(step: Promise<T>, signal: AbortSignal): Promise
 }
 
 // The similarity engine over the centroids of `sessions`: a collection's
-// centroid is made of the vectors of the current embedding model in the
-// index entries of its sessions (at most FILING_CENTROID_SESSIONS).
+// centroid is made of the vectors current for the embedding endpoint in the
+// index entries of its sessions (at most FILING_CENTROID_SESSIONS): the same
+// model on another URL is another vector space, but an entry in the old
+// format (the plain model) is still current (F5/S2).
 function similarityEngine(
   embedding: EmbeddingEndpoint,
   sessions: FilingRecentSession[],
@@ -104,7 +107,7 @@ function similarityEngine(
       if (ids.length === 0) return null;
       const wanted = new Set(ids);
       const vectors = (await source.entriesFor(ids))
-        .filter((entry) => wanted.has(entry.sessionId) && entry.vector !== null && entry.model === embedding.model)
+        .filter((entry) => wanted.has(entry.sessionId) && entry.vector !== null && identityMatches(entry.model, embedding))
         .map((entry) => Array.from(decodeVector(entry.vector!)));
       return collectionCentroid(vectors);
     },

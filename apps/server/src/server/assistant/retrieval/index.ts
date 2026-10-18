@@ -43,6 +43,38 @@ export const PIN_SEARCH_MAX_SESSIONS = 500;
 export const PIN_SEARCH_MAX_LIMIT = 50;
 const SESSION_PAGE_SIZE = 100;
 
+// The identity of the endpoint that produced a stored vector (F5/S2 review
+// fix): the model and, for a direct endpoint, the base URL that serves it.
+// The same model name on another URL is another vector space, and its
+// vectors are stale. A gateway endpoint keeps the plain model name — its
+// base URL is the fixed GATEWAY_OPENAI_BASE_URL constant.
+export function embeddingIdentity(endpoint: EmbeddingEndpoint): string {
+  if (endpoint.gateway) return endpoint.model;
+  return `${endpoint.model}\u0000${endpoint.baseUrl}`;
+}
+
+/**
+ * Whether a stored entry's `model` is current for the endpoint (F5/S2
+ * re-review fix). Two shapes:
+ *
+ * - The new format carries the URL (`model\u0000url`, gateway: the plain
+ *   model): it matches only the same model and URL. A URL change with the
+ *   same model re-embeds these entries.
+ * - Entries written before the endpoint joined the identity carry only the
+ *   model: they match any endpoint of the same model, on read and reuse —
+ *   an upgrade must not strand their vectors (the pre-v0.8.1 behavior),
+ *   and a URL change with the same model re-embeds only the new-format
+ *   entries. A model name never contains the NUL that separates the new
+ *   format's model from its base URL, so the two shapes cannot be mixed up.
+ *
+ * Every consumer of the stored model uses this rule: the indexSession
+ * reuse, laggingSessions, searchPins and the filing centroids.
+ */
+export function identityMatches(entryModel: string, endpoint: EmbeddingEndpoint): boolean {
+  if (entryModel === embeddingIdentity(endpoint)) return true;
+  return !entryModel.includes("\u0000") && entryModel === endpoint.model;
+}
+
 export interface PinSource {
   /** Sessions whose pins the principal can see (owner + accepted collaborations), newest first. */
   listSessions(input: { limit: number; offset: number }): Promise<Array<{ id: string; updatedAt: string }>>;
@@ -189,7 +221,7 @@ export async function indexSession(
   if (embedding) {
     const pending = docs.flatMap((doc, index) => {
       const entry = previous.get(pinIds[index]!);
-      const current = entry !== undefined && entry.docHash === doc.hash && entry.vector !== null && entry.model === embedding.model;
+      const current = entry !== undefined && entry.docHash === doc.hash && entry.vector !== null && identityMatches(entry.model, embedding);
       if (current) vectors.set(index, entry.vector!);
       return current ? [] : [index];
     });
@@ -207,7 +239,7 @@ export async function indexSession(
     caption: captions[index]?.caption ?? null,
     docHash: docs[index]!.hash,
     docText: docs[index]!.text,
-    model: embedding?.model ?? "",
+    model: embedding === null ? "" : embeddingIdentity(embedding),
     number: pin.number,
     ocr: captions[index]?.ocr ?? null,
     pinId: pinIds[index]!,
@@ -239,15 +271,16 @@ async function accessibleSessions(source: PinSource): Promise<Array<{ id: string
 }
 
 // Sessions, in the given order, with an entry that lags behind the current
-// endpoints: no vector of the current embedding model, or a caption still
-// null while there is a vision endpoint ("" means vision already ran). One
-// entriesFor read over all the given sessions.
+// endpoints: no vector current for the embedding endpoint (the identity
+// rule — a legacy plain-model entry is current for the same model), or a
+// caption still null while there is a vision endpoint ("" means vision
+// already ran). One entriesFor read over all the given sessions.
 async function laggingSessions(deps: PinIndexDeps, sessionIds: string[]): Promise<string[]> {
   const { chat, embedding } = deps;
   if ((!chat && !embedding) || sessionIds.length === 0) return [];
   const lagging = new Set<string>();
   for (const entry of await deps.store.entriesFor(sessionIds)) {
-    const noVector = embedding !== null && (entry.vector === null || entry.model !== embedding.model);
+    const noVector = embedding !== null && (entry.vector === null || !identityMatches(entry.model, embedding));
     const noCaption = chat !== null && entry.caption === null;
     if (noVector || noCaption) lagging.add(entry.sessionId);
   }
@@ -345,7 +378,7 @@ export async function searchPins(deps: PinIndexDeps, input: { limit: number; que
   if (embedding && queryVector) {
     const vector = queryVector;
     scored = entries
-      .filter((entry) => entry.vector !== null && entry.model === embedding.model)
+      .filter((entry) => entry.vector !== null && identityMatches(entry.model, embedding))
       .map((entry) => ({ entry, score: cosine(vector, decodeVector(entry.vector!)) }));
   } else {
     const queryTerms = new Set(terms(query));

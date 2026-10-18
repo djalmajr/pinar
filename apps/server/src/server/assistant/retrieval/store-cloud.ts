@@ -166,6 +166,35 @@ export async function markCloudPinIndexSessionStale(env: { DB?: AssistantD1Datab
   }
 }
 
+/**
+ * After the owner's embedding model (or the endpoint it runs on) changed,
+ * marks every one of the owner's sessions with entries dirty, so the
+ * vectors of the previous model are re-embedded (F5 contract §1: the
+ * vectors of different models do not mix). It is the owner-wide form of
+ * markCloudPinIndexSessionStale: the same mark row, the same token rules
+ * (a fresh token per call) and the same best effort.
+ */
+export async function markCloudPinIndexOwnerStale(env: { DB?: AssistantD1Database }, ownerId: string): Promise<void> {
+  try {
+    const token = crypto.randomUUID();
+    if (env.DB) {
+      await env.DB.prepare(
+        `INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at)
+         SELECT session_id, '', ?, 0, '', NULL, ?, ?, 0, NULL, NULL, ?
+         FROM (SELECT DISTINCT session_id FROM pin_index WHERE owner_id = ? AND pin_id <> '')
+         WHERE 1
+         ON CONFLICT(session_id, pin_id) DO UPDATE SET doc_hash = excluded.doc_hash, doc_text = excluded.doc_text`,
+      ).bind(ownerId, DIRTY, token, DIRTY_AT, ownerId).run();
+      return;
+    }
+    for (const [sessionId, session] of memoryPinIndex) {
+      if (session.ownerId === ownerId) memoryDirtyMarks.set(sessionId, { dirty: true, token });
+    }
+  } catch {
+    // Best effort: the next write marks the session again.
+  }
+}
+
 // Databases already seen with the pin_index table. A missing table is not
 // remembered, so the check runs again until migration 0029 lands.
 const pinIndexReadyDatabases = new WeakSet<object>();

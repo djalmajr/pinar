@@ -5,6 +5,8 @@ import type { PinDocumentInput } from "./document";
 import { decodeVector, PIN_EMBEDDING_DIMENSIONS, type EmbeddingEndpoint } from "./embeddings";
 import {
   canonicalTime,
+  embeddingIdentity,
+  identityMatches,
   indexSession,
   indexStale,
   PIN_SEARCH_MAX_SESSIONS,
@@ -173,8 +175,8 @@ describe("indexSession", () => {
     assert.deepEqual(
       entries.map((entry) => [entry.pinId, entry.number, entry.caption, entry.ocr, entry.model, entry.sessionId, entry.updatedAt]),
       [
-        ["p1", 1, "Caption #1", "OCR 1", "embeddinggemma-300m", "s1", "2026-10-17T12:00:00.000Z"],
-        ["p2", 2, "Caption #2", "OCR 2", "embeddinggemma-300m", "s1", "2026-10-17T12:00:00.000Z"],
+        ["p1", 1, "Caption #1", "OCR 1", embeddingIdentity(embedding), "s1", "2026-10-17T12:00:00.000Z"],
+        ["p2", 2, "Caption #2", "OCR 2", embeddingIdentity(embedding), "s1", "2026-10-17T12:00:00.000Z"],
       ],
     );
     for (const entry of entries) {
@@ -206,6 +208,80 @@ describe("indexSession", () => {
       before.map((entry) => [entry.docHash, entry.caption, entry.ocr, [...entry.vector!]]),
     );
     assert.ok(after.every((entry) => entry.updatedAt === "2026-10-17T13:00:00.000Z"), "entries are refreshed so the session is no longer stale");
+  });
+
+  test("a changed endpoint (the same model) re-embeds: the vector identity includes the endpoint", async () => {
+    const { source } = fakeSource([checkoutSession()]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    const first: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://old.example/v1", model: "same-model" };
+    const second: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://new.example/v1", model: "same-model" };
+    assert.equal(embeddingIdentity(first), "same-model\u0000https://old.example/v1");
+    assert.notEqual(embeddingIdentity(first), embeddingIdentity(second), "the endpoint is part of the identity");
+    const urls: string[] = [];
+    const routed = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(String(input));
+      return fake.fetch(input, init);
+    }) as typeof fetch;
+
+    await indexSession(deps(source, store, routed, { chat: null, embedding: first }), "s1");
+    assert.equal(fake.calls.embeddings.length, 1);
+    // The URL changes, the model name stays: the old vectors are in another
+    // space, so the consumer re-embeds them against the new endpoint.
+    const result = await indexSession(deps(source, store, routed, { chat: null, embedding: second }), "s1");
+    assert.equal(result.embedded, 2, "every pin is re-embedded");
+    assert.equal(fake.calls.embeddings.length, 2);
+    assert.ok(urls[1]!.includes("new.example"), "the new call goes to the new endpoint");
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity(second)), "the stored identity is the new one");
+    // And a reindex on the same endpoint reuses the new vectors.
+    const again = await indexSession(deps(source, store, routed, { chat: null, embedding: second }), "s1");
+    assert.equal(again.embedded, 0);
+    assert.equal(fake.calls.embeddings.length, 2);
+  });
+
+  test("entries written before the endpoint joined the identity: kept by the same model on any direct URL, kept by the gateway", async () => {
+    const { source } = fakeSource([checkoutSession()]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    const direct: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://old.example/v1", model: "same-model" };
+    const gateway: EmbeddingEndpoint = {
+      apiKey: "k",
+      baseUrl: "https://ai-gateway.vercel.sh/v1",
+      gateway: { inputPrice: null, zeroDataRetention: true },
+      model: "same-model",
+    };
+    await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: direct }), "s1");
+    // Simulate the entries as written before this change: the plain model name.
+    for (const entry of data.get("s1")!) entry.model = "same-model";
+    // The old format is compatible: the same model on a direct endpoint keeps
+    // the vectors (an upgrade must not strand them), and the entry is
+    // rewritten with the endpoint's identity...
+    const redone = await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: direct }), "s1");
+    assert.equal(redone.embedded, 0, "the legacy entry is reused by a direct endpoint of the same model");
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity(direct)));
+    // ...and the gateway, whose identity is the plain model name, keeps them as-is.
+    for (const entry of data.get("s1")!) entry.model = "same-model";
+    const kept = await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: gateway }), "s1");
+    assert.equal(kept.embedded, 0, "the gateway reuses the old vectors");
+    assert.ok(data.get("s1")!.every((entry) => entry.model === "same-model"));
+  });
+
+  test("a URL change with the same model re-embeds only the new-format entries", async () => {
+    const { source } = fakeSource([checkoutSession()]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    const first: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://old.example/v1", model: "same-model" };
+    const second: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://new.example/v1", model: "same-model" };
+    await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: first }), "s1");
+    const legacyVector = data.get("s1")![0]!.vector!;
+    // One entry is still in the old format (written before the change), the other in the new one.
+    data.get("s1")![0]!.model = "same-model";
+    const result = await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: second }), "s1");
+    assert.equal(result.embedded, 1, "only the new-format entry is in another vector space");
+    assert.equal(fake.calls.embeddings.length, 2);
+    // The legacy vector is kept, and every entry is rewritten with the endpoint's identity.
+    assert.deepEqual(decodeVector(data.get("s1")![0]!.vector!), decodeVector(legacyVector));
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity(second)));
   });
 
   test("a new conversation comment re-embeds only that pin, without vision", async () => {
@@ -481,7 +557,7 @@ describe("indexStale", () => {
     assert.deepEqual(await indexStale(withEmbedding, pass), { indexed: 1, remaining: false });
     assert.deepEqual(calls.entriesFor, [["s1"]], "one entriesFor read over the listed sessions");
     assert.equal(fake.calls.embeddings.length, 1);
-    assert.ok(data.get("s1")!.every((entry) => entry.vector !== null && entry.model === "embeddinggemma-300m"));
+    assert.ok(data.get("s1")!.every((entry) => entry.vector !== null && entry.model === embeddingIdentity(embedding)));
     assert.deepEqual(await indexStale(withEmbedding, pass), { indexed: 0, remaining: false });
     assert.equal(fake.calls.embeddings.length, 1);
   });
@@ -491,12 +567,12 @@ describe("indexStale", () => {
     const { data, store } = fakeStore();
     const fake = fakeFetch();
     await indexStale(deps(source, store, fake.fetch, { chat: null, embedding: { ...embedding, model: "old-model" } }), pass);
-    assert.ok(data.get("s1")!.every((entry) => entry.model === "old-model" && entry.vector !== null));
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity({ ...embedding, model: "old-model" }) && entry.vector !== null));
 
     const current = deps(source, store, fake.fetch, { chat: null });
     assert.deepEqual(await indexStale(current, pass), { indexed: 1, remaining: false });
     assert.deepEqual(fake.calls.embeddings.at(-1)!.input.length, 2);
-    assert.ok(data.get("s1")!.every((entry) => entry.model === "embeddinggemma-300m"));
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity(embedding)));
     assert.deepEqual(await indexStale(current, pass), { indexed: 0, remaining: false });
 
     // A current-model entry whose vector is gone (a store that lost it).
@@ -506,6 +582,21 @@ describe("indexStale", () => {
     assert.equal(fake.calls.embeddings.length, embeddingsBefore + 1);
     assert.equal(fake.calls.embeddings.at(-1)!.input.length, 1);
     assert.ok(data.get("s1")!.every((entry) => entry.vector !== null));
+  });
+
+  test("a legacy entry of the same model is not lagging: the pass leaves it alone", async () => {
+    const { source } = fakeSource([checkoutSession()]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    await indexSession(deps(source, store, fake.fetch, { chat: null, embedding }), "s1");
+    // The entries as written before the endpoint joined the identity: the
+    // plain model name, with their vectors.
+    for (const entry of data.get("s1")!) entry.model = "embeddinggemma-300m";
+    const current = deps(source, store, fake.fetch, { chat: null });
+    const embeddingsBefore = fake.calls.embeddings.length;
+    assert.deepEqual(await indexStale(current, pass), { indexed: 0, remaining: false }, "the legacy vector is current for the same model");
+    assert.equal(fake.calls.embeddings.length, embeddingsBefore);
+    assert.ok(data.get("s1")!.every((entry) => entry.model === "embeddinggemma-300m" && entry.vector !== null), "the entry is not rewritten");
   });
 
   test("a session without captions gets them once vision appears", async () => {
@@ -611,6 +702,30 @@ describe("indexStale", () => {
 
 // ---------- searchPins ----------
 
+describe("identityMatches", () => {
+  const directA: EmbeddingEndpoint = { baseUrl: "https://a.example/v1", model: "m" };
+  const directB: EmbeddingEndpoint = { baseUrl: "https://b.example/v1", model: "m" };
+  const gateway: EmbeddingEndpoint = { baseUrl: "https://gateway.example/v1", gateway: { inputPrice: null, zeroDataRetention: true }, model: "m" };
+
+  test("the new format matches only the same model and URL", () => {
+    assert.equal(identityMatches("m\u0000https://a.example/v1", directA), true);
+    assert.equal(identityMatches("m\u0000https://b.example/v1", directA), false, "another URL is another vector space");
+    assert.equal(identityMatches("m\u0000https://a.example/v1", directB), false);
+    assert.equal(identityMatches("other\u0000https://a.example/v1", directA), false, "another model never matches");
+  });
+
+  test("the old format (the plain model) matches any endpoint of the same model", () => {
+    assert.equal(identityMatches("m", directA), true);
+    assert.equal(identityMatches("m", directB), true, "the legacy vector is kept across URLs of the same model");
+    assert.equal(identityMatches("other", directA), false);
+  });
+
+  test("the gateway: the old format matches, the new format does not", () => {
+    assert.equal(identityMatches("m", gateway), true);
+    assert.equal(identityMatches("m\u0000https://a.example/v1", gateway), false, "the gateway's identity is the plain model");
+  });
+});
+
 describe("searchPins", () => {
   async function indexed(options: { embedding?: EmbeddingEndpoint | null; leaky?: boolean; visible?: string[] } = {}) {
     const sessions = [
@@ -663,6 +778,26 @@ describe("searchPins", () => {
     const top = await searchPins(d, { limit: 3, query: "contrast" });
     assert.deepEqual(top, all.slice(0, 3));
     assert.equal((await searchPins(d, { limit: 0, query: "contrast" })).length, 1, "limit is clamped to 1..50");
+  });
+
+  test("entries in the old format are ranked by their vector, not by text", async () => {
+    const { d, data, fake } = await indexed();
+    // The entries as written before the endpoint joined the identity.
+    for (const entries of data.values()) for (const entry of entries) entry.model = "embeddinggemma-300m";
+    const all = await searchPins(d, { limit: 50, query: "contrast" });
+    assert.equal(fake.calls.embeddings.at(-1)!.prompt_name, "query");
+    // The same cosine order as the new-format entries: a textual fallback
+    // would rank the two "contrast" documents first, without the 0.816 and
+    // 0.5 cosine scores.
+    assert.deepEqual(
+      all.map((hit) => [hit.sessionId, hit.number, Math.round(hit.score * 1000) / 1000]),
+      [
+        ["s2", 2, 1],
+        ["s1", 1, 1],
+        ["s1", 2, 0.816],
+        ["s2", 1, 0.5],
+      ],
+    );
   });
 
   test("asks the store only for listSessions ids and never returns other sessions", async () => {

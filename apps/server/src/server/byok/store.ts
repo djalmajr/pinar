@@ -100,3 +100,44 @@ export async function deleteByokRow(env: CloudEnv, ownerId: string): Promise<voi
   }
   memoryByokEndpoints.delete(ownerId);
 }
+
+/**
+ * Records the result of the test in capabilities_json and updated_at only
+ * while the configuration the test ran against is still the stored one (the
+ * same base URL, the same key ciphertext and the same models; F5/S2 review
+ * fix): a DELETE or a PUT that landed while the test was in flight leaves
+ * the row as that write left it, and the caller discards the result. It is
+ * never an upsert — the test cannot resurrect a deleted row, nor clobber a
+ * newer save. Returns whether the update hit.
+ */
+export async function recordByokCapabilities(
+  env: CloudEnv,
+  ownerId: string,
+  row: ByokStoredRow,
+  capabilitiesJson: string,
+  updatedAt: string,
+): Promise<boolean> {
+  if (env.DB) {
+    const result = await env.DB.prepare(`
+      UPDATE byok_endpoints
+      SET capabilities_json = ?, updated_at = ?
+      WHERE owner_id = ? AND base_url = ? AND key_ciphertext = ?
+        AND chat_model = ? AND embedding_model = ? AND transcription_model = ?
+    `).bind(capabilitiesJson, updatedAt, ownerId, row.baseUrl, row.keyCiphertext, row.chatModel, row.embeddingModel, row.transcriptionModel).run();
+    return Number(result.meta?.changes ?? 0) > 0;
+  }
+  const current = memoryByokEndpoints.get(ownerId);
+  if (
+    current === undefined ||
+    current.baseUrl !== row.baseUrl ||
+    current.keyCiphertext !== row.keyCiphertext ||
+    current.chatModel !== row.chatModel ||
+    current.embeddingModel !== row.embeddingModel ||
+    current.transcriptionModel !== row.transcriptionModel
+  ) {
+    return false;
+  }
+  current.capabilitiesJson = capabilitiesJson;
+  current.updatedAt = updatedAt;
+  return true;
+}

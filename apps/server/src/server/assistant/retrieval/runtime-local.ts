@@ -24,8 +24,9 @@
 //
 // Search: before searching, an indexStale pass (20 s budget, up to 500
 // sessions) runs through the same chain the first time, again whenever the
-// endpoint capabilities (embedding model, vision) change, and again after a
-// pass chain that left work behind. When a pass leaves work behind, the
+// endpoint capabilities (the embedding endpoint's identity — model and,
+// for a direct endpoint, its base URL — plus vision) change, and again
+// after a pass chain that left work behind. When a pass leaves work behind, the
 // chain runs up to LOCAL_PIN_INDEX_MAX_CONTINUATIONS more passes in the
 // background, while a pass still indexes something. The turn's signal only
 // keeps the search from starting a request after it aborts (the question's
@@ -43,6 +44,7 @@ import { localAiVault } from "../../ai/local-ai";
 import { detectThinkingControl, type AssistantEndpoint } from "../models";
 import { detectRetrievalCapabilities } from "./detect";
 import {
+  embeddingIdentity,
   indexSession,
   indexStale,
   searchPins,
@@ -181,8 +183,13 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
     return run;
   }
 
+  // The pass key is the embedding endpoint's identity (model and, for a
+  // direct endpoint, the base URL) plus vision: a URL change with the same
+  // model starts a new pass, whose re-embedding brings the search back
+  // (F5/S2 re-review fix).
   function capabilitiesKey(indexing: PinIndexDeps): string {
-    return `${indexing.embedding?.model ?? ""}\n${indexing.chat ? "vision" : ""}`;
+    const embedding = indexing.embedding;
+    return `${embedding ? embeddingIdentity(embedding) : ""}\n${indexing.chat ? "vision" : ""}`;
   }
 
   async function indexDeps(): Promise<PinIndexDeps | null> {

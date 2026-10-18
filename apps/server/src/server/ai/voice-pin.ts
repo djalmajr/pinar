@@ -266,37 +266,16 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
     unavailableMessage: "Voice transcription unavailable",
     useCredits,
     byok: async () => {
-      // F5/S3b (contract §5): the transcription decides the route. The
-      // slots are taken up front (like the turn) and released in the
-      // finally; a cap answers byok_error rate_limited (no queue), never
-      // a gateway fallback.
+      // F5/S3b (contract §5): the transcription decides the route. One slot
+      // per request (the chat resolves without a second one — the calls are
+      // sequential) and it is released exactly once in the finally; a cap
+      // answers byok_error rate_limited (no queue), never a gateway
+      // fallback.
       const { cloudByokRoute } = await import("../byok/route");
       const transcriptionRoute = await cloudByokRoute(env, principal, "transcription");
       if (transcriptionRoute === null) return null; // no route: the metered path
       if ("cause" in transcriptionRoute) return byokRateLimitedResponse();
-      // The structuring's route: with the chat ok the structuring runs on
-      // the BYOK (no credit); without it the mixed case (the gateway's one
-      // credit) — only when the text path is usable, else the metered path
-      // (today's semantics).
       let structuringRoute: ByokRoute | null = null;
-      let mixed = false;
-      if (postProcess) {
-        const chatRoute = await cloudByokRoute(env, principal, "chat");
-        if (chatRoute !== null && "cause" in chatRoute) {
-          transcriptionRoute.release();
-          return byokRateLimitedResponse();
-        }
-        if (chatRoute === null) {
-          const availability = await voiceAvailability(env);
-          if (!availability.text) {
-            transcriptionRoute.release();
-            return null;
-          }
-          mixed = true;
-        } else {
-          structuringRoute = chatRoute;
-        }
-      }
       const runTranscription = async (): Promise<{ detectedLanguage: string | null; transcript: string }> => {
         // The transcription on the user's endpoint: one call, the per-call
         // deadline, no retry on 429/503 (contract §5).
@@ -311,35 +290,59 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
         // same refusal, without a credit to refund).
         if (transcript === "") throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
         const actualDuration = transcription.duration ?? durationSeconds;
+        // F5 review F5 (rejected for this slice): the duration keeps
+        // today's source — the metered path uses the same form field, the
+        // BYOK's provider is the user's own, and the 5 MiB limit still
+        // applies.
         if (actualDuration > MAX_DURATION_SECONDS + 1) {
           throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
         }
         return { detectedLanguage: transcription.language, transcript };
       };
+      // F5 review F4: the whole preparation (the chat's route, the text's
+      // availability, the mixed's reservation) is inside the try/finally —
+      // the slot is released exactly once, even when the preparation
+      // throws.
       try {
-        const { detectedLanguage, transcript } = await runTranscription();
-        if (!postProcess) {
-          return byokSuccessJson(env, principal, {
-            acceptanceCriteria: [],
-            comment: transcript.slice(0, 2_000),
-            detectedLanguage,
-            transcript: transcript.slice(0, 8_000),
-          }, {
-            costUsdMicros: 0,
-            inputTokens: 0,
-            model: transcriptionRoute.model,
-            outputTokens: 0,
-          });
+        let mixed = false;
+        if (postProcess) {
+          // F5 review F2: the request's slot covers the whole sequence —
+          // the transcription and the structuring are sequential, so the
+          // chat resolves without a second slot (acquire: false).
+          const chatRoute = await cloudByokRoute(env, principal, "chat", { acquire: false });
+          if (chatRoute !== null && "cause" in chatRoute) {
+            return byokRateLimitedResponse();
+          }
+          if (chatRoute === null) {
+            // F5 review F1: the gateway's structuring is unavailable — the
+            // same response as today for an unavailable structuring (the
+            // mixed path's gate, no credit), keeping the BYOK decision:
+            // never the "no route" sentinel after the transcription route
+            // exists (that would send the audio to the gateway).
+            const gate = await textUnavailable();
+            if (gate !== null) return gate;
+            mixed = true;
+          } else {
+            structuringRoute = chatRoute;
+          }
         }
         if (mixed) {
           // The structuring goes to the metered path (the gateway, one
           // credit — the transcription does not charge): the pre-checks
           // (the plan, the limit) already ran in runMeteredAiFeature; the
-          // success reports source byok (the origin of the request).
+          // success reports source byok (the origin of the request). F5
+          // review F3: the mixed's reservation keeps its own identity
+          // (voice:mixed:<requestId>), distinct from the full metered
+          // path's (voice:<requestId>) — a reused requestId on the other
+          // path conflicts (409) before any provider call, and the replay
+          // returns the stored result's origin. The transcription runs
+          // inside the path's execute, after the reservation, so a failed
+          // transcription refunds the reserved credit.
           const mixedSpec: AiFeatureSpec = { ...spec, credits: 1, model: STRUCTURING_MODEL };
           return runMeteredAiFeaturePath<VoicePinResult>({
             env,
             execute: async () => {
+              const { detectedLanguage, transcript } = await runTranscription();
               const instructions = voicePinStructuringInstructions();
               const structureInput = JSON.stringify({ language, transcript });
               // D5: the AI_TEXT_CHAIN links when configured and usable,
@@ -398,10 +401,24 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
             principal,
             request,
             requestId,
-            resourceId: `voice:${requestId}`,
+            resourceId: `voice:mixed:${requestId}`,
             spec: mixedSpec,
             unavailable: textUnavailable,
             unavailableMessage: "Voice transcription unavailable",
+          });
+        }
+        const { detectedLanguage, transcript } = await runTranscription();
+        if (!postProcess) {
+          return byokSuccessJson(env, principal, {
+            acceptanceCriteria: [],
+            comment: transcript.slice(0, 2_000),
+            detectedLanguage,
+            transcript: transcript.slice(0, 8_000),
+          }, {
+            costUsdMicros: 0,
+            inputTokens: 0,
+            model: transcriptionRoute.model,
+            outputTokens: 0,
           });
         }
         // The structuring on the BYOK's chat (no credit): the same prompt
@@ -443,6 +460,8 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
         // handler's error), never a byok_error and never the gateway.
         throw error;
       } finally {
+        // F5 review F4: the slot is released exactly once — the chat's
+        // release is a no-op (it resolves without a slot, acquire: false).
         transcriptionRoute.release();
         structuringRoute?.release();
       }

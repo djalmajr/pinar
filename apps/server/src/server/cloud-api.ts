@@ -6663,13 +6663,22 @@ export async function runMeteredAiFeaturePath<T>(input: MeteredAiFeaturePathInpu
     if (reservation.usage.status === "succeeded" && reservation.usage.resultJson) {
       const result = input.parse(reservation.usage.resultJson);
       if (result) {
+        // F5/S3b review (F3): the replay returns the stored result's
+        // origin, not the current request's: the mixed voice's reservation
+        // keeps its own identity (voice:mixed:<requestId>), so a stored
+        // mixed result is source byok even when the repeated request
+        // arrives on the metered path, and the full path's result stays
+        // pinar.
+        const storedOrigin = reservation.usage.resourceId === `voice:mixed:${requestId}`
+          ? "byok"
+          : (input.origin ?? "pinar");
         return json({
           aiCredits: await aiCreditBalance(env, principal),
           creditsCharged: reservation.usage.credits,
           idempotent: true,
           ok: true,
           result,
-          source: input.origin ?? "pinar",
+          source: storedOrigin,
           usage: {
             costUsdMicros: reservation.usage.costUsdMicros,
             inputTokens: reservation.usage.inputTokens,

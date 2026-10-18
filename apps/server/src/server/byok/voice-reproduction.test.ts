@@ -872,6 +872,312 @@ describe("POST /api/ai/voice-pin on BYOK (F5/S3b)", () => {
       db.close();
     }
   });
+
+  test("F1: the transcription ok never goes to the gateway without useCredits (the structuring-unavailable keeps the BYOK decision)", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_f1", "pro");
+      // The transcription is ok; the chat is untested (no route) and the
+      // text path is unavailable (no AI binding, no text chain) — the
+      // reviewer's FALLBACK scenario, with a usable transcription chain
+      // (the metered path could have taken the audio — it must not).
+      await seedByokRow(db, "usr_f1", { capabilitiesJson: capabilities({ transcription: true }) });
+      setPostProcessing(db, "usr_f1");
+      const env: CloudEnv = {
+        AI_GATEWAY_API_KEY: "fake-key",
+        AI_TRANSCRIPTION_CHAIN: "gateway:openai/whisper-1",
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+      };
+      const cookie = await byokCookie(db, env, "usr_f1");
+      const byokCalls = fakeByokEgress([transcriptReply]);
+      const fetchUrls: string[] = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        fetchUrls.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        return Response.json({ durationInSeconds: 30, language: "pt", text: "gateway transcript" });
+      }) as typeof fetch;
+      try {
+        const response = await api("/api/ai/voice-pin", {
+          body: voiceForm("byok_voice_f1_001"),
+          headers: { cookie },
+          method: "POST",
+        }, env);
+        assert.equal(response.status, 503, await response.clone().text());
+        assert.deepEqual(
+          await jsonBody(response),
+          { code: "ai_unavailable", error: "AI is not configured" },
+          "today's structuring-unavailable response, without a credit",
+        );
+        assert.equal(byokCalls.length, 0, "no call to the user's endpoint (the transcription is not repeated)");
+        assert.equal(fetchUrls.length, 0, "no gateway URL (the audio does not cross to the gateway)");
+        assert.deepEqual(ledgerRows(db), [], "no credit, no ledger");
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+      // The slot was released: with the text path available the same
+      // account runs the mixed case end to end (no 429 cap).
+      const gateway = gatewayStub({
+        [STRUCTURING_MODEL]: () => ({
+          output: [{ content: [{ text: STRUCTURED, type: "output_text" }], type: "message" }],
+          usage: { input_tokens: 12, output_tokens: 10 },
+        }),
+      });
+      const withText: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+        ...gateway.env,
+      };      const mixedCalls = fakeByokEgress([transcriptReply]);
+      const mixed = await api("/api/ai/voice-pin", {
+        body: voiceForm("byok_voice_f1_002"),
+        headers: { cookie },
+        method: "POST",
+      }, withText);
+      assert.equal(mixed.status, 200, await mixed.clone().text());
+      assert.equal((await jsonBody(mixed)).source, "byok");
+      assert.equal(mixedCalls.length, 1);
+      assert.equal(gateway.calls.length, 1, "only the structuring on the gateway");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("F2: one slot per voice request — the second runs while the first is in the transcription, the third is capped only with two in flight", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_f2", "pro");
+      await seedByokRow(db, "usr_f2", { capabilitiesJson: capabilities({ chat: true, transcription: true }) });
+      setPostProcessing(db, "usr_f2");
+      const env: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+      };
+      const cookie = await byokCookie(db, env, "usr_f2");
+      let signalFirst!: () => void;
+      let signalSecond!: () => void;
+      let release!: () => void;
+      const firstStarted = new Promise<void>((resolve) => { signalFirst = resolve; });
+      const secondStarted = new Promise<void>((resolve) => { signalSecond = resolve; });
+      const hold = new Promise<void>((resolve) => { release = resolve; });
+      let transcriptions = 0;
+      setByokEgressForTests(async (url) => {
+        if (url.includes("transcriptions")) {
+          transcriptions += 1;
+          if (transcriptions === 1) signalFirst();
+          if (transcriptions === 2) signalSecond();
+          await hold; // both transcriptions stay in flight
+          return transcriptReply();
+        }
+        return chatReply(STRUCTURED)();
+      });
+      const first = api("/api/ai/voice-pin", { body: voiceForm("byok_voice_f2_001"), headers: { cookie }, method: "POST" }, env);
+      await firstStarted; // the first is stopped in the transcription (one in flight)
+      const second = api("/api/ai/voice-pin", { body: voiceForm("byok_voice_f2_002"), headers: { cookie }, method: "POST" }, env);
+      // The second request is not capped while only one call is in flight:
+      // it reaches the transcription's egress (it is held there, like the
+      // first). A second slot for the chat would cap it here with 429.
+      const secondProbe = await Promise.race([
+        secondStarted.then(() => "running" as const),
+        second.then((response) => (response.status === 429 ? "capped" as const : "other")),
+      ]);
+      assert.equal(secondProbe, "running", "the second request runs (one call in flight)");
+      await secondStarted; // it is in the transcription too (two in flight)
+      // The third is capped only now, with two calls in flight.
+      const third = await api("/api/ai/voice-pin", { body: voiceForm("byok_voice_f2_003"), headers: { cookie }, method: "POST" }, env);
+      assert.equal(third.status, 429);
+      assert.deepEqual(await jsonBody(third), { canUseCredits: true, cause: "rate_limited", code: "byok_error" });
+      release();
+      const firstResponse = await first;
+      const secondResponse = await second;
+      assert.equal(firstResponse.status, 200, await firstResponse.clone().text());
+      assert.equal(secondResponse.status, 200, await secondResponse.clone().text());
+      // With no call in flight the account is not capped.
+      const after = await api("/api/ai/voice-pin", { body: voiceForm("byok_voice_f2_004"), headers: { cookie }, method: "POST" }, env);
+      assert.equal(after.status, 200, await after.clone().text());
+    } finally {
+      db.close();
+    }
+  });
+
+  test("F3: the mixed and the full path do not cross in the replay (409 before any new call, the stored origin on the same path)", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_f3", "pro");
+      // The transcription is ok; the chat is untested (the mixed case).
+      await seedByokRow(db, "usr_f3", { capabilitiesJson: capabilities({ transcription: true }) });
+      setPostProcessing(db, "usr_f3");
+      const gateway = gatewayStub({
+        [TRANSCRIPTION_MODEL]: () => { throw new Error("the gateway must not transcribe (the transcription is on the BYOK)"); },
+        [STRUCTURING_MODEL]: () => ({
+          output: [{ content: [{ text: STRUCTURED, type: "output_text" }], type: "message" }],
+          usage: { input_tokens: 12, output_tokens: 10 },
+        }),
+      });
+      const env: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+        ...gateway.env,
+      };
+      const cookie = await byokCookie(db, env, "usr_f3");
+      const byokCalls = fakeByokEgress([transcriptReply]);
+
+      // The mixed: the transcription on the BYOK, the structuring on the
+      // gateway — one credit, its own reservation identity.
+      const first = await api("/api/ai/voice-pin", {
+        body: voiceForm("byok_voice_f3_001", { durationSeconds: "90" }),
+        headers: { cookie },
+        method: "POST",
+      }, env);
+      assert.equal(first.status, 200, await first.clone().text());
+      const firstBody = await jsonBody(first);
+      assert.equal(firstBody.source, "byok");
+      assert.equal(firstBody.creditsCharged, 1);
+      assert.equal(firstBody.idempotent, false);
+      assert.equal(byokCalls.length, 1);
+      assert.equal(gateway.calls.length, 1, "only the structuring on the gateway");
+
+      // The same requestId on the full metered path (useCredits): the 409
+      // conflict before any new call (the identities differ).
+      const second = await api("/api/ai/voice-pin", {
+        body: voiceForm("byok_voice_f3_001", { durationSeconds: "90", useCredits: "true" }),
+        headers: { cookie },
+        method: "POST",
+      }, env);
+      assert.equal(second.status, 409);
+      assert.equal((await jsonBody(second)).code, "request_id_conflict");
+      assert.equal(byokCalls.length, 1, "no new call to the provider");
+      assert.equal(gateway.calls.length, 1, "no new call to the gateway");
+      assert.deepEqual(ledgerRows(db), [{ feature: "voice_pin", status: "succeeded", credits: 1, model: STRUCTURING_MODEL }]);
+
+      // The same requestId on the mixed path again replays the stored
+      // result with the stored origin (no new call).
+      const third = await api("/api/ai/voice-pin", {
+        body: voiceForm("byok_voice_f3_001", { durationSeconds: "90" }),
+        headers: { cookie },
+        method: "POST",
+      }, env);
+      assert.equal(third.status, 200);
+      const thirdBody = await jsonBody(third);
+      assert.equal(thirdBody.idempotent, true);
+      assert.equal(thirdBody.source, "byok", "the stored origin");
+      assert.equal(thirdBody.creditsCharged, 1);
+      assert.deepEqual(thirdBody.result, firstBody.result);
+      assert.equal(byokCalls.length, 1);
+      assert.equal(gateway.calls.length, 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("F3 reverse: the full path first, the mixed second (the 409 before the BYOK call)", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_f3r", "pro");
+      await seedByokRow(db, "usr_f3r", { capabilitiesJson: capabilities({ transcription: true }) });
+      setPostProcessing(db, "usr_f3r");
+      const gateway = gatewayStub({
+        [TRANSCRIPTION_MODEL]: () => ({ text: "old gateway transcript", transcription_info: { duration: 90 } }),
+        [STRUCTURING_MODEL]: () => ({
+          output: [{ content: [{ text: STRUCTURED, type: "output_text" }], type: "message" }],
+          usage: { input_tokens: 12, output_tokens: 10 },
+        }),
+      });
+      const env: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+        ...gateway.env,
+      };
+      const cookie = await byokCookie(db, env, "usr_f3r");
+      const byokCalls = fakeByokEgress([transcriptReply]);
+
+      // The full metered first: two credits (the 90 s clip), source pinar.
+      const first = await api("/api/ai/voice-pin", {
+        body: voiceForm("byok_voice_f3r_001", { durationSeconds: "90", useCredits: "true" }),
+        headers: { cookie },
+        method: "POST",
+      }, env);
+      assert.equal(first.status, 200, await first.clone().text());
+      const firstBody = await jsonBody(first);
+      assert.equal(firstBody.source, "pinar");
+      assert.equal(firstBody.creditsCharged, 2);
+      assert.equal(gateway.calls.length, 2, "the transcription + the structuring");
+      assert.equal(byokCalls.length, 0);
+
+      // The same requestId without useCredits: the mixed's reservation
+      // conflicts with the stored full one — the 409 before any BYOK call
+      // (the transcription must not run on the user's endpoint).
+      const second = await api("/api/ai/voice-pin", {
+        body: voiceForm("byok_voice_f3r_001", { durationSeconds: "90" }),
+        headers: { cookie },
+        method: "POST",
+      }, env);
+      assert.equal(second.status, 409);
+      assert.equal((await jsonBody(second)).code, "request_id_conflict");
+      assert.equal(byokCalls.length, 0, "the transcription did not run on the BYOK");
+      assert.equal(gateway.calls.length, 2, "no new gateway call");
+      assert.deepEqual(ledgerRows(db), [{ feature: "voice_pin", status: "succeeded", credits: 2, model: `${TRANSCRIPTION_MODEL} + ${STRUCTURING_MODEL}` }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("F4: an exception in the preparation (the chat's route) releases the slot (the next request runs)", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_f4", "pro");
+      await seedByokRow(db, "usr_f4", { capabilitiesJson: capabilities({ chat: true, transcription: true }) });
+      setPostProcessing(db, "usr_f4");
+      // The chat's route read throws on the first two requests (their
+      // transcription slots, if not released, leak for good — the counter
+      // never expires).
+      const real = sqliteD1(db);
+      let reads = 0;
+      let remaining = 2;
+      const wrapped = {
+        ...real,
+        prepare(query: string) {
+          if (query.includes("FROM byok_endpoints")) {
+            reads += 1;
+            if (reads % 2 === 0 && remaining > 0) {
+              remaining -= 1;
+              throw new Error("injected chat route database failure");
+            }
+          }
+          return real.prepare(query);
+        },
+      };
+      const env: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: wrapped,
+        DEPLOYMENT_ENV: "staging",
+      };
+      const cookie = await byokCookie(db, env, "usr_f4");
+      const calls = fakeByokEgress([transcriptReply, chatReply(STRUCTURED)]);
+      let initial: string | number = "";
+      for (const i of [1, 2]) {
+        try {
+          const response = await api("/api/ai/voice-pin", { body: voiceForm(`byok_voice_f4_00${i}`), headers: { cookie }, method: "POST" }, env);
+          initial = response.status;
+        } catch (error) {
+          initial = (error as Error).message;
+        }
+      }
+      assert.equal(initial, "injected chat route database failure", "the exception propagates (a server bug, not a byok_error)");
+      // The slots were released: the next request runs end to end (in the
+      // leak, the two failed requests leave the account capped).
+      const after = await api("/api/ai/voice-pin", { body: voiceForm("byok_voice_f4_003"), headers: { cookie }, method: "POST" }, env);
+      assert.equal(after.status, 200, await after.clone().text());
+      assert.equal(calls.length, 2, "the transcription + the structuring on the endpoint");
+      assert.deepEqual(ledgerRows(db), [], "no credit");
+    } finally {
+      db.close();
+    }
+  });
 });
 
 // ---------- reproduction ----------

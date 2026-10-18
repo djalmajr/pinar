@@ -9,6 +9,7 @@ import type {
 import { MENU_LABEL_FIT } from "./SessionActionsMenu";
 import { collectionDisplayName } from "@pinar/shared";
 import { sessionGroupCount } from "../lib/session-groups";
+import { collectionBadgeClass, collectionButtonClass } from "./history-sidebar-badge";
 import {
   DragOverlay,
   useDndContext,
@@ -306,6 +307,7 @@ function SortableCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const collectionHasActions = !collection.isProtected || pinarRuntime() === "cloud";
   const sessionDropTarget =
     sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   const style: CSSProperties = {
@@ -332,6 +334,7 @@ function SortableCollection({
         {...sortable.listeners}
         ref={sortable.setActivatorNodeRef}
         className={cn(
+          collectionButtonClass({ hasActions: collectionHasActions }),
           "touch-none",
           sortable.isDragging ? "cursor-grabbing" : "cursor-default",
           sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
@@ -382,10 +385,11 @@ function SortableCollection({
         </button>
       )}
       <SidebarMenuBadge
-        className={cn(
-          "group-hover/menu-item:opacity-0",
-          (menuOpen || menuActionFocused) && "opacity-0",
-        )}
+        className={collectionBadgeClass({
+          hasActions: collectionHasActions,
+          menuActionFocused,
+          menuOpen,
+        })}
       >
         {sessionGroupCount(collection.sessions)}
       </SidebarMenuBadge>
@@ -438,12 +442,14 @@ function FixedCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const collectionHasActions = !collection.isProtected || pinarRuntime() === "cloud";
   const sessionDropTarget =
     droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   return (
     <SidebarMenuItem ref={droppable.setNodeRef}>
       <SidebarMenuButton
         className={cn(
+          collectionButtonClass({ hasActions: collectionHasActions }),
           sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
         )}
         isActive={isActive}
@@ -454,13 +460,14 @@ function FixedCollection({
         <span>{visibleCollectionName(collection, t)}</span>
       </SidebarMenuButton>
       <SidebarMenuBadge
-        className={cn(
+        className={collectionBadgeClass({
           // The protected inbox renders no menu in the local runtime, so the
-          // badge must not fade on hover there: nothing would take its place.
-          (!collection.isProtected || pinarRuntime() === "cloud") &&
-            "group-hover/menu-item:opacity-0",
-          (menuOpen || menuActionFocused) && "opacity-0",
-        )}
+          // badge keeps its place and must not fade on hover there: nothing
+          // would take its place.
+          hasActions: collectionHasActions,
+          menuActionFocused,
+          menuOpen,
+        })}
       >
         {sessionGroupCount(collection.sessions)}
       </SidebarMenuBadge>

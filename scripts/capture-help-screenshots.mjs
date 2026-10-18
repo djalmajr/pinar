@@ -31,12 +31,18 @@ const ONLY_KEY = process.env.PINAR_HELP_SCREENSHOT_ONLY || "";
 
 // The detached Cloud of the own-ai-endpoint cover lives in its own process
 // group, so a Ctrl+C or a SIGTERM never reaches it: the run stops what it
-// registered here before it exits.
+// registered here before it exits. A startup still running when the signal
+// comes is awaited first; it sees `signalled` and gives up before spawning.
 const stopOnSignal = new Set();
+const startingOnSignal = new Set();
+let signalled = false;
 for (const [name, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
-  process.once(name, () => {
+  process.once(name, async () => {
+    signalled = true;
     process.stdout.write(`${name}: stopping the servers this run started\n`);
-    void Promise.allSettled([...stopOnSignal].map((stop) => stop())).finally(() => process.exit(code));
+    await Promise.allSettled([...startingOnSignal]);
+    await Promise.allSettled([...stopOnSignal].map((stop) => stop()));
+    process.exit(code);
   });
 }
 const UI_MESSAGE_LOADERS = {
@@ -427,9 +433,9 @@ const BYOK_DEMO_UNCONFIGURED = {
 };
 
 async function startByokCloud() {
-  const statePath = await mkdtemp(join(tmpdir(), "pinar-help-byok-"));
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
+  if (signalled) throw new Error("The run was interrupted before the byok cloud started");
+  let statePath = null;
+  let port = 0;
   let server = null;
   let output = "";
   // Idempotent: the signal handler and the finally may both call it.
@@ -458,11 +464,16 @@ async function startByokCloud() {
         await exited;
       }
     }
-    await rm(statePath, { force: true, recursive: true });
+    if (statePath !== null) await rm(statePath, { force: true, recursive: true });
     stopOnSignal.delete(stop);
   })());
   stopOnSignal.add(stop);
-  try {
+  // From the state to the spawn: a signal waits for this step, so the child
+  // is either spawned with its stop registered or never spawned at all.
+  const starting = (async () => {
+    statePath = await mkdtemp(join(tmpdir(), "pinar-help-byok-"));
+    port = await freePort();
+    if (signalled) return;
     server = spawn(
       "bun",
       ["run", "dev:cloud", "--", "--port", String(port), "--state-path", statePath],
@@ -472,6 +483,22 @@ async function startByokCloud() {
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
+  })();
+  startingOnSignal.add(starting);
+  try {
+    await starting;
+  } catch (error) {
+    await stop();
+    throw error;
+  } finally {
+    startingOnSignal.delete(starting);
+  }
+  if (server === null) {
+    await stop();
+    throw new Error("The run was interrupted before the byok cloud started");
+  }
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
     server.stdout.on("data", (chunk) => {
       output += chunk;
     });

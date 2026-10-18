@@ -223,11 +223,11 @@
     overlay_voice_credits: "No AI credits are available for this transcription.",
     overlay_voice_refunded: "Transcription failed temporarily. Your AI credit was refunded; try again.",
     overlay_voice_invalid: "The recording is empty or unsupported. Record it again.",
-    overlay_voice_byok_key: "Your AI endpoint rejected the API key. Check the key and its permissions in Pinar Settings → AI.",
-    overlay_voice_byok_model: "Your AI endpoint doesn't have the transcription model for this request. Check it in Pinar Settings → AI.",
+    overlay_voice_byok_key: "Your AI endpoint rejected the API key. Check the key and its permissions in Pinar Settings → AI usage.",
+    overlay_voice_byok_model: "Your AI endpoint doesn't have the transcription model for this request. Check it in Pinar Settings → AI usage.",
     overlay_voice_byok_rate: "Your AI endpoint hit its rate limit. Try again later.",
     overlay_voice_byok_rate_wait: "Your AI endpoint hit its rate limit. Try again in {seconds} seconds.",
-    overlay_voice_byok_endpoint: "Your AI endpoint didn't answer. Check it in Pinar Settings → AI and try again.",
+    overlay_voice_byok_endpoint: "Your AI endpoint didn't answer. Check it in Pinar Settings → AI usage and try again.",
     overlay_voice_byok_invalid: "Your AI endpoint answered with an invalid transcription. Try again.",
     overlay_voice_byok_generic: "Your AI endpoint failed this transcription. Try again.",
     overlay_voice_byok_use_credits: "Use Pinar credits",
@@ -2545,12 +2545,30 @@
       renderVoiceControls();
       return;
     }
-    await runVoiceTranscription({
-      audioDataUrl: await blobDataUrl(blob),
-      durationSeconds,
-      requestGeneration,
-      submitAfterTranscription,
-    });
+    // F5/S4b review: the composer is blocked from before the first await —
+    // while the recording is still being encoded (the FileReader read), a
+    // keyboard save must not ship the typed text only (origin/main kept the
+    // busy state around the read; the read failure still gets the error
+    // status and the busy reset).
+    voiceProcessing = true;
+    setVoiceStatus();
+    renderVoiceControls();
+    try {
+      await runVoiceTranscription({
+        audioDataUrl: await blobDataUrl(blob),
+        durationSeconds,
+        requestGeneration,
+        submitAfterTranscription,
+      });
+    } catch (error) {
+      if (requestGeneration !== voiceRequestGeneration) return;
+      setVoiceStatus(voiceErrorMessage(error), "error");
+    } finally {
+      if (requestGeneration === voiceRequestGeneration) {
+        voiceProcessing = false;
+        renderVoiceControls();
+      }
+    }
   }
 
   // The send of a voice recording: the first attempt and the "use Pinar
@@ -2653,6 +2671,12 @@
   async function startVoiceRecording() {
     if (!state.draft || voiceProcessing) return;
     if (voiceRecorder?.state === "recording") return;
+    // F5/S4b review: a new recording replaces the previous one — the audio
+    // kept for the credits retry is released and the action dismissed before
+    // asking the microphone (a denied permission must not offer the old
+    // audio).
+    pendingCreditRetry = null;
+    renderVoiceControls();
     await refreshVoiceAvailability();
     if (!voiceAvailable) {
       setVoiceStatus(voiceAvailabilityMessage(), "error");
@@ -2799,6 +2823,10 @@
       });
     }
     state.draft = null;
+    // F5/S4b review: the draft is over — the audio kept for the credits
+    // retry is released and the action dismissed with it.
+    pendingCreditRetry = null;
+    renderVoiceControls();
     renderChrome();
     pendingReviewSync = syncPins(true);
     updateOutline();

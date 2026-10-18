@@ -1,4 +1,7 @@
 import {
+  byokErrorResponse,
+  byokRateLimitedResponse,
+  byokSuccessJson,
   type AiFeatureSpec,
   type CloudEnv,
   extractJsonObject,
@@ -6,7 +9,10 @@ import {
   readOwnerDeliveryPreferences,
   resolvePrincipal,
   runMeteredAiFeature,
+  runMeteredAiFeaturePath,
 } from "../cloud-api";
+import { ByokCallError, byokChat, byokTranscribe } from "../byok/call";
+import type { ByokRoute } from "../byok/route";
 import {
   MAX_DURATION_SECONDS,
   parseVoicePinForm,
@@ -77,15 +83,15 @@ function tokenUsage(output: unknown, input: string, response: string) {
  * POST /api/ai/voice-pin — transcribes an ephemeral audio clip and turns it
  * into a concise pin comment. The audio is held only in request memory and is
  * never written to D1, R2, logs, or the metering result.
+ *
+ * F5/S3b (contract §5): with the transcription capability tested ok (and
+ * without useCredits) the transcription runs on the user's endpoint — no
+ * credits, one link, no gateway fallback; the structuring, when enabled, runs
+ * on the user's chat when it is ok (no credit) or on the gateway with one
+ * credit (the mixed case). The plan and the per-minute limit run on both
+ * paths, exactly as today.
  */
 export async function transcribeVoicePin(request: Request, env: CloudEnv): Promise<Response> {
-  if (!env.AI) {
-    // D5: a configured and usable AI_TRANSCRIPTION_CHAIN keeps the route
-    // available without the AI binding; the environment never decides the
-    // provider (A50).
-    const availability = await voiceAvailability(env);
-    if (!availability.transcription) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
-  }
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
 
@@ -95,6 +101,16 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
   } catch {
     return json({ error: "multipart form data required" }, 400);
   }
+  // F5/S3b (contract §5): useCredits is the form field, "true" or
+  // "false" (the multipart body has no JSON types); any other value is 400.
+  let useCredits = false;
+  const useCreditsEntry = form.get("useCredits");
+  if (useCreditsEntry !== null) {
+    if (useCreditsEntry === "true") useCredits = true;
+    else if (useCreditsEntry !== "false") {
+      return json({ error: "useCredits must be \"true\" or \"false\"" }, 400);
+    }
+  }
   const parsed = parseVoicePinForm(form);
   if (!parsed.ok) {
     return json(parsed.code ? { code: parsed.code, error: parsed.error } : { error: parsed.error }, parsed.status);
@@ -103,6 +119,22 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
 
   const postProcess = (await readOwnerDeliveryPreferences(env, principal.id)).voicePostProcessing;
   const spec = voicePinSpec(durationSeconds, postProcess);
+  const transcriptionUnavailable = async (): Promise<Response | null> => {
+    // D5: a configured and usable AI_TRANSCRIPTION_CHAIN keeps the route
+    // available without the AI binding; the environment never decides the
+    // provider (A50). F5/S3b: the gate runs only on the metered path —
+    // the BYOK route never passes it (contract §5).
+    if (env.AI) return null;
+    const availability = await voiceAvailability(env);
+    return availability.transcription ? null : json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  };
+  const textUnavailable = async (): Promise<Response | null> => {
+    // The mixed case's gate: the structuring is the metered call, so the
+    // text path must be usable for the request to take the BYOK route.
+    if (env.AI) return null;
+    const availability = await voiceAvailability(env);
+    return availability.text ? null : json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  };
   return runMeteredAiFeature<VoicePinResult>({
     env,
     execute: async () => {
@@ -230,6 +262,190 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
     requestId,
     resourceId: `voice:${requestId}`,
     spec,
+    unavailable: transcriptionUnavailable,
     unavailableMessage: "Voice transcription unavailable",
+    useCredits,
+    byok: async () => {
+      // F5/S3b (contract §5): the transcription decides the route. The
+      // slots are taken up front (like the turn) and released in the
+      // finally; a cap answers byok_error rate_limited (no queue), never
+      // a gateway fallback.
+      const { cloudByokRoute } = await import("../byok/route");
+      const transcriptionRoute = await cloudByokRoute(env, principal, "transcription");
+      if (transcriptionRoute === null) return null; // no route: the metered path
+      if ("cause" in transcriptionRoute) return byokRateLimitedResponse();
+      // The structuring's route: with the chat ok the structuring runs on
+      // the BYOK (no credit); without it the mixed case (the gateway's one
+      // credit) — only when the text path is usable, else the metered path
+      // (today's semantics).
+      let structuringRoute: ByokRoute | null = null;
+      let mixed = false;
+      if (postProcess) {
+        const chatRoute = await cloudByokRoute(env, principal, "chat");
+        if (chatRoute !== null && "cause" in chatRoute) {
+          transcriptionRoute.release();
+          return byokRateLimitedResponse();
+        }
+        if (chatRoute === null) {
+          const availability = await voiceAvailability(env);
+          if (!availability.text) {
+            transcriptionRoute.release();
+            return null;
+          }
+          mixed = true;
+        } else {
+          structuringRoute = chatRoute;
+        }
+      }
+      const runTranscription = async (): Promise<{ detectedLanguage: string | null; transcript: string }> => {
+        // The transcription on the user's endpoint: one call, the per-call
+        // deadline, no retry on 429/503 (contract §5).
+        const transcription = await byokTranscribe(transcriptionRoute, {
+          audio,
+          audioType,
+          timeoutMs: 45_000,
+        });
+        const transcript = transcription.text.trim();
+        // The 2xx without a usable transcript is the invalid_response of
+        // the common table (the metered path's invalid_ai_response, the
+        // same refusal, without a credit to refund).
+        if (transcript === "") throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
+        const actualDuration = transcription.duration ?? durationSeconds;
+        if (actualDuration > MAX_DURATION_SECONDS + 1) {
+          throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
+        }
+        return { detectedLanguage: transcription.language, transcript };
+      };
+      try {
+        const { detectedLanguage, transcript } = await runTranscription();
+        if (!postProcess) {
+          return byokSuccessJson(env, principal, {
+            acceptanceCriteria: [],
+            comment: transcript.slice(0, 2_000),
+            detectedLanguage,
+            transcript: transcript.slice(0, 8_000),
+          }, {
+            costUsdMicros: 0,
+            inputTokens: 0,
+            model: transcriptionRoute.model,
+            outputTokens: 0,
+          });
+        }
+        if (mixed) {
+          // The structuring goes to the metered path (the gateway, one
+          // credit — the transcription does not charge): the pre-checks
+          // (the plan, the limit) already ran in runMeteredAiFeature; the
+          // success reports source byok (the origin of the request).
+          const mixedSpec: AiFeatureSpec = { ...spec, credits: 1, model: STRUCTURING_MODEL };
+          return runMeteredAiFeaturePath<VoicePinResult>({
+            env,
+            execute: async () => {
+              const instructions = voicePinStructuringInstructions();
+              const structureInput = JSON.stringify({ language, transcript });
+              // D5: the AI_TEXT_CHAIN links when configured and usable,
+              // else the AI binding, exactly as before.
+              const textLinks = await textChain(env);
+              let structuringCost: number | null = null;
+              let structuredText: string;
+              let usage: { inputTokens: number; outputTokens: number };
+              if (textLinks !== null && chainUsable(env, textLinks)) {
+                const outcome = await runTextChain(env, textLinks, {
+                  maxTokens: spec.maxTokens,
+                  prompt: {
+                    messages: [
+                      { content: instructions, role: "system" },
+                      { content: structureInput, role: "user" },
+                    ],
+                  },
+                  timeoutMs: spec.timeoutMs,
+                });
+                structuringCost = outcome.costUsdMicros;
+                structuredText = outcome.text;
+                usage = outcome.usage;
+              } else {
+                const structured: unknown = await env.AI!.run(
+                  STRUCTURING_MODEL,
+                  {
+                    input: structureInput,
+                    instructions,
+                    max_output_tokens: spec.maxTokens,
+                    reasoning: { effort: "low" },
+                  },
+                  { signal: AbortSignal.timeout(spec.timeoutMs) },
+                );
+                structuredText = responseText(structured);
+                usage = tokenUsage(structured, structureInput, structuredText);
+              }
+              const structuredJson = extractJsonObject(structuredText);
+              const result = parseVoicePinResult(JSON.stringify({
+                acceptanceCriteria: structuredJson?.acceptanceCriteria,
+                comment: structuredJson?.comment,
+                detectedLanguage,
+                transcript,
+              }));
+              if (!result) throw new Error("invalid_ai_response");
+              const costUsdMicros = structuringCost ?? Math.ceil(
+                usage.inputTokens * STRUCTURING_INPUT_USD_PER_MILLION_TOKENS
+                + usage.outputTokens * STRUCTURING_OUTPUT_USD_PER_MILLION_TOKENS,
+              );
+              return {
+                result,
+                telemetry: { costUsdMicros, ...usage },
+              };
+            },
+            origin: "byok",
+            parse: parseVoicePinResult,
+            principal,
+            request,
+            requestId,
+            resourceId: `voice:${requestId}`,
+            spec: mixedSpec,
+            unavailable: textUnavailable,
+            unavailableMessage: "Voice transcription unavailable",
+          });
+        }
+        // The structuring on the BYOK's chat (no credit): the same prompt
+        // and the same parse as the metered path (contract §5).
+        const structureInput = JSON.stringify({ language, transcript });
+        const { inputTokens, outputTokens, text } = await byokChat(structuringRoute!, {
+          maxTokens: spec.maxTokens,
+          messages: [
+            { content: voicePinStructuringInstructions(), role: "system" },
+            { content: structureInput, role: "user" },
+          ],
+          timeoutMs: spec.timeoutMs,
+        });
+        const structuredJson = extractJsonObject(text);
+        const result = parseVoicePinResult(JSON.stringify({
+          acceptanceCriteria: structuredJson?.acceptanceCriteria,
+          comment: structuredJson?.comment,
+          detectedLanguage,
+          transcript,
+        }));
+        if (!result) {
+          // The structuring's refusal on the BYOK: the request fails with
+          // the cause (today's gateway failure delivers nothing either),
+          // without calling the gateway in its place and without a credit
+          // to refund.
+          throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
+        }
+        return byokSuccessJson(env, principal, result, {
+          costUsdMicros: 0,
+          inputTokens,
+          model: `${transcriptionRoute.model} + ${structuringRoute!.model}`,
+          outputTokens,
+        });
+      } catch (error) {
+        const response = byokErrorResponse(error);
+        if (response !== null) return response;
+        // A failure that is not the classified BYOK (a server bug, not the
+        // endpoint): it propagates like today's metered path (the global
+        // handler's error), never a byok_error and never the gateway.
+        throw error;
+      } finally {
+        transcriptionRoute.release();
+        structuringRoute?.release();
+      }
+    },
   });
 }

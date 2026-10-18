@@ -84,6 +84,7 @@ import { generateReproduction } from "./ai/reproduction";
 import { transcribeVoicePin } from "./ai/voice-pin";
 import { voiceAvailability } from "./ai/voice-chain";
 import { AiInferenceError } from "./ai/inference";
+import { ByokCallError } from "./byok/call";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { cloudTrialAccess, newCloudTrialWindow, type CloudTrialAccess } from "../lib/cloud-trial";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
@@ -6485,31 +6486,150 @@ export interface RunMeteredAiFeatureInput<T> {
   resourceId: string;
   spec: AiFeatureSpec;
   unavailableMessage: string;
+  /**
+   * F5/S3b (contract §5): the availability gate the metered path runs
+   * before the reservation (the route's today `!env.AI` check, the
+   * feature-specific one: the voice's transcription, the reproduction's
+   * text). The BYOK route never passes it: with a route and without
+   * useCredits the request runs on the user's endpoint. null: available.
+   */
+  unavailable?: () => Promise<Response | null>;
+  /**
+   * F5/S3b (contract §5): useCredits: true — the request opts out of the
+   * BYOK route and keeps today's metered path (the gateway, the credits).
+   * The voice's multipart form carries the string "true"/"false"; the
+   * reproduction's JSON body the boolean (the handlers validate and 400
+   * any other value).
+   */
+  useCredits?: boolean;
+  /**
+   * F5/S3b (contract §5): the per-request BYOK route, resolved after the
+   * plan and the per-minute limit (the same checks as today, on both
+   * paths). null: no route (or not taken) — the metered path, unchanged.
+   * With a route the request runs on the user's endpoint: no availability
+   * gate, no reservation, no ledger, the concurrency slot released in the
+   * closure's finally; the failure answers byok_error (byokErrorResponse)
+   * and never falls to the gateway.
+   */
+  byok?: () => Promise<Response | null>;
 }
-/** Voice transcription and the written reproduction steps (A53) use the
- * metered gate: plan, reservation and refund. */
-export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>): Promise<Response> {
-  const { env, principal, request, requestId, resourceId, spec } = input;
-  if (!env.AI) {
-    // D5: a configured and usable chain (AI_TRANSCRIPTION_CHAIN /
-    // AI_TEXT_CHAIN) keeps the metered AI available without the binding;
-    // the environment never decides the provider (A50).
-    const availability = await voiceAvailability(env);
-    if (!availability.any) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+
+/** F5/S3b (contract §5): the metered path's input (the pre-checks out). */
+export type MeteredAiFeaturePathInput<T> = Omit<RunMeteredAiFeatureInput<T>, "byok" | "useCredits"> & {
+  /**
+   * The success's origin (the response's source field). "byok" on the
+   * mixed voice: the transcription ran on the user's endpoint and this
+   * metered call is the structuring (one credit, the gateway).
+   */
+  origin?: "byok";
+};
+
+/**
+ * F5/S3b (contract §5): the success of the request that ran on the user's
+ * endpoint: today's format plus source: "byok", creditsCharged 0 and
+ * usage.provider "byok"; the aiCredits shows the balance, which did not
+ * move (the BYOK route never reserves or consumes — no ledger row).
+ */
+export async function byokSuccessJson<T>(
+  env: CloudEnv,
+  principal: Principal,
+  result: T,
+  usage: { costUsdMicros: number; inputTokens: number; model: string; outputTokens: number },
+): Promise<Response> {
+  // F4d round 2's rule: a balance-read failure never refunds — the BYOK
+  // path has nothing to refund anyway, so the 200 stands with a null
+  // balance (the client reads only the result).
+  let aiCredits: Awaited<ReturnType<typeof aiCreditBalance>> | null;
+  try {
+    aiCredits = await aiCreditBalance(env, principal);
+  } catch (balanceError) {
+    console.error("ai_credit_balance_failed", JSON.stringify({ error: String(balanceError) }));
+    aiCredits = null;
   }
+  return json({
+    aiCredits,
+    creditsCharged: 0,
+    idempotent: false,
+    ok: true,
+    result,
+    source: "byok",
+    usage: { ...usage, provider: "byok" },
+  }, 200, { "Cache-Control": "no-store" });
+}
+
+/**
+ * F5/S3b (contract §5): the BYOK failure of the JSON requests (voice,
+ * reproduction): byok_error, the cause of the common table (byok/cause),
+ * the retryAfter in seconds when there is one, and canUseCredits. 429
+ * when the cause is rate_limited (the provider's limit or the per-user
+ * concurrency), 502 the rest. null: not a BYOK failure. The provider's
+ * body, the URL and the key never cross it.
+ */
+export function byokErrorResponse(error: unknown): Response | null {
+  if (!(error instanceof ByokCallError)) return null;
+  return json({
+    canUseCredits: true,
+    cause: error.cause,
+    code: "byok_error",
+    ...(error.retryAfterSeconds !== null ? { retryAfter: error.retryAfterSeconds } : {}),
+  }, error.cause === "rate_limited" ? 429 : 502);
+}
+
+/** F5/S3b: the per-user concurrency cap of the BYOK route (no queue). */
+export function byokRateLimitedResponse(): Response {
+  return json({ canUseCredits: true, cause: "rate_limited", code: "byok_error" }, 429);
+}
+
+/** Voice transcription and the written reproduction steps (A53) use the
+ * metered gate: plan, per-minute limit and, with the BYOK route out,
+ * reservation and refund (F5/S3b, contract §5). */
+export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>): Promise<Response> {
+  const { env, principal, request, spec } = input;
+  // F5/S3b (contract §5): the order of the decision — the plan, the
+  // per-minute limit (the same as today, on both paths), then the BYOK
+  // route. D2: no Pro, no AI — neither on the gateway nor on BYOK.
   if (principal.kind !== "account" || !planIncludesAi(principal.plan)) {
     return json({
       code: "ai_requires_paid",
       error: "AI features require a paid plan",
     }, 403);
   }
-  const account = await findAccountById(env, principal.id);
-  if (account) await ensureInitialProCredits(env, account);
   const allowed = await withinRateLimits(env, `ai-${spec.feature.replaceAll("_", "-")}`, [
     { limit: 10, scope: `${principal.kind}:${principal.id}` },
     { limit: 30, scope: `ip:${clientIp(request)}` },
   ], 60_000);
   if (!allowed) return json({ code: "ai_rate_limited", error: "Too many AI requests" }, 429);
+  // F5/S3b (contract §5): with a capability route and without useCredits
+  // the request runs on the user's endpoint — no availability gate, no
+  // reservation, no ledger, one link, no fallback to the gateway, the
+  // concurrency slot released in the closure's finally.
+  if (input.byok !== undefined && input.useCredits !== true) {
+    const byokResponse = await input.byok();
+    if (byokResponse !== null) return byokResponse;
+  }
+  return runMeteredAiFeaturePath(input);
+}
+
+/**
+ * The metered path of runMeteredAiFeature: the availability gate, the
+ * reservation (the idempotent replay of the repeated request id), the
+ * settlement and the response. runMeteredAiFeature runs the pre-checks
+ * (the plan, the per-minute limit and the BYOK route) first; the mixed
+ * voice (contract §5) runs its structuring through this path directly —
+ * the pre-checks already ran, and the transcription is already on the
+ * user's endpoint (origin byok, one credit).
+ */
+export async function runMeteredAiFeaturePath<T>(input: MeteredAiFeaturePathInput<T>): Promise<Response> {
+  const { env, principal, requestId, resourceId, spec } = input;
+  // D5 + F5/S3b: the availability gate (the route's today `!env.AI`
+  // check) runs only on the metered path — the BYOK route never passes
+  // it (contract §5). The environment never decides the provider (A50).
+  const gate = input.unavailable !== undefined
+    ? await input.unavailable()
+    : (!env.AI && !(await voiceAvailability(env)).any ? json({ code: "ai_unavailable", error: "AI is not configured" }, 503) : null);
+  if (gate !== null) return gate;
+  const account = await findAccountById(env, principal.id);
+  if (account) await ensureInitialProCredits(env, account);
 
   const reservation = await reserveAiCreditUsage(env, principal, requestId, resourceId, spec);
   if (!reservation) {
@@ -6549,6 +6669,7 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
           idempotent: true,
           ok: true,
           result,
+          source: input.origin ?? "pinar",
           usage: {
             costUsdMicros: reservation.usage.costUsdMicros,
             inputTokens: reservation.usage.inputTokens,
@@ -6639,6 +6760,7 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
       idempotent: false,
       ok: true,
       result,
+      source: input.origin ?? "pinar",
       usage: { ...telemetry, model: spec.model, provider: "pinar_cloud" },
     }, 200, { "Cache-Control": "no-store" });
   } catch (error) {

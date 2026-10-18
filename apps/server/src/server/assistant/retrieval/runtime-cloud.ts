@@ -345,11 +345,17 @@ export function createCloudPinSearch(input: {
  * resolution) ends its wait on that combined signal (R2 review fix): a
  * read the driver has already started may keep going alone, but the search
  * does not wait for it, and checks the signal after each await before
- * starting the next read. The turn's abort ends the search with the
- * caller's reason — the gateway search's answer (throwIfAborted and its
- * bound fetch) — and starts no new read; the budget alone settles it with
- * what it already resolved (a session not resolved simply does not
- * contribute). Nothing is written.
+ * starting the next read. The data itself is guarded the same way (R2
+ * recheck fix): every operation it exposes (the listings, the session,
+ * the comments and the shot) starts only while the combined signal is
+ * alive — after the turn's abort or the budget, a new operation, even the
+ * inner one of an abandoned continuation (the comments read that follows
+ * the access recheck), is refused with the end's reason and never starts.
+ * The turn's abort ends the search with the caller's reason — the gateway
+ * search's answer (throwIfAborted and its bound fetch) — and starts no new
+ * read; the budget alone settles it with what it already resolved (a
+ * session not resolved simply does not contribute). The access recheck
+ * stays fresh on every call (no cache). Nothing is written.
  */
 export function createByokTextPinSearch(input: {
   budgetMs?: number;
@@ -365,8 +371,23 @@ export function createByokTextPinSearch(input: {
       // the turn ends it sooner.
       const deadline = AbortSignal.timeout(input.budgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS);
       const buildSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+      // The data's guard (R2 recheck fix): every operation it exposes
+      // starts only while the combined signal is alive. After the turn's
+      // abort or the budget, a new operation is refused with the end's
+      // reason and never starts — even the inner one of an abandoned
+      // continuation, like the comments read that follows the access
+      // recheck (an operation started before the end may finish on its
+      // own; its late failure is observed by byokRaceSignal's handler, so
+      // it does not become an unhandled rejection).
+      const guardedData: CloudPinSourceData = {
+        comments: (sessionId) => byokGuardedDataOp(buildSignal, () => input.data.comments(sessionId)),
+        ownedSessions: (limit) => byokGuardedDataOp(buildSignal, () => input.data.ownedSessions(limit)),
+        sharedSessions: (limit) => byokGuardedDataOp(buildSignal, () => input.data.sharedSessions(limit)),
+        session: (id) => byokGuardedDataOp(buildSignal, () => input.data.session(id)),
+        shot: (sessionId) => byokGuardedDataOp(buildSignal, () => input.data.shot(sessionId)),
+      };
       // A fresh source per search: the accessible sessions are read again.
-      const source = cloudPinSource(input.data);
+      const source = cloudPinSource(guardedData);
       // The combined signal's end at a check point (R2): the turn's abort
       // rejects with the caller's reason (the gateway search's answer);
       // the budget alone stops the search.
@@ -504,6 +525,21 @@ export function createByokTextPinSearch(input: {
       return searchPins({ chat: null, embedding: null, now, source: guardedSource, store }, { limit, query });
     },
   };
+}
+
+/**
+ * The guard of a data operation the BYOK search starts (R2 recheck fix):
+ * the operation starts only while the combined signal is alive — after
+ * the turn's abort or the budget, a new operation is refused with the
+ * end's reason and never starts (even the inner one of an abandoned
+ * continuation, like the comments read that follows the access recheck).
+ * An operation started before the end may finish on its own; its late
+ * failure is observed by the wait's handler (byokRaceSignal), so it does
+ * not become an unhandled rejection.
+ */
+function byokGuardedDataOp<T>(signal: AbortSignal, start: () => Promise<T>): Promise<T> {
+  if (signal.aborted) return Promise.reject(turnAbortReason(signal));
+  return start();
 }
 
 /**

@@ -236,8 +236,10 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     // The deadline never reaches the SDK's onError (the stream ends with
     // its abort part): the turn's own timer writes the error part — once,
     // and only when the caller classifies it (the BYOK cause, F5/S3). The
-    // local app and the gateway keep today's abort-only answer; a client
-    // abort clears the timer, so a cancellation is never a timeout.
+    // transform marks the chunk when a classified fatal part actually went
+    // out, so the timer skips it then; the fatal protocol goes out once.
+    // The local app and the gateway keep today's abort-only answer; a
+    // client abort clears the timer, so a cancellation is never a timeout.
     if (streamErrorChunkSent) return;
     const classified = classifyStreamError(timeoutError);
     if (classified === undefined) return;
@@ -257,18 +259,37 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   const errorCodeFor = (): AssistantErrorCode =>
     timedOut ? "ASSISTANT_TURN_TIMEOUT" : "ASSISTANT_STREAM_FAILED";
 
-  // The stream's error part: the AssistantErrorCode by default; the caller's
-  // classification (the BYOK cause, F5/S3) replaces the code and writes one
-  // data part with the details before the error part. Written at most once:
-  // the inner and the outer onError may both see the failure.
+  // The stream's error part (F5/S3): the caller's classification (the BYOK
+  // cause) writes one data part with the details before the fatal error
+  // part, which then carries the caller's code (byok_error). Fatality is
+  // never inferred from the onError callback: the SDK calls it for the
+  // model's fatal failure AND for a tool error it formats as
+  // tool-input-error / tool-output-error while the turn continues (a
+  // malformed JSON argument is a JSONParseError, a chain the BYOK
+  // classifier recognizes — R1 recheck). Instead, onError returns a token
+  // with the part, and the transform below resolves the tokens on the SSE
+  // parts that actually go out: only a fatal `error` part writes the data
+  // part and the caller's code (once per turn, marking the chunk); a
+  // tool-error part always goes out with the default code — no data part,
+  // no chunk, the turn continues. The token never reaches the client.
   let streamErrorPartSent = false;
-  // The fatal error chunk, at most once: the SDK writes it for the code a
-  // classified failure returns, and the deadline (which the SDK's onError
-  // never sees) writes it from the timer. A recoverable tool error is
-  // formatted without a classification (the SDK writes its tool-error
-  // parts and the model continues), so it does not mark the chunk: a
-  // later deadline can still emit its cause (R1 review fix).
+  // The fatal error chunk, at most once: marked when the fatal part is
+  // actually written — by the transform (a classified fatal part going
+  // out) or by the deadline's timer (which the SDK's onError never sees).
+  // The deadline skips it when the flag is already set, so the fatal
+  // protocol goes out exactly once.
   let streamErrorChunkSent = false;
+  let fatalTokenCounter = 0;
+  const fatalTokens = new Map<string, { defaultCode: AssistantErrorCode; streamError: AssistantTurnStreamError }>();
+  const streamError = (error: unknown): string => {
+    const classified = input.onStreamError?.(error);
+    if (classified === undefined) return errorCodeFor();
+    const token = `byok:fatal:${fatalTokenCounter += 1}`;
+    fatalTokens.set(token, { defaultCode: errorCodeFor(), streamError: classified });
+    return token;
+  };
+  // The deadline's classification (the timer above): writes the data part
+  // (once per turn) and returns the code for the fatal part it writes.
   const classifyStreamError = (error: unknown): { code: string } | undefined => {
     const classified = input.onStreamError?.(error);
     if (classified === undefined) return undefined;
@@ -277,17 +298,6 @@ export function runAssistantTurn(input: AssistantTurnInput): {
       emit({ data: classified.part.data, type: classified.part.type });
     }
     return { code: classified.code };
-  };
-  const streamError = (error: unknown): string => {
-    const code = classifyStreamError(error)?.code;
-    // The fatal error chunk goes out only when the caller classifies the
-    // failure (the SDK writes it with this code; the deadline never writes
-    // a second one). A recoverable tool error is not classified here — the
-    // SDK writes its tool-error parts with the generic code and the model
-    // continues — so it does not mark the chunk, and a later deadline can
-    // still emit its cause once (R1 review fix).
-    if (code !== undefined) streamErrorChunkSent = true;
-    return code ?? errorCodeFor();
   };
 
   // Data parts tools emit go to the UI stream writer. createUIMessageStream
@@ -328,7 +338,7 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     tools,
   });
 
-  const response = createUIMessageStreamResponse({
+  const rawResponse = createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
         writer.write({
@@ -355,6 +365,72 @@ export function runAssistantTurn(input: AssistantTurnInput): {
       onError: (error) => streamError(error),
     }),
   });
+  // The UI stream's fatal-part transform (F5/S3 R1 recheck): it observes
+  // the SSE parts that actually go out and resolves the tokens onError
+  // returned — a fatal `error` part with a token goes out with the
+  // caller's code (byok_error), after the data part (once per turn),
+  // marking the chunk; a tool-error part with a token always goes out with
+  // the default code — no data part, no chunk. Installed only when the
+  // caller classifies (the BYOK route): the local app and the gateway
+  // answer with the stream as it is, their parts unchanged.
+  let response: Response = rawResponse;
+  if (input.onStreamError !== undefined) {
+    const fatalDecoder = new TextDecoder();
+    const fatalEncoder = new TextEncoder();
+    let fatalLineBuffer = "";
+    const rewriteFatalLine = (line: string): string | null => {
+      if (!line.startsWith("data: ")) return line;
+      const payload = line.slice(6);
+      if (payload === "" || payload.trim() === "[DONE]") return line;
+      let part: Record<string, unknown>;
+      try {
+        part = JSON.parse(payload) as Record<string, unknown>;
+      } catch {
+        return line;
+      }
+      const token = part.errorText;
+      if (typeof token !== "string") return line;
+      const entry = fatalTokens.get(token);
+      if (entry === undefined) return line;
+      fatalTokens.delete(token);
+      if (part.type === "error") {
+        // The fatal protocol already went out (the deadline's timer):
+        // the duplicate goes nowhere.
+        if (streamErrorChunkSent) return null;
+        streamErrorChunkSent = true;
+        let out = "";
+        if (entry.streamError.part !== undefined && !streamErrorPartSent) {
+          streamErrorPartSent = true;
+          out += `data: ${JSON.stringify(entry.streamError.part)}\n`;
+        }
+        return `${out}data: ${JSON.stringify({ errorText: entry.streamError.code, type: "error" })}`;
+      }
+      // tool-input-error / tool-output-error (and any other part the SDK
+      // formats with the code): the default code, no BYOK data part, no
+      // chunk — the turn continues.
+      part.errorText = entry.defaultCode;
+      return `data: ${JSON.stringify(part)}`;
+    };
+    const fatalTransform = new TransformStream<Uint8Array, Uint8Array>({
+      flush(controller) {
+        // A truncated final line is not a complete part (the stream ends
+        // with [DONE]); it passes through as it is.
+        fatalLineBuffer += fatalDecoder.decode();
+        if (fatalLineBuffer !== "") controller.enqueue(fatalEncoder.encode(fatalLineBuffer));
+      },
+      transform(chunk, controller) {
+        fatalLineBuffer += fatalDecoder.decode(chunk, { stream: true });
+        let newline: number;
+        while ((newline = fatalLineBuffer.indexOf("\n")) !== -1) {
+          const line = fatalLineBuffer.slice(0, newline);
+          fatalLineBuffer = fatalLineBuffer.slice(newline + 1);
+          const rewritten = rewriteFatalLine(line);
+          if (rewritten !== null) controller.enqueue(fatalEncoder.encode(`${rewritten}\n`));
+        }
+      },
+    });
+    if (rawResponse.body !== null) response = new Response(rawResponse.body.pipeThrough(fatalTransform), rawResponse);
+  }
 
   // Keep the turn running to the end even if the client cancels the
   // response body: a standalone consumeStream over its own tee branch

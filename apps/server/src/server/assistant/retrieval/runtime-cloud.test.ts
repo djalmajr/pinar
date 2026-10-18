@@ -1074,6 +1074,134 @@ describe("The BYOK text search's budget and the turn's abort (R2)", () => {
     );
     assert.equal(sessionReads + commentsReads, 0, "no read starts");
   });
+
+  // The reviewer's nested probe, the fixed behavior (R2 recheck): the
+  // comments' inner access recheck is held when the abort happens; the
+  // search ends with the caller's reason, and the abandoned continuation
+  // starts no comments read after it — the data's guard refuses the new
+  // operation — and the abandoned chain's rejection is observed, not left
+  // unhandled.
+  test("an abandoned comments access recheck starts no comments read after the abort", async () => {
+    const controller = new AbortController();
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionReads = 0;
+    let commentsBeforeRelease = 0;
+    let commentsAfterAbort = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        if (controller.signal.aborted) commentsAfterAbort += 1;
+        else commentsBeforeRelease += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW];
+      },
+      async session() {
+        sessionReads += 1;
+        if (sessionReads === 2) {
+          markStarted();
+          await held;
+        }
+        return R2_SESSION;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const unhandled: unknown[] = [];
+    const listener = (event: unknown) => unhandled.push(event);
+    process.on("unhandledRejection", listener);
+    try {
+      const cancel = new Error("client cancelled during the comments access recheck");
+      const pending = createByokTextPinSearch({ data, env: {} }).search({ limit: 5, query: "agulha", signal: controller.signal });
+      await started;
+      controller.abort(cancel);
+      await assert.rejects(
+        pending,
+        (reason: unknown) => reason === cancel,
+        "the search ends with the caller's reason, as the gateway search does",
+      );
+      assert.equal(commentsBeforeRelease, 0, "no comments read before the release");
+      release();
+      await sleep(30);
+      assert.equal(commentsAfterAbort, 0, "the abandoned continuation starts no comments read after the abort");
+      assert.equal(sessionReads, 2, "no session read starts after the abort");
+      assert.equal(unhandled.length, 0, "the abandoned chain's rejection is observed, not left unhandled");
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+  });
+
+  // The deadline with the inner read held (R2 recheck): the search
+  // settles at the budget with what it already resolved, and the
+  // abandoned continuation (the comments read after the access recheck)
+  // starts no new read and leaves no unhandled rejection.
+  test("the deadline settles the search with a pending inner read: the continuation starts no new read and no rejection is unhandled", async () => {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionReads = 0;
+    let commentsReads = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        commentsReads += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW];
+      },
+      async session() {
+        sessionReads += 1;
+        if (sessionReads === 2) {
+          markStarted();
+          await held;
+        }
+        return R2_SESSION;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const unhandled: unknown[] = [];
+    const listener = (event: unknown) => unhandled.push(event);
+    process.on("unhandledRejection", listener);
+    try {
+      const begin = performance.now();
+      const pending = createByokTextPinSearch({ budgetMs: 150, data, env: {} }).search({ limit: 5, query: "agulha" });
+      await started;
+      const hits = await Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("not settled after the budget")), 800)),
+      ]);
+      assert.ok(performance.now() - begin < 1_000, "at the budget, not after the read");
+      assert.deepEqual(hits, [], "the held read never contributed");
+      assert.equal(commentsReads, 0, "no comments read before the release");
+      release();
+      await sleep(30);
+      assert.equal(commentsReads, 0, "the abandoned continuation starts no comments read after the budget");
+      assert.equal(unhandled.length, 0, "the abandoned chain's rejection is observed, not left unhandled");
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+  });
 });
 
 // ---------- production through the gateway (F4 contract §4) ----------

@@ -708,6 +708,13 @@ describe("the BYOK turn's deadline", () => {
     `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls", index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}\n\n` +
     "data: [DONE]\n\n";
 
+  // The same answer with raw (possibly malformed) JSON arguments: the
+  // SDK's own parse of the tool call is what fails.
+  const toolCallAnswerRaw = (name: string, args: string) =>
+    `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ function: { arguments: args, name }, id: "tool-1", index: 0, type: "function" }] }, index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}\n\n` +
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls", index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}\n\n` +
+    "data: [DONE]\n\n";
+
   const pendingAfterToolCall = (name: string, requests: { conversationId: string; requestId: string }) => {
     let calls = 0;
     const egress: ByokEgress = async (_url, init) => {
@@ -782,6 +789,105 @@ describe("the BYOK turn's deadline", () => {
     assert.equal(calls(), 2, "the model continues after the recoverable tool error");
     assert.equal(toolCalls, 1, "the tool ran and failed");
     deadlinePartsOnce(sse, "tool-output-error");
+    assert.equal(outcome.kind, "error");
+    if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_TURN_TIMEOUT");
+  });
+
+  // A malformed JSON argument of the production search tool (R1 recheck):
+  // the parse chain is a JSONParseError the BYOK classifier recognizes,
+  // but the tool error is not a fatal part — no BYOK data part goes out
+  // for it, its part keeps the default code, and the deadline still emits
+  // its cause once.
+  test("a malformed tool JSON argument is not a BYOK error, and the deadline still goes out once", async () => {
+    const { buildAssistantToolSet } = await import("../assistant/tools");
+    let calls = 0;
+    const egress: ByokEgress = async (_url, init) => {
+      calls += 1;
+      if (calls === 1)
+        return new Response(toolCallAnswerRaw("pinar_pins_search", '{"query":'), { headers: { "content-type": "text/event-stream" }, status: 200 });
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    };
+    const model = byokAssistantModel(byokModelRoute(false, egress), { conversationId: "conv_a", requestId: "req_h" });
+    const result = runAssistantTurn({
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 80,
+      tools: buildAssistantToolSet({
+        host: { callTool: async () => { throw new Error("unexpected tool"); } },
+        kinds: ["read"],
+        pinSearch: { search: async () => [] },
+        surface: "cloud",
+      }),
+    });
+    const sse = await result.response.text();
+    const outcome = await result.outcome;
+    const parts = sse
+      .split("\n")
+      .filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
+      .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+    assert.equal(calls, 2, "the model continues after the recoverable tool error");
+    const inputError = parts.find((part) => part.type === "tool-input-error");
+    assert.equal(inputError?.errorText, "ASSISTANT_STREAM_FAILED", `the tool part keeps the default code: ${sse}`);
+    assert.ok(!sse.includes("byok:fatal"), "the token never reaches the client");
+    deadlinePartsOnce(sse, "tool-input-error");
+    assert.equal(outcome.kind, "error");
+    if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_TURN_TIMEOUT");
+  });
+
+  // Control (the reviewer's invalid-tool probe): a valid JSON argument of
+  // the wrong type is the validator's recoverable tool error — its parts
+  // keep the default code — and the deadline still emits its cause once.
+  test("an invalid argument type is formatted with the default code and the deadline still goes out", async () => {
+    const { buildAssistantToolSet } = await import("../assistant/tools");
+    let calls = 0;
+    const egress: ByokEgress = async (_url, init) => {
+      calls += 1;
+      if (calls === 1)
+        return new Response(toolCallAnswerRaw("pinar_pins_search", JSON.stringify({ query: 123 })), { headers: { "content-type": "text/event-stream" }, status: 200 });
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    };
+    const model = byokAssistantModel(byokModelRoute(false, egress), { conversationId: "conv_a", requestId: "req_i" });
+    const result = runAssistantTurn({
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 80,
+      tools: buildAssistantToolSet({
+        host: { callTool: async () => { throw new Error("unexpected tool"); } },
+        kinds: ["read"],
+        pinSearch: { search: async () => [] },
+        surface: "cloud",
+      }),
+    });
+    const sse = await result.response.text();
+    const outcome = await result.outcome;
+    const parts = sse
+      .split("\n")
+      .filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
+      .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+    assert.equal(calls, 2, "the model continues after the recoverable tool error");
+    assert.equal(
+      parts.filter((part) => typeof part.type === "string" && part.type.startsWith("tool-") && part.errorText === "byok_error").length,
+      0,
+      `no tool part carries the BYOK code: ${sse}`,
+    );
+    assert.ok(!sse.includes("byok:fatal"), "the token never reaches the client");
+    const byokParts = parts.filter((part) => part.type === "data-byok-error");
+    const errorParts = parts.filter((part) => part.type === "error");
+    assert.equal(byokParts.length, 1, `the data-byok-error part once: ${sse}`);
+    assert.deepEqual(byokParts[0]!.data, { canUseCredits: true, cause: "timeout" }, "the cause of the deadline");
+    assert.equal(errorParts.length, 1, `the error part once: ${sse}`);
+    assert.equal(errorParts[0]!.errorText, "byok_error");
+    assert.ok(parts.findIndex((part) => part.type === "data-byok-error") < parts.findIndex((part) => part.type === "error"), "the part precedes the error");
     assert.equal(outcome.kind, "error");
     if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_TURN_TIMEOUT");
   });

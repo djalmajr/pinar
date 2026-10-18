@@ -16,3 +16,11 @@ export function collectionBadgeClass({ hasActions, menuActionFocused, menuOpen }
   if (menuOpen || menuActionFocused) classes.push("md:opacity-0");
   return classes.join(" ");
 }
+
+// Below `md` the row's label reserves room for the shifted count and the ⋮
+// button: 28px to clear the button, plus up to three digits (~30px) and a gap.
+// The base button only reserves pr-9 for a count, which a long truncated name
+// runs into once the count moved left. From `md` up the base reservation stays.
+export function collectionButtonClass({ hasActions }: Pick<CollectionBadgeState, "hasActions">) {
+  return hasActions ? "max-md:group-has-data-[sidebar=menu-badge]/menu-item:pr-16" : "";
+}

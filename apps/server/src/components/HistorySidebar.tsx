@@ -9,7 +9,7 @@ import type {
 import { MENU_LABEL_FIT } from "./SessionActionsMenu";
 import { collectionDisplayName } from "@pinar/shared";
 import { sessionGroupCount } from "../lib/session-groups";
-import { collectionBadgeClass } from "./history-sidebar-badge";
+import { collectionBadgeClass, collectionButtonClass } from "./history-sidebar-badge";
 import {
   DragOverlay,
   useDndContext,
@@ -307,6 +307,7 @@ function SortableCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const collectionHasActions = !collection.isProtected || pinarRuntime() === "cloud";
   const sessionDropTarget =
     sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   const style: CSSProperties = {
@@ -333,6 +334,7 @@ function SortableCollection({
         {...sortable.listeners}
         ref={sortable.setActivatorNodeRef}
         className={cn(
+          collectionButtonClass({ hasActions: collectionHasActions }),
           "touch-none",
           sortable.isDragging ? "cursor-grabbing" : "cursor-default",
           sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
@@ -384,7 +386,7 @@ function SortableCollection({
       )}
       <SidebarMenuBadge
         className={collectionBadgeClass({
-          hasActions: !collection.isProtected || pinarRuntime() === "cloud",
+          hasActions: collectionHasActions,
           menuActionFocused,
           menuOpen,
         })}
@@ -440,12 +442,14 @@ function FixedCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const collectionHasActions = !collection.isProtected || pinarRuntime() === "cloud";
   const sessionDropTarget =
     droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   return (
     <SidebarMenuItem ref={droppable.setNodeRef}>
       <SidebarMenuButton
         className={cn(
+          collectionButtonClass({ hasActions: collectionHasActions }),
           sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
         )}
         isActive={isActive}
@@ -460,7 +464,7 @@ function FixedCollection({
           // The protected inbox renders no menu in the local runtime, so the
           // badge keeps its place and must not fade on hover there: nothing
           // would take its place.
-          hasActions: !collection.isProtected || pinarRuntime() === "cloud",
+          hasActions: collectionHasActions,
           menuActionFocused,
           menuOpen,
         })}

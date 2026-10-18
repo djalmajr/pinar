@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collectionBadgeClass } from "./history-sidebar-badge";
+import { collectionBadgeClass, collectionButtonClass } from "./history-sidebar-badge";
 
 const idle = { menuActionFocused: false, menuOpen: false };
 
@@ -36,5 +36,10 @@ describe("sidebar row count next to the actions button", () => {
   test("a row without actions keeps the count at the right edge", () => {
     expect(classes({ ...idle, hasActions: false })).toEqual([]);
     expect(classes({ hasActions: false, menuActionFocused: true, menuOpen: true })).toEqual([]);
+  });
+
+  test("the row label reserves room for the shifted count only below md, with actions", () => {
+    expect(collectionButtonClass({ hasActions: true })).toBe("max-md:group-has-data-[sidebar=menu-badge]/menu-item:pr-16");
+    expect(collectionButtonClass({ hasActions: false })).toBe("");
   });
 });

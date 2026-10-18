@@ -223,6 +223,14 @@
     overlay_voice_credits: "No AI credits are available for this transcription.",
     overlay_voice_refunded: "Transcription failed temporarily. Your AI credit was refunded; try again.",
     overlay_voice_invalid: "The recording is empty or unsupported. Record it again.",
+    overlay_voice_byok_key: "Your AI endpoint rejected the API key. Check the key and its permissions in Pinar Settings → AI.",
+    overlay_voice_byok_model: "Your AI endpoint doesn't have the transcription model for this request. Check it in Pinar Settings → AI.",
+    overlay_voice_byok_rate: "Your AI endpoint hit its rate limit. Try again later.",
+    overlay_voice_byok_rate_wait: "Your AI endpoint hit its rate limit. Try again in {seconds} seconds.",
+    overlay_voice_byok_endpoint: "Your AI endpoint didn't answer. Check it in Pinar Settings → AI and try again.",
+    overlay_voice_byok_invalid: "Your AI endpoint answered with an invalid transcription. Try again.",
+    overlay_voice_byok_generic: "Your AI endpoint failed this transcription. Try again.",
+    overlay_voice_byok_use_credits: "Use Pinar credits",
     overlay_voice_acceptance: "Acceptance criteria",
     overlay_copying: "Saving the session…",
     overlay_saved: "Annotations saved successfully!",
@@ -277,6 +285,10 @@
   const formatVoiceRecordingLabel = (seconds) => t("overlay_voice_recording")
     .replace("{seconds}", String(seconds))
     .replace("{limit}", String(MAX_VOICE_SECONDS));
+  // F5/S4b: the BYOK rate message carries the endpoint's Retry-After in
+  // seconds (the mapping picks the _wait key only when it is present).
+  const formatVoiceByokRate = (response) => t("overlay_voice_byok_rate_wait")
+    .replace("{seconds}", String(Math.max(1, Math.round(Number(response?.retryAfter) || 0))));
   const VOICE_AVAILABILITY_MESSAGE_KEYS = {
     checking: "overlay_voice_checking",
     cloud_required: "overlay_voice_local_only",
@@ -750,6 +762,17 @@
       }
       .voice-status:empty { display: none; }
       .voice-status[data-kind="error"] { color: #B91C1C; }
+      .voice-credit-retry {
+        background: transparent;
+        border: 0;
+        color: ${MARK};
+        cursor: pointer;
+        font: 600 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin-top: 6px;
+        padding: 0;
+      }
+      .voice-credit-retry:hover { text-decoration: underline; }
+      .voice-credit-retry[hidden] { display: none; }
       .voice-wave { align-items: center; display: flex; flex: 1 1 auto; height: 24px; min-width: 0; overflow: hidden; }
       .voice-wave-track { align-items: center; display: flex; gap: 2px; height: 24px; justify-content: flex-end; min-width: 100%; }
       .voice-wave i { background: ${MARK}; border-radius: 2px; display: block; flex: 1 1 2px; height: var(--voice-bar-height, 3px); max-width: 3px; min-width: 2px; opacity: var(--voice-bar-opacity, .25); transform-origin: center; transition: height 80ms linear, opacity 80ms linear; }
@@ -876,7 +899,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 12 7-7 7 7M12 5v14"/></svg>
           </button>
         </div>
-        <div class="voice-feedback" data-ref="voiceFeedback" hidden><div class="voice-status" data-ref="voiceStatus" role="status" aria-live="polite"></div></div>
+        <div class="voice-feedback" data-ref="voiceFeedback" hidden>
+          <div class="voice-status" data-ref="voiceStatus" role="status" aria-live="polite"></div>
+          <button type="button" class="voice-credit-retry" data-ref="voiceCreditRetry" hidden>${t("overlay_voice_byok_use_credits")}</button>
+        </div>
         <div class="composer-actions" data-ref="composerActions">
           <span class="composer-tools">
             <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
@@ -927,6 +953,7 @@
     voice: shadow.querySelector("[data-ref=voice]"),
     voiceCancel: shadow.querySelector("[data-ref=voiceCancel]"),
     voiceControl: shadow.querySelector("[data-ref=voiceControl]"),
+    voiceCreditRetry: shadow.querySelector("[data-ref=voiceCreditRetry]"),
     voiceElapsed: shadow.querySelector("[data-ref=voiceElapsed]"),
     voiceFeedback: shadow.querySelector("[data-ref=voiceFeedback]"),
     voiceMeta: shadow.querySelector("[data-ref=voiceMeta]"),
@@ -1976,6 +2003,7 @@
     }
     if (ui.voiceTranscriptLabel) ui.voiceTranscriptLabel.textContent = t("overlay_voice_transcript");
     if (ui.voiceUseTranscript) ui.voiceUseTranscript.textContent = t("overlay_voice_use_transcript");
+    if (ui.voiceCreditRetry) ui.voiceCreditRetry.textContent = t("overlay_voice_byok_use_credits");
     ui.reviewPanel?.setAttribute("aria-label", t("overlay_session_review"));
     renderVoiceControls();
     renderChrome();
@@ -2321,6 +2349,9 @@
   let voiceElapsedSeconds = 0;
   let voiceInsertedRange = null;
   let voiceTranscriptComment = "";
+  // F5/S4b: the same recording that a BYOK failure offers to resend with
+  // Pinar credits; a null payload means there is no pending retry.
+  let pendingCreditRetry = null;
   const cancelledVoiceRecorders = new WeakSet();
   const submittedVoiceRecorders = new WeakSet();
 
@@ -2349,6 +2380,9 @@
     ui.voiceSession.setAttribute("aria-label", voiceProcessing ? t("overlay_voice_processing") : formatVoiceRecordingLabel(voiceElapsedSeconds));
     ui.voiceStop.disabled = voiceProcessing;
     ui.voiceSend.disabled = voiceProcessing;
+    // F5/S4b: the "use Pinar credits" action lives with the BYOK failure
+    // message and waits out the recording and the retry itself.
+    ui.voiceCreditRetry.hidden = !(pendingCreditRetry && !active && state.draft);
     ui.composerActions.hidden = active;
     ui.save.disabled = active;
   }
@@ -2362,6 +2396,7 @@
   function voiceErrorMessage(response) {
     // The mapping lives in voice-errors.js (injected before this script) so
     // the node:test suite can exercise it without a browser.
+    if (voiceErrorKey(response) === "overlay_voice_byok_rate_wait") return formatVoiceByokRate(response);
     return t(voiceErrorKey(response));
   }
 
@@ -2445,6 +2480,7 @@
 
   function discardVoiceRecording() {
     voiceRequestGeneration += 1;
+    pendingCreditRetry = null;
     clearVoiceTimers();
     if (voiceRecorder?.state === "recording") {
       cancelledVoiceRecorders.add(voiceRecorder);
@@ -2509,15 +2545,29 @@
       renderVoiceControls();
       return;
     }
+    await runVoiceTranscription({
+      audioDataUrl: await blobDataUrl(blob),
+      durationSeconds,
+      requestGeneration,
+      submitAfterTranscription,
+    });
+  }
+
+  // The send of a voice recording: the first attempt and the "use Pinar
+  // credits" retry share it (F5/S4b) — the retry resends the same recording
+  // with useCredits, without asking the microphone again.
+  async function runVoiceTranscription({ audioDataUrl, durationSeconds, useCredits = false, requestGeneration, submitAfterTranscription = false }) {
     voiceProcessing = true;
+    pendingCreditRetry = null;
     setVoiceStatus();
     renderVoiceControls();
     try {
       const response = await chrome.runtime.sendMessage({
-        audioDataUrl: await blobDataUrl(blob),
+        audioDataUrl,
         durationSeconds,
         requestId: crypto.randomUUID(),
         type: "voice:transcribe",
+        ...(useCredits ? { useCredits: true } : {}),
       });
       if (requestGeneration !== voiceRequestGeneration || !state.draft) return;
       if (!response?.ok) throw response || { code: "network_error" };
@@ -2566,6 +2616,11 @@
       }
     } catch (error) {
       if (requestGeneration !== voiceRequestGeneration) return;
+      // F5/S4b: only the BYOK failure that allows credits keeps the same
+      // recording around for the retry; every other failure clears it.
+      pendingCreditRetry = error?.canUseCredits === true
+        ? { audioDataUrl, durationSeconds }
+        : null;
       setVoiceStatus(voiceErrorMessage(error), "error");
     } finally {
       if (requestGeneration === voiceRequestGeneration) {
@@ -2573,6 +2628,20 @@
         renderVoiceControls();
       }
     }
+  }
+
+  // F5/S4b: the "use Pinar credits" action — resends the same recording
+  // over the Pinar gateway (useCredits), with a fresh request identity.
+  async function retryVoiceWithCredits() {
+    if (!state.draft || voiceProcessing || voiceRecorder?.state === "recording") return;
+    const retry = pendingCreditRetry;
+    if (!retry) return;
+    await runVoiceTranscription({
+      audioDataUrl: retry.audioDataUrl,
+      durationSeconds: retry.durationSeconds,
+      requestGeneration: voiceRequestGeneration,
+      useCredits: true,
+    });
   }
 
   function stopVoiceRecording(submitAfterTranscription = false) {
@@ -3493,6 +3562,7 @@
   ui.voiceCancel.addEventListener("click", () => resetVoiceUi());
   ui.voiceSend.addEventListener("click", () => stopVoiceRecording(true));
   ui.voiceStop.addEventListener("click", () => stopVoiceRecording());
+  ui.voiceCreditRetry.addEventListener("click", () => void retryVoiceWithCredits());
   ui.voiceUseTranscript.addEventListener("click", () => {
     if (!voiceTranscriptComment) return;
     const rangeMatches = voiceInsertedRange

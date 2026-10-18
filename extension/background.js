@@ -846,7 +846,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((result) => sendResponse({ ok: true, result }))
       .catch(async (error) => {
         const settings = await getSettings();
+        const retryAfter = Number(error?.retryAfter);
         sendResponse({
+          // F5/S4b: the BYOK cause rides to the overlay only when present —
+          // the "use Pinar credits" action reads canUseCredits from it.
+          ...(typeof error?.cause === "string" ? { cause: error.cause } : {}),
+          ...(error?.canUseCredits === true ? { canUseCredits: true } : {}),
+          ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}),
           code: typeof error?.code === "string" ? error.code : "network_error",
           error: String(error?.message || error),
           ok: false,
@@ -2027,6 +2033,10 @@ async function transcribeVoiceComment(message) {
   form.set("durationSeconds", String(durationSeconds));
   form.set("language", getBestLanguage(settings.language));
   form.set("requestId", typeof message.requestId === "string" ? message.requestId : "");
+  // F5/S4b: useCredits takes this one voice request over the Pinar gateway
+  // (the "use Pinar credits" action after a BYOK failure); only the requested
+  // send gets the field.
+  if (message.useCredits === true) form.set("useCredits", "true");
   try {
     const response = settings.storageMode === "cloud"
       ? await remoteFetch(cloudEndpoint(settings), "/api/ai/voice-pin", { body: form, method: "POST" })
@@ -2040,6 +2050,15 @@ async function transcribeVoiceComment(message) {
       const error = new Error(body.error || "Voice transcription failed");
       error.code = typeof body.code === "string" ? body.code : "voice_transcription_failed";
       error.status = response.status;
+      // F5/S4b: the BYOK failure keeps the Cloud's cause classification
+      // (which of the user's own endpoint problems hit) and whether Pinar
+      // credits can take the request over; the overlay speaks from these.
+      if (error.code === "byok_error") {
+        error.canUseCredits = body.canUseCredits === true;
+        if (typeof body.cause === "string") error.cause = body.cause;
+        const retryAfter = Number(body.retryAfter);
+        if (Number.isFinite(retryAfter) && retryAfter > 0) error.retryAfter = retryAfter;
+      }
       throw error;
     }
     return body.result;

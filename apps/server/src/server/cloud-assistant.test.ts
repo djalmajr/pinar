@@ -21,9 +21,12 @@ import {
   resetCloudMemoryStateForTests,
   seedCloudWebSessionForTests,
   setCloudNowForTests,
+  writeOwnerDeliveryPreferences,
   type CloudEnv,
   type Principal,
 } from "./cloud-api";
+import { resetRetrievalCapabilitiesCacheForTests } from "./assistant/retrieval/detect";
+import { embeddingIdentity } from "./assistant/retrieval/index";
 import { cloudAssistantStore } from "./assistant/store-cloud";
 import { buildPinDocument } from "./assistant/retrieval/document";
 import type { AssistantToolHost } from "./assistant/tools";
@@ -1618,6 +1621,462 @@ describe("cloud assistant routes", () => {
 });
 
 // ---------- F2: proposals confirmed and undone as the person ----------
+
+// F5/S3c: the pin's captions, the index's embeddings and the capture's
+// embedding follow the user's BYOK capabilities, not the turn. With the
+// embeddings ok the BYOK runs — one link, no credits, never the gateway —
+// even in a useCredits turn (whose chat goes the gateway and charges); a
+// BYOK failure settles the search text-only (the retrieval layer proves
+// the cases); the egress_unavailable row follows today's path end to end
+// (search and filing through the gateway), with nothing leaving to the
+// BYOK host. The egress the tests inject models the egress itself: it
+// answers only the BYOK host and refuses every other URL, as byokFetch
+// does until S6.
+describe("cloud assistant retrieval and the automatic destination follow the user's capabilities (F5/S3c)", () => {
+  const BYOK_HOST = "https://byok-user.test";
+  const BYOK_BASE_URL = `${BYOK_HOST}/v1`;
+  const BYOK_KEY = "sk-byok-s3c-assistant";
+  const S3C_EMBEDDING = "embed-1";
+  const S3C_CHAT = "chat-1";
+  const S3C_IDENTITY = `${S3C_EMBEDDING}\u0000${BYOK_BASE_URL}`;
+  const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const PNG_BYTES = Buffer.from(PNG_B64, "base64");
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+    resetRetrievalCapabilitiesCacheForTests();
+  });
+
+  afterEach(() => {
+    setByokEgressForTests(null);
+    resetByokConcurrencyForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    resetCloudMemoryStateForTests();
+  });
+
+  function route(path: string, env: CloudEnv, init: RequestInit = {}) {
+    return handleCloudApiRequest(new Request(`https://pinar.test${path}`, init), env);
+  }
+
+  function turn(env: CloudEnv, cookie: string, body: Record<string, unknown>) {
+    return route("/api/assistant/turn", env, {
+      body: JSON.stringify(body),
+      headers: { cookie, "content-type": "application/json" },
+      method: "POST",
+    });
+  }
+
+  function s3cVector(text: string): number[] {
+    const tokens = text.toLowerCase().split(/\p{L}+/gu);
+    const vector = new Array(256).fill(0) as number[];
+    for (const token of tokens) {
+      let hash = 0;
+      for (let i = 0; i < token.length; i += 1) hash = (hash * 31 + token.charCodeAt(i)) >>> 0;
+      vector[hash % 256] = 1;
+    }
+    vector[255] = 0.01;
+    return vector;
+  }
+
+  // The BYOK egress the tests inject: it answers only the BYOK host (the
+  // turn's stream, the caption call, the embeddings) and refuses every
+  // other URL, as byokFetch does until S6. The turn's first call asks the
+  // pin search tool; the rest answer with the text.
+  function s3cEgress() {
+    const calls: Array<{ auth: string | null; body: Record<string, any> | null; url: string }> = [];
+    const sse = (delta: Record<string, unknown>, finish: string | null) =>
+      `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish, index: 0 }], created: 1, id: "c1", model: S3C_CHAT, object: "chat.completion.chunk" })}\n\n`;
+    setByokEgressForTests(async (url, init) => {
+      if (!url.startsWith(BYOK_HOST)) throw new ByokEgressUnavailableError();
+      const raw = String(init?.body ?? "");
+      const body = raw ? (JSON.parse(raw) as Record<string, any>) : null;
+      calls.push({ auth: new Headers(init?.headers ?? {}).get("authorization"), body, url });
+      if (url.endsWith("/embeddings")) {
+        return new Response(JSON.stringify({ data: (body!.input as string[]).map((text, index) => ({ embedding: s3cVector(text), index })) }), { headers: { "content-type": "application/json" }, status: 200 });
+      }
+      if (url.endsWith("/chat/completions")) {
+        if (body?.response_format) {
+          const pins = [{ caption: "legenda 1", number: 1, ocr: "ocr 1" }, { caption: "legenda 2", number: 2, ocr: "ocr 2" }];
+          return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ pins }), role: "assistant" } }] }), { headers: { "content-type": "application/json" }, status: 200 });
+        }
+        const turnCalls = calls.filter((call) => call.url.endsWith("/chat/completions") && !call.body?.response_format);
+        const payload =
+          turnCalls.length === 1
+            ? sse({ role: "assistant", tool_calls: [{ function: { arguments: JSON.stringify({ limit: 5, query: "nota deploy" }), name: "pinar_pins_search" }, id: "call_1", index: 0, type: "function" }] }, null) + sse({}, "tool_calls")
+            : sse({ content: "Encontrei a nota.", role: "assistant" }, null) + sse({}, "stop");
+        return new Response(`${payload}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" }, status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    return calls;
+  }
+
+  // The deployment's endpoint (the fake the tests run on loopback): the
+  // catalog, the embeddings and the chat (the turn's stream or the
+  // caption's json_schema), counting every call. The turn's first stream
+  // call asks the pin search tool, like the BYOK egress above.
+  function s3cDeployment(options: { vision?: boolean } = {}) {
+    const calls: Array<{ auth: string | null; body: Record<string, any> | null; path: string }> = [];
+    const sse = (delta: Record<string, unknown>, finish: string | null) =>
+      `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish, index: 0 }], created: 1, id: "c1", model: "mock", object: "chat.completion.chunk" })}\n\n`;
+    const server = Bun.serve({
+      fetch: async (incoming) => {
+        const url = new URL(incoming.url);
+        const raw = incoming.method === "POST" ? await incoming.text() : "";
+        const body = raw ? (JSON.parse(raw) as Record<string, any>) : null;
+        calls.push({ auth: new Headers(incoming.headers).get("authorization"), body, path: url.pathname });
+        if (incoming.method === "GET" && url.pathname === "/v1/models") {
+          return Response.json({ data: [{ id: "mock", modalities: options.vision ? { input: ["image", "text"], output: ["text"] } : { input: ["text"], output: ["text"] }, pricing: { input: "0.000001", output: "0.000002" }, tags: options.vision ? ["vision"] : null, type: "chat" }] });
+        }
+        if (url.pathname === "/v1/embeddings") {
+          return Response.json({ data: (body!.input as string[]).map((text, index) => ({ embedding: s3cVector(text), index })) });
+        }
+        if (url.pathname === "/v1/chat/completions") {
+          if (body?.response_format) {
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ pins: [{ caption: "legenda gw 1", number: 1, ocr: "" }, { caption: "legenda gw 2", number: 2, ocr: "" }] }), role: "assistant" } }] });
+          }
+          const streamCalls = calls.filter((call) => call.path === "/v1/chat/completions" && !call.body?.response_format);
+          const payload =
+            streamCalls.length === 1
+              ? sse({ role: "assistant", tool_calls: [{ function: { arguments: JSON.stringify({ limit: 5, query: "nota deploy" }), name: "pinar_pins_search" }, id: "call_1", index: 0, type: "function" }] }, null) + sse({}, "tool_calls")
+              : sse({ content: "Duas sessões.", role: "assistant" }, null) + sse({}, "stop");
+          return new Response(`${payload}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+        }
+        return new Response("not found", { status: 404 });
+      },
+      port: 0,
+    });
+    return { calls, port: server.port, stop: () => server.stop(true) };
+  }
+
+  const okCaps = (embeddings: boolean, vision: boolean) =>
+    JSON.stringify({
+      chat: { error: null, ok: true, testedAt: NOW },
+      embeddings: embeddings ? { dims: 256, error: null, ok: true, testedAt: NOW } : { dims: null, error: null, ok: null, testedAt: null },
+      tools: { error: null, ok: true, testedAt: NOW },
+      transcription: { error: null, ok: null, testedAt: null },
+      vision: vision ? { error: null, ok: true, testedAt: NOW } : { error: null, ok: null, testedAt: null },
+    });
+
+  async function seedByokRow(db: Database, byokKey: string, capabilities: string, embeddingModel = S3C_EMBEDDING, chatModel = S3C_CHAT) {
+    const cryptoObj = (await byokCrypto(byokKey))!;
+    const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+    db.query(
+      `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+         embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run("usr_a", BYOK_BASE_URL, ciphertext, "9876", cryptoObj.keyId, chatModel, embeddingModel, "", capabilities, NOW, NOW);
+  }
+
+  async function seedWorkspace(db: Database) {
+    insertUser(db, "usr_a", "a@example.test", "pro");
+    insertProject(db, "project_s3c", "usr_a");
+    insertCollection(db, "collection_s3c", "project_s3c", "usr_a");
+    insertSession(db, "sess_s3c", "usr_a", "collection_s3c", [
+      { comment: "nota sobre o deploy", number: 1, pinId: "pin_s3c_1" },
+      { comment: "outro assunto", number: 2, pinId: "pin_s3c_2" },
+    ]);
+    const a = await seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" }, assistantEnv(db));
+    return { a };
+  }
+
+  const bucket = () => {
+    const objects = new Map<string, Uint8Array>();
+    return {
+      async get(key: string) {
+        const bytes = objects.get(key);
+        return bytes ? { body: bytes } : null;
+      },
+      async put(key: string, value: Uint8Array) {
+        objects.set(key, value);
+      },
+      async delete(key: string) {
+        objects.delete(key);
+      },
+    };
+  };
+
+  const indexRows = (db: Database) =>
+    db
+      .query("SELECT pin_id, model, caption, ocr, (vector IS NULL) AS vector_null FROM pin_index WHERE session_id = 'sess_s3c' ORDER BY pin_id")
+      .all() as Array<{ caption: string | null; model: string; ocr: string | null; pin_id: string; vector_null: number }>;
+
+  const firstPartOf = (sse: string) => {
+    const line = sse.split("\n").find((l) => l.startsWith("data: "));
+    assert.ok(line, "the first data part is in the stream");
+    return JSON.parse(line!.slice(6)) as { data: { source?: string }; type: string };
+  };
+
+  test("S3c: the BYOK turn with the embeddings and the vision ok indexes the new session on the BYOK (0 gateway, no credit, no index cost)", async () => {
+    const db = migratedDatabase();
+    const fake = s3cDeployment();
+    const byokKey = Buffer.alloc(32, 21).toString("base64");
+    const calls = s3cEgress();
+    try {
+      const { a } = await seedWorkspace(db);
+      await seedByokRow(db, byokKey, okCaps(true, true));
+      const b = bucket();
+      b.put("shots/sess_s3c.png", PNG_BYTES); // the session's screenshot (the captions' input)
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+        PINAR_BUCKET: b,
+      });
+
+      const balanceOf = () => db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+      const balanceBefore = balanceOf();
+
+      const response = await turn(env, a.cookie, { text: "Onde está a nota do deploy?" });
+      assert.equal(response.status, 200);
+      const sse = await response.text();
+      assert.ok(sse.includes("Encontrei a nota."), "the BYOK answer reaches the stream");
+      assert.equal(firstPartOf(sse).data.source, "byok");
+
+      // The session is indexed on the BYOK: the vectors carry the BYOK
+      // identity (model\u0000url) and the captions come from the user's
+      // chat model.
+      const rows = indexRows(db);
+      assert.equal(rows.length, 2);
+      assert.ok(rows.every((row) => row.model === S3C_IDENTITY && row.vector_null === 0), JSON.stringify(rows));
+      assert.deepEqual(rows.map((row) => row.caption).sort(), ["legenda 1", "legenda 2"]);
+      assert.deepEqual(rows.map((row) => row.ocr).sort(), ["ocr 1", "ocr 2"]);
+
+      // The BYOK calls: the captions on the user's chat model, with the
+      // screenshot in the body and the key only in the Authorization
+      // header; the embeddings on the user's model, in exactly 256
+      // dimensions.
+      const captions = calls.filter((call) => call.url.endsWith("/chat/completions") && call.body?.response_format);
+      assert.equal(captions.length, 1, "one caption call per session");
+      assert.equal(captions[0]!.body!.model, S3C_CHAT, "the user's chat model captions");
+      const content = captions[0]!.body!.messages[1].content as Array<{ image_url?: { url: string }; type: string }>;
+      assert.ok(content.some((part) => part.type === "image_url" && String(part.image_url?.url).startsWith("data:image/png;base64,")), "the screenshot rides in the body");
+      const embeddings = calls.filter((call) => call.url.endsWith("/embeddings"));
+      assert.ok(embeddings.length >= 2, `the documents and the question (${embeddings.length} calls)`);
+      assert.ok(embeddings.every((call) => call.body!.model === S3C_EMBEDDING && call.body!.dimensions === 256), "the user's embedding model, exactly 256 dimensions");
+      assert.ok(calls.every((call) => call.auth === `Bearer ${BYOK_KEY}`), "the key, only in the Authorization header");
+      assert.ok(calls.every((call) => !JSON.stringify(call.body ?? "").includes(BYOK_KEY)), "the key never goes in the body");
+
+      // The tool's result the model got says the vector ranking ran.
+      const turnCalls = calls.filter((call) => call.url.endsWith("/chat/completions") && !call.body?.response_format);
+      assert.ok(turnCalls.length >= 2, "the turn asked the tool and then answered");
+      const toolMessage = (turnCalls[1]!.body!.messages as Array<Record<string, any>>).find((message) => message.role === "tool");
+      assert.ok(toolMessage, "the tool's answer is in the second call");
+      const toolResult = JSON.parse(String(toolMessage.content)) as { data: string };
+      assert.ok(toolResult.data.includes('"semantic":true'), "the tool result reports the semantic search ran");
+      assert.ok(toolResult.data.includes("pin_s3c_1"), "the hit the model got");
+
+      // The gateway receives 0 calls and nothing is billed or recorded.
+      assert.deepEqual(fake.calls, [], "the gateway receives 0 calls");
+      assert.deepEqual(db.query("SELECT id FROM assistant_index_costs").all(), [], "no index cost line");
+      assert.deepEqual(db.query("SELECT id FROM ai_credit_usages").all(), [], "no credit usage");
+      assert.deepEqual(balanceOf(), balanceBefore, "the balance did not move");
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  test("S3c: the BYOK turn without the vision indexes without a caption (the lack marked); the charged turn after completes it, the vectors stay the BYOK's", async () => {
+    const db = migratedDatabase();
+    const fake = s3cDeployment({ vision: true });
+    const byokKey = Buffer.alloc(32, 22).toString("base64");
+    const calls = s3cEgress();
+    try {
+      const { a } = await seedWorkspace(db);
+      await seedByokRow(db, byokKey, okCaps(true, false));
+      const b2 = bucket();
+      b2.put("shots/sess_s3c.png", PNG_BYTES);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+        PINAR_BUCKET: b2,
+      });
+
+      const first = await turn(env, a.cookie, { text: "Onde está a nota do deploy?" });
+      assert.equal(first.status, 200);
+      const sse = await first.text();
+      assert.ok(sse.includes("Encontrei a nota."), "the BYOK answer reaches the stream");
+
+      // Indexed without a caption: the vectors carry the BYOK identity and
+      // the lack is marked (caption null, not ""), for a charged turn or a
+      // later BYOK vision to complete.
+      const rows = indexRows(db);
+      assert.equal(rows.length, 2);
+      assert.ok(rows.every((row) => row.model === S3C_IDENTITY && row.vector_null === 0), JSON.stringify(rows));
+      assert.ok(rows.every((row) => row.caption === null), "the lack is marked");
+      assert.deepEqual(calls.filter((call) => call.url.endsWith("/chat/completions") && call.body?.response_format), [], "no caption call left the turn");
+      assert.deepEqual(fake.calls, [], "the gateway received 0 calls on the BYOK turn");
+      assert.deepEqual(db.query("SELECT id FROM ai_credit_usages").all(), [], "no credit usage");
+
+      // A charged turn after (useCredits) completes the captions on the
+      // deployment's chat: the lagging rule (a null caption while there is
+      // a vision endpoint) makes the session pending again; the vectors
+      // are reused — the BYOK identity still matches, so the gateway
+      // embeds nothing.
+      const second = await turn(env, a.cookie, { text: "De novo, onde está?", useCredits: true });
+      assert.equal(second.status, 200);
+      const sse2 = await second.text();
+      assert.equal(firstPartOf(sse2).data.source, "pinar", "the charged turn runs on the gateway");
+      const rows2 = indexRows(db);
+      assert.ok(rows2.every((row) => row.model === S3C_IDENTITY), "the BYOK vectors were not replaced");
+      assert.deepEqual(rows2.map((row) => row.caption).sort(), ["legenda gw 1", "legenda gw 2"], "the charged turn completed the captions");
+      assert.equal(fake.calls.filter((call) => call.path === "/v1/chat/completions" && call.body?.response_format).length, 1, "the captions ran on the deployment's chat");
+      assert.deepEqual(fake.calls.filter((call) => call.path === "/v1/embeddings"), [], "the vectors and the query stay the BYOK's");
+      const usages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'assistant_turn'").all();
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(usages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the charged turn was not billed: ${JSON.stringify(usages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  test("S3c: the useCredits turn with the BYOK's embeddings and vision ok keeps the vectors and the captions on the BYOK (the chat goes the gateway, billed 3)", async () => {
+    const db = migratedDatabase();
+    const fake = s3cDeployment({ vision: true });
+    const byokKey = Buffer.alloc(32, 23).toString("base64");
+    const calls = s3cEgress();
+    try {
+      const { a } = await seedWorkspace(db);
+      await seedByokRow(db, byokKey, okCaps(true, true));
+      const b3 = bucket();
+      b3.put("shots/sess_s3c.png", PNG_BYTES);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+        PINAR_BUCKET: b3,
+      });
+
+      const response = await turn(env, a.cookie, { text: "Onde está a nota do deploy?", useCredits: true });
+      assert.equal(response.status, 200);
+      const sse = await response.text();
+      assert.ok(sse.includes("Duas sessões."), "the gateway answer reaches the stream");
+      assert.equal(firstPartOf(sse).data.source, "pinar");
+
+      // The vectors and the captions follow the capability, not the turn's
+      // billing: the BYOK identity and the BYOK captions, in a charged
+      // turn.
+      const rows = indexRows(db);
+      assert.equal(rows.length, 2);
+      assert.ok(rows.every((row) => row.model === S3C_IDENTITY && row.vector_null === 0), JSON.stringify(rows));
+      assert.deepEqual(rows.map((row) => row.caption).sort(), ["legenda 1", "legenda 2"], "the captions ran on the user's chat model");
+
+      // The BYOK got the embeddings and the caption; the turn's chat never
+      // left through it. The gateway got the chat and the /models probe —
+      // nothing else: no embeddings, no captions.
+      const byokTurn = calls.filter((call) => call.url.endsWith("/chat/completions") && !call.body?.response_format);
+      assert.deepEqual(byokTurn, [], "the turn's chat never ran on the BYOK");
+      assert.equal(calls.filter((call) => call.url.endsWith("/chat/completions") && call.body?.response_format).length, 1, "the caption ran on the BYOK");
+      assert.ok(calls.filter((call) => call.url.endsWith("/embeddings")).length >= 2, "the documents and the question on the BYOK");
+      const fakePaths = fake.calls.map((call) => call.path).sort();
+      assert.deepEqual(fakePaths, ["/v1/chat/completions", "/v1/chat/completions", "/v1/models"].sort(), "the gateway got only the chat and the probe");
+
+      // The charged turn billed 3, and the BYOK calls recorded no cost.
+      const usages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'assistant_turn'").all();
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(usages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the charged turn was not billed: ${JSON.stringify(usages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.deepEqual(db.query("SELECT id FROM assistant_index_costs").all(), [], "no index cost line");
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  test("S3c: the egress_unavailable row, without an injected egress, follows today's path (the search and the filing through the gateway), nothing to the BYOK host", async () => {
+    const db = migratedDatabase();
+    const fake = s3cDeployment();
+    const byokKey = Buffer.alloc(32, 24).toString("base64");
+    const fetchUrls: string[] = [];
+    const realFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchUrls.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        return realFetch(input, init);
+      }) as typeof fetch;
+      const { a } = await seedWorkspace(db);
+      await seedByokRow(
+        db,
+        byokKey,
+        JSON.stringify({
+          chat: { error: "egress_unavailable", ok: false, testedAt: NOW },
+          embeddings: { dims: null, error: "egress_unavailable", ok: false, testedAt: NOW },
+          tools: { error: "egress_unavailable", ok: false, testedAt: NOW },
+          transcription: { error: "egress_unavailable", ok: false, testedAt: NOW },
+          vision: { error: "egress_unavailable", ok: false, testedAt: NOW },
+        }),
+      );
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        AI_EMBEDDING_MODEL: "embed-model",
+        BYOK_MASTER_KEY: byokKey,
+        PINAR_BUCKET: bucket(),
+      });
+
+      // The turn: the gateway (billed 3), and the index through the
+      // gateway's embeddings (the deployment's identity, not the BYOK's).
+      const response = await turn(env, a.cookie, { text: "Onde está a nota do deploy?" });
+      assert.equal(response.status, 200);
+      const sse = await response.text();
+      assert.equal(firstPartOf(sse).data.source, "pinar");
+      const rows = indexRows(db);
+      assert.equal(rows.length, 2);
+      const deploymentIdentity = embeddingIdentity({ baseUrl: `http://127.0.0.1:${fake.port}/v1`, model: "embed-model" });
+      assert.ok(rows.every((row) => row.model === deploymentIdentity && row.vector_null === 0), `the deployment's identity: ${JSON.stringify(rows)}`);
+      assert.ok(!rows.every((row) => row.model === S3C_IDENTITY), "nothing indexed on the BYOK identity");
+
+      // The automatic destination: the capture's embedding through the
+      // gateway, one credit — today's path, unchanged.
+      insertSession(db, "sess_s3c_cap", "usr_a", "collection_s3c", [{ comment: "nova captura do deploy", number: 1, pinId: "pin_s3c_cap" }]);
+      await writeOwnerDeliveryPreferences(env, "usr_a", { autoCaptureDestination: true });
+      const shotResponse = await route(
+        "/api/shots",
+        env,
+        {
+          body: JSON.stringify({
+            id: "sess_s3c_cap",
+            image: `data:image/png;base64,${PNG_B64}`,
+            page: { title: "Nota do deploy", url: "https://example.test/nova" },
+            pins: [{ comment: "nova captura do deploy", number: 1 }],
+          }),
+          headers: { cookie: a.cookie, "content-type": "application/json" },
+          method: "POST",
+        },
+      );
+      assert.equal(shotResponse.status, 201, await shotResponse.clone().text());
+      const shotBody = (await shotResponse.json()) as Record<string, any>;
+      assert.equal(shotBody.filing.engine, "similarity", "the engine ran through the gateway");
+      const stored = db.query("SELECT collection_id, filed_by FROM sessions WHERE id = 'sess_s3c_cap'").get() as { collection_id: string; filed_by: string | null };
+      assert.equal(stored.collection_id, "collection_s3c", "the capture was filed by the gateway's centroids");
+      assert.equal(stored.filed_by, "auto");
+      const filingUsages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'capture_filing'").all();
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(filingUsages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the capture was not billed: ${JSON.stringify(filingUsages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.ok(fake.calls.some((call) => call.path === "/v1/embeddings"), "the capture's embedding left through the gateway");
+
+      // The whole path left nothing for the BYOK host.
+      assert.ok(!fetchUrls.some((url) => url.includes("byok-user.test")), `nothing left to the BYOK host: ${JSON.stringify(fetchUrls.filter((url) => url.includes("byok")))}`);
+    } finally {
+      globalThis.fetch = realFetch;
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+});
+
 
 type AiReply = { text: string } | { args: Record<string, unknown>; tool: string };
 

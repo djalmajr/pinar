@@ -335,7 +335,7 @@ function makePinSearch(
     async search(input) {
       calls.push(input);
       if (reply instanceof Error) throw reply;
-      return reply;
+      return { hits: reply, semantic: true };
     },
   };
 }
@@ -452,13 +452,14 @@ describe("pinar_pins_search", () => {
         { caption: "Botão azul do rodapé", comment: "Checkout lento", pin: 7, pinId: "p7", score: 0.12, session: "Pagamento", sessionId: "s2", url: "https://site.example/pay" },
         { caption: null, comment: "Contraste baixo no botão", pin: 1, pinId: "p1", score: 1, session: "Checkout", sessionId: "s1", url: "https://site.example/checkout" },
       ],
+      semantic: true,
     });
     const empty = (await execute(
       buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read"], pinSearch: makePinSearch([]), surface: "local" }),
       "pinar_pins_search",
       { query: "nada" },
     )) as ToolResult;
-    assert.deepEqual(dataJson(empty), { hits: [] });
+    assert.deepEqual(dataJson(empty), { hits: [], semantic: true });
   });
 
   test("< and & from a comment are escaped like any read, under the same cap", async () => {

@@ -267,7 +267,7 @@ export async function runSearchProbe(input: {
   const questions: ProbeQuestionResult[] = [];
   for (const question of input.questions ?? PROBE_QUESTIONS) {
     const before = failures.count;
-    const hits = await searchPins(deps, { limit: PROBE_LIMIT, query: question.query });
+    const { hits } = await searchPins(deps, { limit: PROBE_LIMIT, query: question.query });
     const expected = new Set(question.expected);
     const position = hits.findIndex((hit) => expected.has(hit.pinId));
     const rank = position === -1 ? null : position + 1;

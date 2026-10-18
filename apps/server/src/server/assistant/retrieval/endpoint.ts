@@ -11,6 +11,7 @@
 // URL, the key, the request or the response body. Nothing is logged.
 
 import { assertAssistantBaseUrl, guardRedirects } from "../models";
+import { ByokCallError } from "../../byok/cause";
 
 // POSTs `body` as JSON to `{baseUrl}{path}` and returns the parsed JSON.
 // `label` names the request in errors ("embedding request failed").
@@ -30,11 +31,15 @@ export async function postEndpointJson(input: {
   const signal = AbortSignal.timeout(input.timeoutMs);
   const baseFetch = input.fetch ?? fetch;
   // Network and deadline failures get a fixed message below the redirect
-  // guard, so its own refusal still reaches the caller as is.
+  // guard, so its own refusal still reaches the caller as is. The BYOK
+  // egress's caused error (F5/S3c) passes through untouched: its cause is
+  // the caller's (the destination records it in the choice's result), and
+  // the fixed message still carries no URL, no key, no body.
   const sanitizedFetch = (async (target: RequestInfo | URL, init?: RequestInit) => {
     try {
       return await baseFetch(target, init);
-    } catch {
+    } catch (error) {
+      if (error instanceof ByokCallError) throw error;
       throw new Error(signal.aborted ? `${input.label} timed out` : `${input.label} failed`);
     }
   }) as typeof fetch;

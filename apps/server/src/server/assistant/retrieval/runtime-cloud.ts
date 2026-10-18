@@ -60,6 +60,7 @@ import {
   type PinIndexDeps,
   type PinIndexEntry,
   type PinIndexStore,
+  type PinSearchResult,
   type PinSearchService,
   type PinSource,
 } from "./index";
@@ -181,9 +182,16 @@ export async function cloudRetrievalEndpoints(
 // `fetch` runs the indexing requests; `detectFetch` the /models probe,
 // which keeps its own 5 s deadline and cache without the run's signal, so an
 // aborted turn never leaves a failed detection cached for a minute.
+// F5/S3c: `byok` carries the user's retrieval endpoints (their egress,
+// the per-call slot), which win over the deployment's per capability — the
+// captions and the embeddings follow the BYOK capability, not the hub or
+// the turn's billing (contract §5): the deployment's detection still runs
+// (a charged turn may use it for what the BYOK does not cover, and for
+// the decisions engine, which is never BYOK).
 async function indexDeps(
   env: CloudPinEnv,
   options: {
+    byok?: { embedding?: EmbeddingEndpoint | null; vision?: VisionEndpoint | null } | null;
     detectFetch?: typeof fetch;
     fetch?: typeof fetch;
     now: () => Date;
@@ -195,8 +203,8 @@ async function indexDeps(
   const endpoints = await cloudRetrievalEndpoints(env, options.detectFetch, options.recordIndexCost);
   if (!endpoints) return null;
   return {
-    chat: endpoints.chat,
-    embedding: endpoints.embedding,
+    chat: options.byok?.vision ?? endpoints.chat,
+    embedding: options.byok?.embedding ?? endpoints.embedding,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     now: options.now,
     source: options.source,
@@ -282,8 +290,15 @@ export function cloudOwnerPinIndexStore(env: CloudPinEnv, owners: Map<string, st
  * The pin search of one principal: `data` is that principal's view
  * (owned sessions and accepted collaborations). Each search indexes up to
  * 20 stale sessions within `indexBudgetMs` (10 s), then searches.
+ * F5/S3c: `byok` (the user's retrieval endpoints, when their capabilities
+ * are ok) wins over the deployment's per capability — the captions on the
+ * user's chat model and the embeddings on theirs, without credits and
+ * without the gateway (the vectors and the captions follow the capability,
+ * not the turn: with `useCredits: true` they still run on the BYOK while
+ * the assistant's chat goes to the gateway and charges).
  */
 export function createCloudPinSearch(input: {
+  byok?: { embedding?: EmbeddingEndpoint | null; vision?: VisionEndpoint | null } | null;
   data: CloudPinSourceData;
   env: CloudPinEnv;
   fetch?: typeof fetch;
@@ -293,6 +308,12 @@ export function createCloudPinSearch(input: {
 }): PinSearchService {
   const now = input.now ?? (() => new Date());
   const indexBudgetMs = input.indexBudgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS;
+  // The BYOK endpoint's egress bound to a signal (the per-call slot rides
+  // inside it): null when the endpoint is absent.
+  const withSignal = <T extends { fetch?: typeof fetch }>(
+    endpoint: T | null | undefined,
+    signal: AbortSignal | undefined,
+  ): T | null => (endpoint?.fetch ? { ...endpoint, fetch: withAbortSignal(endpoint.fetch, signal) } : endpoint ?? null);
   return {
     async search({ limit, query, signal }) {
       signal?.throwIfAborted();
@@ -303,7 +324,11 @@ export function createCloudPinSearch(input: {
       const source = cloudPinSource(input.data);
       const store = cloudOwnerPinIndexStore(input.env, await source.owners());
       signal?.throwIfAborted();
+      const byok = input.byok === undefined || input.byok === null
+        ? null
+        : { embedding: withSignal(input.byok.embedding, indexSignal), vision: withSignal(input.byok.vision, indexSignal) };
       const indexing = await indexDeps(input.env, {
+        ...(byok ? { byok } : {}),
         ...(input.fetch ? { detectFetch: input.fetch } : {}),
         fetch: withAbortSignal(input.fetch, indexSignal),
         now,
@@ -317,13 +342,18 @@ export function createCloudPinSearch(input: {
       // The question's embedding is bound to the turn only.
       const { fetch: _indexFetch, ...rest } = indexing;
       const searchFetch = withAbortSignal(input.fetch, signal);
-      return searchPins({ ...rest, ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
+      // The BYOK embedding endpoint's egress is re-bound to the turn only,
+      // like the deployment's searchFetch (the indexing's budget does not
+      // cut the question's embedding, as today).
+      const embedding = withSignal(rest.embedding, signal);
+      return searchPins({ ...rest, ...(embedding ? { embedding } : {}), ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
     },
   };
 }
 
 /**
- * The pin search of a BYOK assistant turn (F5/S3, contract §5): the turn
+ * The text-only pin search of the BYOK turns without indexing (F5/S3,
+ * contract §5; kept as the S3c fallback of createByokPinSearch): the turn
  * makes no gateway call — no hub detection, no indexing, no captions from
  * the model, no query embedding, no pin_index write. The ranking is the
  * text-only one searchPins already has (embedding: null), over the
@@ -365,8 +395,26 @@ export function createByokTextPinSearch(input: {
 }): PinSearchService {
   const now = input.now ?? (() => new Date());
   return {
-    async search({ limit, query, signal }) {
-      signal?.throwIfAborted();
+    async search(searchInput) {
+      return byokTextSearch({ budgetMs: input.budgetMs, data: input.data, env: input.env, now }, searchInput);
+    },
+  };
+}
+
+/**
+ * The BYOK text-only ranking over the current documents (the body of
+ * createByokTextPinSearch, shared with createByokPinSearch's fallback):
+ * budgetMs is the deadline from the search's start (0 settles it at once
+ * with what was already resolved); the turn's abort rejects with the
+ * caller's reason, the budget alone stops the search. `semantic` answers
+ * false: the query was not embedded.
+ */
+async function byokTextSearch(
+  input: { budgetMs?: number; data: CloudPinSourceData; env: CloudPinEnv; now: () => Date },
+  { limit, query, signal }: { limit: number; query: string; signal?: AbortSignal },
+): Promise<PinSearchResult> {
+  const now = input.now;
+  signal?.throwIfAborted();
       // The build's deadline starts with the search (10 s by default);
       // the turn ends it sooner.
       const deadline = AbortSignal.timeout(input.budgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS);
@@ -522,7 +570,104 @@ export function createByokTextPinSearch(input: {
       // chat: null → no captions from the model; embedding: null → the
       // text-only ranking, which never fetches (searchPins embeds the
       // query only with an embedding endpoint).
-      return searchPins({ chat: null, embedding: null, now, source: guardedSource, store }, { limit, query });
+      return await searchPins({ chat: null, embedding: null, now, source: guardedSource, store }, { limit, query });
+}
+
+/**
+ * The pin search of a BYOK assistant turn (F5/S3c, contract §5): the turn
+ * makes no gateway call — no hub detection, and the indexing and the
+ * query's embedding run only on the user's endpoints, without credits.
+ * With the embeddings ok, the index (up to 20 stale sessions, 10 s
+ * budget) runs on the user's embedding model — the captions on the user's
+ * chat model when the vision is ok, the missing caption marked null for a
+ * charged turn or a later BYOK vision to complete (the index's own
+ * lagging rule) — and the question is embedded on theirs, ranking only
+ * the vectors of its identity (model\0url). Without them, the search is
+ * the text-only one over the current documents (createByokTextPinSearch),
+ * and nothing is written.
+ *
+ * A failure of the BYOK in the indexing or the query — the egress, a
+ * cause, the per-user cap — never falls to the gateway and never charges:
+ * the turn's search continues text-only (the tool's result says the
+ * semantic search did not run), the failed sessions stay stale, and the
+ * rest of the turn's searches do not call the BYOK again (no repeated
+ * 429/503). The turn's abort ends the search with the caller's reason,
+ * as the gateway search's answer.
+ */
+export function createByokPinSearch(input: {
+  budgetMs?: number;
+  byok: { embedding: EmbeddingEndpoint | null; vision: VisionEndpoint | null };
+  data: CloudPinSourceData;
+  env: CloudPinEnv;
+  now?: () => Date;
+}): PinSearchService {
+  const now = input.now ?? (() => new Date());
+  // A BYOK failure degrades the rest of the turn's searches to text.
+  let degraded = false;
+  return {
+    async search({ limit, query, signal }) {
+      signal?.throwIfAborted();
+      // Without the embeddings ok there is no vector of the BYOK for this
+      // turn: the text-only search, nothing written (as S3a left it).
+      if (degraded || input.byok.embedding === null) {
+        return byokTextSearch({ budgetMs: input.budgetMs, data: input.data, env: input.env, now }, { limit, query, ...(signal ? { signal } : {}) });
+      }
+      const budgetMs = input.budgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS;
+      const startedAt = now().getTime();
+      // The indexing deadline starts with the search; the turn ends it
+      // sooner.
+      const deadline = AbortSignal.timeout(budgetMs);
+      const indexSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+      // A fresh source per search: the accessible sessions are read again.
+      const source = cloudPinSource(input.data);
+      const store = cloudOwnerPinIndexStore(input.env, await source.owners());
+      signal?.throwIfAborted();
+      // A failure of any BYOK call of the indexing (the egress, a cause,
+      // the per-user cap): the search must settle text-only, so the calls
+      // mark it (indexStale keeps the failed sessions stale on its own).
+      let byokFailed = false;
+      const marking = (fetchFn: typeof fetch): typeof fetch =>
+        (async (target: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+          try {
+            return await fetchFn(target, init);
+          } catch (error) {
+            byokFailed = true;
+            throw error;
+          }
+        }) as typeof fetch;
+      const deps: PinIndexDeps = {
+        chat: input.byok.vision === null
+          ? null
+          : { ...input.byok.vision, fetch: marking(withAbortSignal(input.byok.vision.fetch, indexSignal)!) },
+        embedding: { ...input.byok.embedding, fetch: marking(withAbortSignal(input.byok.embedding.fetch, indexSignal)!) },
+        now,
+        source,
+        store,
+      };
+      try {
+        await indexStale(deps, { budgetMs, maxSessions: CLOUD_PIN_SEARCH_MAX_SESSIONS, signal: indexSignal });
+        signal?.throwIfAborted();
+        // A BYOK failure of the indexing never ranks by vectors in this
+        // turn: the search settles text-only (the tool's result says the
+        // semantic search did not run), without the gateway and without a
+        // charge; the failed sessions stay stale for a later pass.
+        if (byokFailed) throw new Error("the byok indexing failed");
+        // The question's embedding is bound to the turn only, as the
+        // gateway search's.
+        const queryDeps: PinIndexDeps = {
+          ...deps,
+          embedding: { ...input.byok.embedding, fetch: marking(withAbortSignal(input.byok.embedding.fetch, signal)!) },
+        };
+        return await searchPins(queryDeps, { limit, query });
+      } catch (error) {
+        // The turn's abort is the caller's reason, as the gateway search
+        // answers; anything else (the BYOK's failure, the budget) settles
+        // the turn's search text-only.
+        if (signal?.aborted) throw turnAbortReason(signal);
+        degraded = true;
+        const remaining = Math.max(0, budgetMs - (now().getTime() - startedAt));
+        return byokTextSearch({ budgetMs: remaining, data: input.data, env: input.env, now }, { limit, query, ...(signal ? { signal } : {}) });
+      }
     },
   };
 }

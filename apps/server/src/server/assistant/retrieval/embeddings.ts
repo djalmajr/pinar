@@ -39,6 +39,21 @@ export interface EmbeddingEndpoint {
   baseUrl: string;
   gateway?: GatewayEmbeddingOptions; // set for the Vercel AI Gateway
   model: string;
+  /**
+   * F5/S3c: the endpoint is the user's BYOK one: the legacy plain-model
+   * entries (written before the endpoint joined the identity) belong to
+   * the deployment that wrote them, never to the user's vector space, so
+   * identityMatches refuses them here (contract §5: vectors of different
+   * identities never mix); the deployment's endpoints keep the upgrade
+   * rule, so a pre-v0.8.1 vector of their model is not stranded.
+   */
+  byok?: true;
+  /**
+   * F5/S3c: the endpoint's own egress (the BYOK call, the per-user slot and
+   * the caused failures): it wins over the deps' fetch; unset for the
+   * deployment's endpoints, which run on the deps' fetch.
+   */
+  fetch?: typeof fetch;
 }
 
 const INVALID_RESPONSE = "embedding response invalid";

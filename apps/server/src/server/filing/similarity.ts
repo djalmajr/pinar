@@ -39,7 +39,10 @@ export async function rankBySimilarity(input: {
   const [vectors, centroids] = await Promise.all([
     embedTexts({
       endpoint: input.embedding,
-      fetch: withAbortSignal(input.fetch, input.signal),
+      // The endpoint's own egress wins (F5/S3c: the BYOK capture's
+      // embedding, the per-user slot); the deployment's endpoints run on
+      // the caller's fetch as before.
+      fetch: withAbortSignal(input.embedding.fetch ?? input.fetch, input.signal),
       kind: "query",
       texts: [input.text],
       timeoutMs: FILING_TIMEOUT_MS,

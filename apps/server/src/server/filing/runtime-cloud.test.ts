@@ -21,8 +21,11 @@ import { resetRetrievalCapabilitiesCacheForTests } from "../assistant/retrieval/
 import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "../assistant/retrieval/embeddings";
 import { embeddingIdentity } from "../assistant/retrieval/index";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
-import { FILING_NONE_OPTION } from "./choose";
+import { FILING_NONE_OPTION, FILING_SIMILARITY_MIN } from "./choose";
 import { cloudFilingEngine, setCloudFilingFetchForTests } from "./runtime-cloud";
+import { byokCrypto } from "../byok/crypto";
+import { ByokEgressUnavailableError, setByokEgressForTests } from "../byok/fetch";
+import { byokAcquireSlot, byokSlotRelease, resetByokConcurrencyForTests } from "../byok/route";
 
 const NOW = "2026-10-17T12:00:00.000Z";
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -1738,6 +1741,245 @@ describe("cloud capture filing in production, through the gateway (F4 contract �
     }
   });
 });
+
+// F5/S3c: the automatic destination follows the user's BYOK embeddings
+// capability. With them ok the capture's embedding runs on the user's
+// endpoint — one link, no reservation, no credit, and the deployment
+// receives nothing (not even the detection) — comparing only with the
+// centroids of the same identity (model\u0000url). A failure (a caused
+// egress, the per-user cap) keeps the capture in the default destination
+// with the cause in the choice's result — no gateway, no credit. Without
+// the capability the path is today's: the gateway's engine, one credit.
+describe("cloud capture filing follows the user's BYOK embeddings (F5/S3c)", () => {
+  const BYOK_FILING_HOST = "https://byok-filing.test";
+  const BYOK_FILING_URL = `${BYOK_FILING_HOST}/v1`;
+  const BYOK_FILING_KEY = "sk-byok-filing-test-3141";
+  // The same model name as the deployment's (EMBEDDING_MODEL): the URL is
+  // what keeps the two vector spaces apart.
+  const S3C_BYOK_EMBEDDING = EMBEDDING_MODEL;
+  const S3C_BYOK_IDENTITY = `${S3C_BYOK_EMBEDDING}\u0000${BYOK_FILING_URL}`;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => {
+    setByokEgressForTests(null);
+    setCloudFilingFetchForTests(null);
+    resetByokConcurrencyForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    resetCloudMemoryStateForTests();
+  });
+
+  async function seedByokFilingRow(db: Database, byokKey: string, capabilities: string) {
+    const cryptoObj = (await byokCrypto(byokKey))!;
+    const ciphertext = await cryptoObj.encrypt(BYOK_FILING_KEY);
+    db.query(
+      `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+         embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(OWNER, BYOK_FILING_URL, ciphertext, "3141", cryptoObj.keyId, "chat-1", S3C_BYOK_EMBEDDING, "", capabilities, NOW, NOW);
+  }
+
+  const caps = (embeddings: boolean) =>
+    JSON.stringify({
+      chat: { error: null, ok: true, testedAt: NOW },
+      embeddings: embeddings ? { dims: 256, error: null, ok: true, testedAt: NOW } : { dims: null, error: "key_rejected", ok: false, testedAt: NOW },
+      tools: { error: null, ok: true, testedAt: NOW },
+      transcription: { error: null, ok: null, testedAt: null },
+      vision: { error: null, ok: null, testedAt: null },
+    });
+
+  // The BYOK egress the tests inject: only the BYOK host, as byokFetch
+  // does until S6. The capture's embedding is the payment-like one.
+  function byokFilingEgress(options: { fail?: Response | null; embed?: (text: string) => number[] } = {}) {
+    const calls: Array<{ auth: string | null; body: Record<string, any> | null; path: string }> = [];
+    setByokEgressForTests(async (url, init) => {
+      if (!url.startsWith(BYOK_FILING_HOST)) throw new ByokEgressUnavailableError();
+      const raw = String(init?.body ?? "");
+      const body = raw ? (JSON.parse(raw) as Record<string, any>) : null;
+      const path = new URL(url).pathname;
+      calls.push({ auth: new Headers(init?.headers ?? {}).get("authorization"), body, path });
+      if (path.endsWith("/embeddings")) {
+        if (options.fail) return options.fail;
+        const text = Array.isArray(body!.input) ? String(body!.input[0]) : String(body!.input);
+        return Response.json({ data: [{ embedding: options.embed?.(text) ?? (text.includes("Payment") ? vector(1, 0.05) : vector(0, 0, 1)), index: 0 }] });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    return calls;
+  }
+
+  async function seedCentroidSessions(db: Database, env: CloudEnv) {
+    seedCollections(db);
+    insertSession(db, { collectionId: "col_checkout", createdAt: "2026-10-01T10:00:00.000Z", id: "fil_s3c_1", title: "Card form" });
+    insertSession(db, { collectionId: "col_onboarding", createdAt: "2026-10-02T10:00:00.000Z", id: "fil_s3c_2", title: "Welcome" });
+    await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+  }
+
+  test("S3c: with the embeddings ok the automatic destination runs on the BYOK (the centroids of its identity, no credit, 0 deployment calls)", async () => {
+    const db = migratedDatabase();
+    const byokKey = Buffer.alloc(32, 31).toString("base64");
+    try {
+      const env = { ...filingEnv(db), BYOK_MASTER_KEY: byokKey };
+      const cookie = await signIn(db, env);
+      await seedCentroidSessions(db, env);
+      await indexSession(env, "fil_s3c_1", [{ model: S3C_BYOK_IDENTITY, vector: vector(1, 0) }]);
+      await indexSession(env, "fil_s3c_2", [{ model: S3C_BYOK_IDENTITY, vector: vector(0, 1) }]);
+      await seedByokFilingRow(db, byokKey, caps(true));
+      const byokCalls = byokFilingEgress();
+      const deployment = fakeAppliance({ engine: "none" });
+      setCloudFilingFetchForTests(deployment.fetch);
+
+      const body = await shot(env, cookie, { collectionId: "col_onboarding", id: "fil_s3c_cap", title: "Payment declined" });
+      assert.equal(body.destination.collectionId, "col_checkout", "the BYOK's centroids chose the collection");
+      assert.deepEqual(body.filing, { collectionId: "col_checkout", confidence: body.filing.confidence, engine: "similarity", reason: "chosen" });
+      assert.ok(body.filing.confidence >= FILING_SIMILARITY_MIN, "confident enough");
+      assert.equal(stored(db, "fil_s3c_cap").filed_by, "auto");
+
+      // The capture's embedding left only through the BYOK — its model,
+      // its key, only in the Authorization header: the deployment received
+      // nothing (not even the detection), and nothing was reserved or
+      // consumed.
+      assert.equal(byokCalls.length, 1, "one embedding call: the capture's");
+      assert.equal(byokCalls[0]!.auth, `Bearer ${BYOK_FILING_KEY}`);
+      assert.equal(byokCalls[0]!.body!.model, S3C_BYOK_EMBEDDING);
+      assert.deepEqual(deployment.calls, [], "the deployment received 0 calls");
+      assert.deepEqual(db.query("SELECT id FROM ai_credit_usages WHERE feature = 'capture_filing'").all(), [], "no credit reserved, no credit consumed");
+      assert.deepEqual(db.query("SELECT id FROM assistant_index_costs").all(), [], "no index cost line");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("S3c: a BYOK failure keeps the capture in the default destination with the cause (no gateway, no credit)", async () => {
+    const cases: Array<{ cause: string; label: string; fail?: Response | null; holdSlots?: boolean }> = [
+      { cause: "key_rejected", fail: new Response("PROVIDER-BODY-SECRET", { status: 401 }), label: "401" },
+      { cause: "rate_limited", label: "the cap", holdSlots: true },
+    ];
+    for (const item of cases) {
+      resetCloudMemoryStateForTests();
+      resetRetrievalCapabilitiesCacheForTests();
+      const db = migratedDatabase();
+      const byokKey = Buffer.alloc(32, 32).toString("base64");
+      try {
+        const env = { ...filingEnv(db), BYOK_MASTER_KEY: byokKey };
+        const cookie = await signIn(db, env);
+        await seedCentroidSessions(db, env);
+        await indexSession(env, "fil_s3c_1", [{ model: S3C_BYOK_IDENTITY, vector: vector(1, 0) }]);
+        await seedByokFilingRow(db, byokKey, caps(true));
+        const byokCalls = byokFilingEgress({ fail: item.fail });
+        const deployment = fakeAppliance({ engine: "none" });
+        setCloudFilingFetchForTests(deployment.fetch);
+        if (item.holdSlots) {
+          // The turn's slot plus another in-flight call: the capture's
+          // per-call slot is refused (no queue).
+          assert.equal(byokAcquireSlot(OWNER), true);
+          assert.equal(byokAcquireSlot(OWNER), true);
+        }
+
+        const body = await shot(env, cookie, { collectionId: "col_onboarding", id: `fil_s3c_fail_${item.cause}`, title: "Payment declined" });
+        assert.equal(body.destination.collectionId, "col_inbox", `${item.label}: the default destination`);
+        assert.equal(body.filing.collectionId, null);
+        assert.equal(body.filing.engine, "similarity", `${item.label}: the engine that failed`);
+        assert.equal(body.filing.reason, item.cause, `${item.label}: the cause in the choice's result`);
+        assert.equal(stored(db, `fil_s3c_fail_${item.cause}`).filed_by, null, `${item.label}: unmarked`);
+        // No credit and no gateway: the provider's body never crossed.
+        assert.deepEqual(db.query("SELECT id FROM ai_credit_usages WHERE feature = 'capture_filing'").all(), [], `${item.label}: no credit`);
+        assert.deepEqual(deployment.calls, [], `${item.label}: 0 deployment calls`);
+        assert.ok(!JSON.stringify(body).includes("PROVIDER-BODY-SECRET"), `${item.label}: the provider's body never crosses`);
+        if (item.holdSlots) {
+          assert.equal(byokCalls.length, 0, "the cap refused before the egress");
+          byokSlotRelease(OWNER)();
+          byokSlotRelease(OWNER)();
+        }
+      } finally {
+        db.close();
+      }
+    }
+  });
+
+  test("S3c: without the embeddings ok the path is today's (the gateway's engine, one credit)", async () => {
+    const db = migratedDatabase();
+    const byokKey = Buffer.alloc(32, 33).toString("base64");
+    try {
+      const env = { ...filingEnv(db), BYOK_MASTER_KEY: byokKey };
+      const cookie = await signIn(db, env);
+      await seedCentroidSessions(db, env);
+      await indexSession(env, "fil_s3c_1", [{ vector: vector(1, 0) }]);
+      await indexSession(env, "fil_s3c_2", [{ vector: vector(0, 1) }]);
+      await seedByokFilingRow(db, byokKey, caps(false));
+      const byokCalls = byokFilingEgress();
+      const deployment = fakeAppliance({ engine: "similarity", embed: (text) => (text.includes("Payment") ? vector(1, 0.05) : vector(0, 0, 1)) });
+      setCloudFilingFetchForTests(deployment.fetch);
+
+      const body = await shot(env, cookie, { collectionId: "col_onboarding", id: "fil_s3c_no_ok", title: "Payment declined" });
+      assert.equal(body.destination.collectionId, "col_checkout", "today's path chose the collection");
+      assert.equal(body.filing.engine, "similarity");
+      assert.equal(body.filing.reason, "chosen");
+      // The engine ran on the deployment (its embedding model), and the
+      // capture's credit was reserved and consumed: one credit.
+      const embeddings = deployment.calls.filter((call) => call.path === "/embeddings");
+      assert.ok(embeddings.length >= 1, "the capture's embedding left through the deployment");
+      assert.equal(embeddings[0]!.body!.model, EMBEDDING_MODEL);
+      assert.deepEqual(byokCalls, [], "the BYOK egress was not used");
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        const rows = db.query("SELECT status FROM ai_credit_usages WHERE feature = 'capture_filing'").all();
+        if (JSON.stringify(rows) === JSON.stringify([{ status: "succeeded" }])) break;
+        if (Date.now() > deadline) throw new Error(`the capture was not billed: ${JSON.stringify(rows)}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("S3c: the identities never mix in the centroids (the swap, filing side)", async () => {
+    // The same numeric vector (1,0) under two identities: the BYOK's
+    // (model\u0000url) and the legacy plain-model with the same model name
+    // (a different URL: a different vector space the identity rule keeps
+    // apart). The BYOK engine must see only the former, the deployment's
+    // engine only the latter — if one leaked into the other's centroid,
+    // the two collections would tie and the margin rule would refuse to
+    // choose.
+    const db = migratedDatabase();
+    const byokKey = Buffer.alloc(32, 34).toString("base64");
+    try {
+      const env = { ...filingEnv(db), BYOK_MASTER_KEY: byokKey };
+      const cookie = await signIn(db, env);
+      await seedCentroidSessions(db, env);
+      await indexSession(env, "fil_s3c_1", [{ model: S3C_BYOK_IDENTITY, vector: vector(1, 0) }]);
+      await indexSession(env, "fil_s3c_2", [{ model: EMBEDDING_MODEL, vector: vector(1, 0) }]); // the legacy plain-model (the same name, no URL)s
+      const byokCalls = byokFilingEgress();
+      const deployment = fakeAppliance({ engine: "similarity", embed: (text) => (text.includes("Payment") ? vector(1, 0.05) : vector(0, 0, 1)) });
+      setCloudFilingFetchForTests(deployment.fetch);
+
+      // The BYOK engine (the capability ok): col_checkout has the BYOK
+      // centroid; col_onboarding's legacy vector is a different identity
+      // and stays out — a lone centroid chooses, so the legacy never
+      // leaked.
+      await seedByokFilingRow(db, byokKey, caps(true));
+      const first = await shot(env, cookie, { collectionId: "col_onboarding", id: "fil_s3c_mix_1", title: "Payment declined" });
+      assert.equal(first.destination.collectionId, "col_checkout", "the BYOK engine chose the BYOK centroid's collection");
+      assert.equal(first.filing.reason, "chosen", "a lone centroid: the legacy vector stayed out of the BYOK's centroid");
+      assert.equal(byokCalls.length, 1, "the BYOK's embedding only");
+
+      // The deployment's engine (the capability no longer ok): col_onboarding
+      // has the legacy centroid; col_checkout's BYOK vector stays out —
+      // a lone centroid chooses, so the BYOK never leaked.
+      db.query("UPDATE byok_endpoints SET capabilities_json = ? WHERE owner_id = ?").run(caps(false), OWNER);
+      const second = await shot(env, cookie, { collectionId: "col_checkout", id: "fil_s3c_mix_2", title: "Payment declined" });
+      assert.equal(second.destination.collectionId, "col_onboarding", "the deployment's engine chose the legacy centroid's collection");
+      assert.equal(second.filing.reason, "chosen", "a lone centroid: the BYOK vector stayed out of the deployment's centroid");
+    } finally {
+      db.close();
+    }
+  });
+});
+
 
 describe("cloud-api.ts loads the filing engines lazily", () => {
   test("only types and the constants are imported statically from filing/", () => {

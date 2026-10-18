@@ -63,7 +63,15 @@ const RESPONSE_SCHEMA = {
 const INVALID_RESPONSE = "vision response invalid";
 
 /** The chat endpoint of the captions; `gateway` is set for the Vercel AI Gateway. */
-export type VisionEndpoint = AssistantEndpoint & { gateway?: GatewayCallOptions };
+export type VisionEndpoint = AssistantEndpoint & {
+  /**
+   * F5/S3c: the endpoint's own egress (the BYOK call, the per-user slot and
+   * the caused failures): it wins over the deps' fetch; unset for the
+   * deployment's endpoints, which run on the deps' fetch.
+   */
+  fetch?: typeof fetch;
+  gateway?: GatewayCallOptions;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

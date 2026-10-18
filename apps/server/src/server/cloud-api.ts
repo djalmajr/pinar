@@ -6987,9 +6987,15 @@ async function fileCloudShot(
 ): Promise<FilingOutcome> {
   const startedAt = Date.now();
   try {
+    // F5/S3c (contract §5): the user's retrieval endpoints (their
+    // capabilities ok) make the capture's embedding run on the user's
+    // endpoint — one link, without a reservation and without a credit;
+    // without them the gateway's path is unchanged (1 credit).
+    const { byokRetrievalEndpoints } = await import("./byok/endpoints");
     const { fileCloudCapture } = await import("./filing/runtime-cloud");
     return await fileCloudCapture({
       batchId,
+      byok: await byokRetrievalEndpoints(env, principal),
       capture,
       env,
       meter: cloudCaptureFilingMeter(env, principal, capture.captureId),
@@ -9090,7 +9096,14 @@ export async function cloudPinSearch(
   if (!(await cloudAssistantStatus(env, principal)).available) return undefined;
   // Loaded lazily, like the assistant HTTP layer: it pulls in the AI SDK.
   const { createCloudPinSearch } = await import("./assistant/retrieval/runtime-cloud");
+  // F5/S3c (contract §5): the vectors and the captions follow the user's
+  // BYOK capabilities, not the turn — with them ok, the index and the query
+  // run on the user's endpoints without a credit, even in a useCredits turn
+  // (whose chat still goes the gateway and charges); without them the
+  // gateway's path is unchanged. null: no BYOK route, the gateway only.
+  const { byokRetrievalEndpoints } = await import("./byok/endpoints");
   return createCloudPinSearch({
+    byok: await byokRetrievalEndpoints(env, principal),
     data: cloudPinSourceData(env, principal, { shared: true }),
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -9240,7 +9253,15 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
       // the search's build, the lazy import) must still free it — released
       // here, once, and the turn gets the defined 503 (http.ts catch).
       try {
-        const { createByokTextPinSearch } = await import("./assistant/retrieval/runtime-cloud");
+        // F5/S3c (contract §5): the turn's index and the query's embedding
+        // run on the user's endpoints when their capabilities are ok (the
+        // per-call slot rides inside them), without credits; without them
+        // the search is the text-only one over the current documents. The
+        // gateway's cloudPinSearch stays with the useCredits turns.
+        const { byokRetrievalEndpoints } = await import("./byok/endpoints");
+        const { createByokPinSearch, createByokTextPinSearch } = await import("./assistant/retrieval/runtime-cloud");
+        const byokData = cloudPinSourceData(env, principal, { shared: true });
+        const byokEndpoints = await byokRetrievalEndpoints(env, principal);
         return {
           endpoint: {
             apiKey: byokRoute.apiKey,
@@ -9251,11 +9272,10 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
           },
           kind: "route",
           model: byokAssistantModel(byokRoute, { conversationId, requestId }),
-          pinSearch: createByokTextPinSearch({
-            data: cloudPinSourceData(env, principal, { shared: true }),
-            env,
-            now: currentDate,
-          }),
+          pinSearch:
+            byokEndpoints === null
+              ? createByokTextPinSearch({ data: byokData, env, now: currentDate })
+              : createByokPinSearch({ byok: byokEndpoints, data: byokData, env, now: currentDate }),
           release: byokRoute.release,
         };
       } catch (error) {

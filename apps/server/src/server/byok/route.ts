@@ -83,14 +83,23 @@ export function resetByokConcurrencyForTests(): void {
 
 const NOOP_RELEASE = () => {};
 
-function byokTryAcquire(ownerId: string): boolean {
+/**
+ * Acquire the owner's per-user BYOK concurrency slot (F5/S3c): exported so
+ * the index's and the destination's per-call egress (byokCallEgress in
+ * byok/endpoints.ts) hold one slot per egress call, never the whole
+ * multi-call index. Above BYOK_MAX_CONCURRENT_CALLS the call fails with
+ * rate_limited, without a queue, and the caller degrades (the turn's index
+ * goes text, the automatic destination the default).
+ */
+export function byokAcquireSlot(ownerId: string): boolean {
   const current = byokCallsInFlight.get(ownerId) ?? 0;
   if (current >= BYOK_MAX_CONCURRENT_CALLS) return false;
   byokCallsInFlight.set(ownerId, current + 1);
   return true;
 }
 
-function byokMakeRelease(ownerId: string): () => void {
+/** The release of a slot taken by byokAcquireSlot: idempotent. */
+export function byokSlotRelease(ownerId: string): () => void {
   let released = false;
   return () => {
     if (released) return;
@@ -147,8 +156,8 @@ export async function cloudByokRoute(
   if (options.acquire === false) return { ...route, release: NOOP_RELEASE };
   // The check and the mark are one synchronous step, so a concurrent call
   // always sees the first one's mark.
-  if (!byokTryAcquire(principal.id)) return { cause: "rate_limited" };
-  return { ...route, release: byokMakeRelease(principal.id) };
+  if (!byokAcquireSlot(principal.id)) return { cause: "rate_limited" };
+  return { ...route, release: byokSlotRelease(principal.id) };
 }
 
 export interface ByokAssistantRoute extends ByokRoute {
@@ -217,13 +226,13 @@ export async function byokAssistantRoute(env: CloudEnv, principal: Principal): P
   if (base === null) return null;
   // The check and the mark are one synchronous step, so a concurrent call
   // always sees the first one's mark.
-  if (!byokTryAcquire(principal.id)) return { cause: "rate_limited" };
+  if (!byokAcquireSlot(principal.id)) return { cause: "rate_limited" };
   return {
     apiKey: base.apiKey,
     baseUrl: base.baseUrl,
     egress: base.egress,
     model: base.chatModel,
-    release: byokMakeRelease(principal.id),
+    release: byokSlotRelease(principal.id),
     vision: base.visionOk,
   };
 }

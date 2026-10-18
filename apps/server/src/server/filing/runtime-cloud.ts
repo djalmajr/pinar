@@ -19,6 +19,7 @@
 
 import { cloudRetrievalEndpoints, type CloudIndexCostRecorder, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
+import type { ByokRetrievalEndpoints } from "../byok/endpoints";
 import type { FilingThresholdEnv } from "./constants";
 import type { FilingCreditMeter } from "./choose";
 import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
@@ -38,9 +39,20 @@ function fetchOption(): { fetch?: typeof fetch } {
 /**
  * The engine of the deployment, or null without the AI configuration or a
  * usable engine. `recordIndexCost` records the gateway embeddings of the
- * similarity engine (the margin monitor's index costs).
+ * similarity engine (the margin monitor's index costs). F5/S3c: `byok`
+ * (the user's retrieval endpoints, their capabilities ok) wins — the
+ * similarity engine on the user's embedding endpoint, one link, no credit
+ * and no reservation; the deployment's detection still runs for what the
+ * BYOK does not cover (the decisions engine, never BYOK).
  */
-export async function cloudFilingEngine(env: CloudPinEnv, recordIndexCost?: CloudIndexCostRecorder): Promise<FilingEngineChoice | null> {
+export async function cloudFilingEngine(
+  env: CloudPinEnv,
+  byok: ByokRetrievalEndpoints | null = null,
+  recordIndexCost?: CloudIndexCostRecorder,
+): Promise<FilingEngineChoice | null> {
+  if (byok?.embedding !== undefined && byok.embedding !== null) {
+    return { byok: true, embedding: byok.embedding, kind: "similarity" };
+  }
   const endpoints = await cloudRetrievalEndpoints(env, testFetch ?? undefined, recordIndexCost);
   if (!endpoints) return null;
   if (endpoints.decisions) return { endpoint: endpoints.decisions, kind: "decisions" };
@@ -69,10 +81,13 @@ export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, tim
  * Files a new Cloud capture of `ownerId`; the caller checked the gate and
  * the preference. The env also carries the filing similarity threshold
  * variables (F3.5 §1), applied where chooseCollection resolves them. The
- * meter (A53) charges the capture's credit when the engine is called.
+ * meter (A53) charges the capture's credit when the engine is called —
+ * never for the BYOK engine (F5/S3c: no reservation, no credit). `byok`
+ * is the owner's retrieval endpoints (their capabilities ok).
  */
 export function fileCloudCapture(input: {
   batchId: string | null;
+  byok?: ByokRetrievalEndpoints | null;
   capture: FilingCapture;
   env: CloudPinEnv & FilingThresholdEnv;
   meter?: FilingCreditMeter;
@@ -85,7 +100,7 @@ export function fileCloudCapture(input: {
   return fileCapture({
     batchId: input.batchId,
     capture: input.capture,
-    engine: () => cloudFilingEngine(input.env, input.recordIndexCost),
+    engine: () => cloudFilingEngine(input.env, input.byok ?? null, input.recordIndexCost),
     ...fetchOption(),
     ...(input.meter ? { meter: input.meter } : {}),
     source: { ...input.source, entriesFor: (sessionIds) => store.entriesFor(sessionIds) },

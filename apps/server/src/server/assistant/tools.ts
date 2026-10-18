@@ -176,12 +176,16 @@ export function buildAssistantToolSet(input: {
         try {
           // The turn's signal: once the turn aborts, the search starts no new request.
           const signal = options?.abortSignal;
-          const hits = await pinSearch.search({
+          // The answer's `semantic` says the ranking that ran was the
+          // vector one (F5/S3c): the tool's result reports it, so the model
+          // knows a textual ranking ran when the query's embedding failed
+          // or there is no embedding endpoint — without the provider's body.
+          const { hits, semantic } = await pinSearch.search({
             limit: limit ?? ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT,
             query: query.trim(),
             ...(signal ? { signal } : {}),
           });
-          return dataResult(JSON.stringify({ hits: hits.map(pinSearchHitData) }));
+          return dataResult(JSON.stringify({ hits: hits.map(pinSearchHitData), semantic }));
         } catch {
           // The service error (endpoint, store) never reaches the model.
           return { message: TOOL_FAILED_MESSAGE, status: "error" };

@@ -270,7 +270,7 @@ describe("local pin index runtime", () => {
 
     const search = localPinSearch(historyDatabase());
     assert.ok(search);
-    const hits = await search.search({ limit: 3, query: "contraste do botão" });
+    const { hits } = await search.search({ limit: 3, query: "contraste do botão" });
     assert.deepEqual(hits[0], {
       caption: "Marcador 1 legenda",
       comment: "O contraste do botão comprar está baixo",
@@ -428,7 +428,9 @@ describe("local pin index runtime", () => {
     assert.equal(appliance.posts().length, 1, "the first-search pass is indexing the session");
     assert.equal((await api("/api/history/cap_first", { method: "DELETE" })).status, 200);
     gate.release();
-    assert.deepEqual(await searching, []);
+    // The session is gone: no accessible session answers before the query
+    // is even embedded, and the answer says the semantic one did not run.
+    assert.deepEqual(await searching, { hits: [], semantic: false });
     await settle();
     assert.deepEqual(entries("cap_first"), [], "the entries written by the pass were removed");
   });
@@ -458,7 +460,7 @@ describe("local pin index runtime", () => {
     assert.equal(entries("cap_turn").length, 1, "the pass finished");
     assert.deepEqual(queries(), []);
 
-    const hits = await search.search({ limit: 5, query: "turno" });
+    const { hits } = await search.search({ limit: 5, query: "turno" });
     assert.deepEqual(hits.map((hit) => hit.pinId), ["pt"]);
     assert.equal(queries().length, 1);
   });
@@ -468,13 +470,13 @@ describe("local pin index runtime", () => {
     appliance.state.modelsDown = true;
     await capture("cap_cap", "Capacidades", [{ comment: "Contraste do rodapé", pinId: "pc" }]);
     const search = localPinSearch(historyDatabase())!;
-    assert.equal((await search.search({ limit: 5, query: "contraste rodapé" })).length, 1, "text search while /models is down");
+    assert.equal((await search.search({ limit: 5, query: "contraste rodapé" })).hits.length, 1, "text search while /models is down");
     assert.equal(entries("cap_cap")[0]!.vector, null);
     assert.equal(appliance.documents().length, 0);
 
     appliance.state.modelsDown = false;
     resetRetrievalCapabilitiesCacheForTests(); // the 1-minute failure cache expired
-    const hits = await search.search({ limit: 5, query: "contraste rodapé" });
+    const { hits } = await search.search({ limit: 5, query: "contraste rodapé" });
     assert.equal(hits.length, 1);
     assert.notEqual(entries("cap_cap")[0]!.vector, null, "the entry got its vector");
     assert.equal(appliance.documents().length, 1);
@@ -590,8 +592,8 @@ describe("local pin index runtime", () => {
       // The first search runs the pass, embeds the document and hits the pin.
       const first = await runtime.search.search({ limit: 5, query: "contraste" });
       await runtime.idle();
-      assert.equal(first.length, 1);
-      assert.equal(first[0]!.sessionId, "s1");
+      assert.equal(first.hits.length, 1);
+      assert.equal(first.hits[0]!.sessionId, "s1");
       assert.equal(appliance.documents().length, 1);
       assert.ok(stored.get("s1")!.every((entry) => entry.model === embeddingIdentity({ baseUrl: BASE_URL, model: "embed-model" })));
 
@@ -601,14 +603,14 @@ describe("local pin index runtime", () => {
       endpoint = { ...endpoint, baseUrl: "https://new.example/v1" };
       const second = await runtime.search.search({ limit: 5, query: "contraste" });
       await runtime.idle();
-      assert.equal(second.length, 1, "the new pass re-embeds and the hit comes back");
+      assert.equal(second.hits.length, 1, "the new pass re-embeds and the hit comes back");
       assert.equal(appliance.documents().length, 2, "the URL change ran a new pass");
       assert.ok(stored.get("s1")!.every((entry) => entry.model === embeddingIdentity({ baseUrl: "https://new.example/v1", model: "embed-model" })), "the stored vector carries the new identity");
 
       // A third search runs no new pass.
       const third = await runtime.search.search({ limit: 5, query: "contraste" });
       await runtime.idle();
-      assert.equal(third.length, 1);
+      assert.equal(third.hits.length, 1);
       assert.equal(appliance.documents().length, 2, "the pass ran once for the change");
     } finally {
       runtime.stop();

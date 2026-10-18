@@ -208,3 +208,23 @@ export class ByokAssistantTurnError extends Error {
     this.retryAfterSeconds = byokCause.retryAfterSeconds;
   }
 }
+
+/**
+ * A BYOK capability call's failure (F5/S3c: the pin captions and embeddings
+ * of the index, the capture's embedding of the automatic destination):
+ * the classified cause and a fixed message, the same contract as the turn's
+ * class. The provider's body, the URL and the key never cross it, so it can
+ * be thrown through the retrieval and filing layers — whose fixed-message
+ * errors it replaces where it is thrown — or classified by the caller (the
+ * destination's cause in the choice's result) without leaking.
+ */
+export class ByokCallError extends Error {
+  readonly cause: ByokCauseCode;
+  readonly retryAfterSeconds: number | null;
+  constructor(byokCause: ByokCause) {
+    super("byok call failed");
+    this.name = "ByokCallError";
+    this.cause = byokCause.cause;
+    this.retryAfterSeconds = byokCause.retryAfterSeconds;
+  }
+}

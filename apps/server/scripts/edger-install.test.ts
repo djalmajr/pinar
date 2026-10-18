@@ -597,6 +597,7 @@ describe("fillManifest", () => {
       }),
     ) as {
       allowNet: string[];
+      egress: { enabled: boolean; ports: number[] };
       env: Record<string, string>;
       hosts: string[];
       name: string;
@@ -607,6 +608,10 @@ describe("fillManifest", () => {
     assert.deepEqual(manifest.hosts, ["pinar.dev", "www.pinar.dev"]);
     assert.equal(manifest.env.DEPLOYMENT_ENV, "production");
     assert.ok(manifest.allowNet.includes("pinar-prd.edger.svc.cluster.local:443"));
+    // The BYOK egress guard (EDG-38) is on, HTTPS only, and the guard's
+    // precondition holds: allowNet stays declared next to it.
+    assert.deepEqual(manifest.egress, { enabled: true, ports: [443] });
+    assert.ok(manifest.allowNet.length > 0);
   });
 });
 

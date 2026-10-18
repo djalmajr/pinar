@@ -271,7 +271,8 @@ describe("public legal documents", () => {
         assert.match(privacy, /which may be outside Brazil; that transfer is made at your request to run the features you invoke \(Article 33, IX, combined with Article 7, V, of the LGPD\)/);
         assert.match(privacy, /is decrypted only in memory at the moment of each call, is never written to a log/);
         assert.match(privacy, /is deleted when you remove the endpoint or delete your account/);
-        assert.match(privacy, /The capabilities that did not pass the test keep using the AI providers accessed through the Vercel AI Gateway/);
+        assert.match(privacy, /A feature whose capability did not pass the test keeps using the AI providers accessed through the Vercel AI Gateway/);
+        assert.match(privacy, /the search of your pins in that answer uses your endpoint's vision and embeddings when they passed, or the text alone when they did not, and nothing goes to those providers/);
         // The Terms keep the controller burden, now with the endpoint branch.
         assert.match(terms, /or with the AI endpoint you configure yourself when its capabilities have passed the connection test/);
         // The endpoint's provider is not a subprocessor of Pinar.
@@ -286,7 +287,8 @@ describe("public legal documents", () => {
         assert.match(privacy, /o que pode ser fora do Brasil; essa transferência é feita a seu pedido, para executar os recursos que você aciona \(art\. 33, IX, combinado com o art\. 7º, V, da LGPD\)/);
         assert.match(privacy, /é decifrada só em memória na hora de cada chamada, nunca vai para log/);
         assert.match(privacy, /é apagada quando você remove o endpoint ou apaga a conta/);
-        assert.match(privacy, /As capacidades que não passaram no teste seguem usando os provedores de IA acessados pelo Vercel AI Gateway/);
+        assert.match(privacy, /Um recurso cuja capacidade não passou no teste segue usando os provedores de IA acessados pelo Vercel AI Gateway/);
+        assert.match(privacy, /a busca nos seus pins nessa resposta usa a visão e os embeddings do seu endpoint quando eles passaram, ou só o texto quando não passaram, e nada vai a esses provedores/);
         assert.match(terms, /ou com o endpoint de IA que você configura por sua conta, quando as capacidades dele passaram no teste de conexão/);
         assert.match(subprocessors, /o provedor desse endpoint não é suboperador do Pinar/);
         assert.match(subprocessors, /o Pinar só encaminha os seus pedidos a ele, e valem os termos próprios desse provedor para o tratamento/);

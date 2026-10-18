@@ -196,6 +196,7 @@ async function indexDeps(
     detectFetch?: typeof fetch;
     fetch?: typeof fetch;
     now: () => Date;
+    onSessionError?: (error: unknown) => void;
     recordIndexCost?: CloudIndexCostRecorder;
     source: PinSource;
     store: PinIndexStore;
@@ -207,6 +208,7 @@ async function indexDeps(
     chat: options.byok?.vision ?? endpoints.chat,
     embedding: options.byok?.embedding ?? endpoints.embedding,
     ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.onSessionError ? { onSessionError: options.onSessionError } : {}),
     now: options.now,
     source: options.source,
     store: options.store,
@@ -309,13 +311,15 @@ export function createCloudPinSearch(input: {
 }): PinSearchService {
   const now = input.now ?? (() => new Date());
   const indexBudgetMs = input.indexBudgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS;
-  // A failure of the question's BYOK embedding degrades the rest of the
-  // turn's searches to the text-only ranking (searchPins settles the failed
-  // query text-only and swallows the error: the mark below keeps the
-  // degradation persistent, so the next search does not call the user's
-  // endpoint again — no repeated 429 during its Retry-After — and no
-  // gateway vector ever enters the BYOK's space).
-  let byokTurnQueryDegraded = false;
+  // A BYOK failure of the turn — the indexing's calls (the egress, a cause,
+  // the per-user cap, the 2xx's parse and schema) or the question's
+  // embedding — degrades the rest of the turn's searches to the text-only
+  // ranking over the CURRENT documents (byokTextSearch): the mark below
+  // keeps the degradation persistent, so the next search does not call the
+  // user's endpoint again through the indexing's copy (no repeated 429
+  // during its Retry-After) and no gateway vector ever enters the BYOK's
+  // space.
+  let byokTurnDegraded = false;
   // The BYOK endpoint's egress bound to a signal (the per-call slot rides
   // inside it): null when the endpoint is absent.
   const withSignal = <T extends { fetch?: typeof fetch }>(
@@ -325,6 +329,14 @@ export function createCloudPinSearch(input: {
   return {
     async search({ limit, query, signal }) {
       signal?.throwIfAborted();
+      const startedAt = now().getTime();
+      // The turn's BYOK degradation is persistent: the search settles
+      // text-only over the current documents (the fresh search's full
+      // budget), without the indexing's copy and without any gateway
+      // vector.
+      if (byokTurnDegraded) {
+        return byokTextSearch({ budgetMs: indexBudgetMs, data: input.data, env: input.env, now }, { limit, query, ...(signal ? { signal } : {}) });
+      }
       // The indexing deadline starts with the search; the turn ends it sooner.
       const deadline = AbortSignal.timeout(indexBudgetMs);
       const indexSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
@@ -335,11 +347,23 @@ export function createCloudPinSearch(input: {
       const byok = input.byok === undefined || input.byok === null
         ? null
         : { embedding: withSignal(input.byok.embedding, indexSignal), vision: withSignal(input.byok.vision, indexSignal) };
+      // A BYOK failure of the indexing (the egress, a cause, the per-user
+      // cap, the 2xx's parse and schema — the onSessionError observer sees
+      // the caused error as it crosses the session's boundary) degrades
+      // this turn's search to the text-only ranking over the current
+      // documents, as createByokPinSearch does: the failed sessions stay
+      // stale, no gateway vector enters the BYOK's space, and the rest of
+      // the turn follows text-only. The deployment's endpoints keep their
+      // soft fallback (their failures are not ByokCallError).
+      let byokIndexFailed = false;
       const indexing = await indexDeps(input.env, {
         ...(byok ? { byok } : {}),
         ...(input.fetch ? { detectFetch: input.fetch } : {}),
         fetch: withAbortSignal(input.fetch, indexSignal),
         now,
+        onSessionError: (error) => {
+          if (error instanceof ByokCallError) byokIndexFailed = true;
+        },
         ...(input.recordIndexCost ? { recordIndexCost: input.recordIndexCost } : {}),
         source,
         store,
@@ -347,6 +371,15 @@ export function createCloudPinSearch(input: {
       if (!indexing) throw new Error("pin search unavailable");
       await indexStale(indexing, { budgetMs: indexBudgetMs, maxSessions: CLOUD_PIN_SEARCH_MAX_SESSIONS, signal: indexSignal });
       signal?.throwIfAborted();
+      // A BYOK failure of the indexing never ranks by vectors in this turn:
+      // the search settles text-only over the current documents (the tool's
+      // result says the semantic search did not run), the failed sessions
+      // stay stale for a later pass, and the rest of the turn follows it.
+      if (byokIndexFailed) {
+        byokTurnDegraded = true;
+        const remaining = Math.max(0, indexBudgetMs - (now().getTime() - startedAt));
+        return byokTextSearch({ budgetMs: remaining, data: input.data, env: input.env, now }, { limit, query, ...(signal ? { signal } : {}) });
+      }
       // The question's embedding is bound to the turn only.
       const { fetch: _indexFetch, ...rest } = indexing;
       const searchFetch = withAbortSignal(input.fetch, signal);
@@ -356,9 +389,9 @@ export function createCloudPinSearch(input: {
       // embedding (as the deployment's searchFetch is bound to the turn only,
       // and the indexing's budget never cut the gateway's question's embedding
       // either). A failure of the question's BYOK embedding marks the turn
-      // (byokTurnQueryDegraded): the rest of it ranks text-only.
+      // (byokTurnDegraded): the rest of it ranks text-only.
       let byokQueryFailed = false;
-      const originalByok = byokTurnQueryDegraded === false ? (input.byok?.embedding ?? null) : null;
+      const originalByok = input.byok?.embedding ?? null;
       const byokQueryFetch = originalByok?.fetch ?? null;
       const embedding =
         byokQueryFetch === null
@@ -380,7 +413,12 @@ export function createCloudPinSearch(input: {
               }) as typeof fetch,
             };
       const result = await searchPins({ ...rest, ...(embedding ? { embedding } : {}), ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
-      if (byokQueryFailed) byokTurnQueryDegraded = true;
+      // A failure of the question's BYOK embedding that searchPins settled
+      // text-only (semantic: false): the degradation is persistent — the
+      // rest of the turn ranks text-only over the current documents
+      // (byokTextSearch at the top of the next search), never through the
+      // indexing's copy (no repeated 429) and never with a gateway vector.
+      if (byokQueryFailed) byokTurnDegraded = true;
       return result;
     },
   };

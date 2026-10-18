@@ -11,13 +11,18 @@
 // the turn). Both endpoints carry byokSlotEgress: the egress (byokFetch,
 // the refusal until S6, or the fake the tests inject) wrapped with the
 // per-user concurrency slot held FOR THE CALL — taken right before the
-// egress call and held until the answer settles: a non-2xx or a thrown
-// egress failure release it at once, a 2xx keeps it until the body settles
-// (read to the end, an error in the read, or a cancel), so the consumer's
-// body read and parse are inside the call, never after the slot freed. A
-// multi-call index or a batched embedding hold one slot at a time, never
-// the whole pass. And with the common cause table, so every failure
-// crosses the retrieval and filing layers as a caused ByokCallError: the
+// egress call and released only once the answer is settled: a non-2xx or a
+// thrown egress failure release it at once, and a 2xx is read whole INSIDE
+// the slot (capped at BYOK_RESPONSE_BODY_LIMIT, bounded by the call's own
+// signal — the caller's deadline) and answered with a new Response whose
+// bytes are already in memory: the consumer's parse is plain JSON, an
+// abandoned body no longer exists, and a 2xx whose source never closes
+// cannot hold the slot past its deadline. A multi-call index or a batched
+// embedding hold one slot at a time, never the whole pass. And with the
+// common cause table, so every failure crosses the retrieval and filing
+// layers as a caused ByokCallError: a read failure (a cut, the deadline, an
+// abort) is classified there (endpoint_unreachable, or timeout); only the
+// JSON and the schema are left to the caller, as invalid_response. The
 // provider's body, the URL and the key never appear in an error, a result
 // or a log.
 //
@@ -41,94 +46,158 @@ import { byokRow } from "./store";
 // for the 403/404 markers of the common table, never more.
 const BYOK_CALL_ERROR_BODY_LIMIT = 256 * 1024;
 
+// The 2xx answer's body, read whole inside the slot: a full embedding
+// batch and the caption's answer fit, nothing that can hold a slot or grow
+// a buffer. Above it the answer is refused as invalid_response.
+export const BYOK_RESPONSE_BODY_LIMIT = 8 * 1024 * 1024;
+
 /**
  * The BYOK egress with the per-call concurrency slot and the common cause
  * table (F5 contract §1 and §5). The slot is taken right before the egress
- * call and held for the call: above BYOK_MAX_CONCURRENT_CALLS the call is
- * refused with rate_limited (no queue), and a call in flight never holds
- * the slot of the next one. The release is idempotent; a thrown egress
- * failure (the refusal, the deadline, the network) and a non-2xx (read
- * capped for the 403/404 markers, refused as the caused ByokCallError) are
- * the common cause table and release the slot at once. A 2xx passes its
- * body through untouched, but the slot is held until the body settles —
- * read to the end, an error in the read, or a cancel: the consumer's read
- * and parse are part of the call, so a body still pending still counts the
- * call as in flight (the next call of the user is capped, not started on
- * top of it). The name keeps it apart from byok/call.ts's one-shot
- * byokCallEgress (the S3b voice/reproduction call): this one wraps an
- * egress with the slot and the cause, that one performs a single call and
- * returns the body text.
+ * call and released only once the answer is settled: above
+ * BYOK_MAX_CONCURRENT_CALLS the call is refused with rate_limited (no
+ * queue), and a call in flight never holds the slot of the next one. The
+ * release is idempotent and runs on every path (the finally below): a
+ * thrown egress failure (the refusal, the deadline, the network) and a
+ * non-2xx (read capped for the 403/404 markers, refused as the caused
+ * ByokCallError) are the common cause table; a 2xx is read whole INSIDE
+ * the slot — capped (above it invalid_response) and bounded by the call's
+ * own signal (an abort while reading is a timeout) — and answered with a
+ * new Response whose bytes are already in memory: a read failure (a cut of
+ * the transport, the deadline, an abort) is classified here by the common
+ * table (endpoint_unreachable, or timeout), what is left to the caller is
+ * the JSON and the schema (invalid_response), and an abandoned body no
+ * longer exists, so a consumer that never reads still cannot hold the
+ * slot. The name keeps it apart from byok/call.ts's one-shot byokCallEgress
+ * (the S3b voice/reproduction call): this one wraps an egress with the slot
+ * and the cause, that one performs a single call and returns the body text.
  */
 export function byokSlotEgress(egress: ByokEgress, ownerId: string): ByokEgress {
   return async (url, init) => {
     if (!byokAcquireSlot(ownerId)) throw new ByokCallError({ cause: "rate_limited", retryAfterSeconds: null });
-    // The release is idempotent: the 2xx hands it to the answer's body, where
-    // the slot is held until the body settles; every other path releases it
-    // right away.
-    let released = false;
-    const release = () => {
-      if (released) return;
-      released = true;
-      byokSlotRelease(ownerId)();
-    };
-    let response: Response;
     try {
-      response = await egress(url, init);
+      const response = await egress(url, init);
+      if (!response.ok) {
+        let bodyText: string | undefined;
+        try {
+          bodyText = await byokReadBody(response, BYOK_CALL_ERROR_BODY_LIMIT);
+        } catch {
+          // A body that fails to be read: the status and the guard's header
+          // still decide the cause.
+        }
+        throw new ByokCallError(byokResponseCause(response, bodyText));
+      }
+      // The 2xx's body, read whole inside the slot: the caller's parse is
+      // left with the JSON and the schema, never with a body it might
+      // abandon.
+      const body = await byokResponseBodyRead(response, BYOK_RESPONSE_BODY_LIMIT, init?.signal ?? undefined);
+      if (body.kind === "limit") throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
+      if (body.kind === "abort") throw new ByokCallError({ cause: "timeout", retryAfterSeconds: null });
+      if (body.kind === "error") throw new ByokCallError(byokEgressErrorCause(body.error));
+      return new Response(body.bytes, { headers: response.headers, status: response.status, statusText: response.statusText });
     } catch (error) {
-      release();
       if (error instanceof ByokCallError) throw error;
       throw new ByokCallError(byokEgressErrorCause(error));
+    } finally {
+      // Idempotent: every path settles the call with the slot released.
+      byokSlotRelease(ownerId)();
     }
-    if (response.ok) return byokResponseHoldingSlot(response, release);
-    let bodyText: string | undefined;
-    try {
-      bodyText = await byokReadBody(response, BYOK_CALL_ERROR_BODY_LIMIT);
-    } catch {
-      // A body that fails to be read: the status and the guard's header
-      // still decide the cause.
-    }
-    release();
-    throw new ByokCallError(byokResponseCause(response, bodyText));
   };
 }
 
-// The 2xx answer of byokSlotEgress: the slot is held until the body
-// settles — read to the end (EOF), an error in the read, or a cancel (the
-// consumer's abort, or the body cut). The pass-through stream does not
-// touch the bytes (the caller still owns the read and the parse); a
-// response without a body settles at once.
-function byokResponseHoldingSlot(response: Response, release: () => void): Response {
+// The read of the 2xx's body inside byokSlotEgress: the bytes (done), the
+// cap exceeded (limit), the call's signal ending the read (abort — the
+// caller's deadline), or the read's failure (error — a cut of the
+// transport; the caller classifies it with the common table).
+type ByokBodyRead =
+  | { kind: "abort"; error: unknown }
+  | { kind: "bytes"; bytes: Uint8Array<ArrayBuffer> }
+  | { kind: "error"; error: unknown }
+  | { kind: "limit" };
+
+/**
+ * The 2xx's body, read whole inside the slot: to the end (EOF), to the cap
+ * (above it limit — the caller refuses the answer as invalid_response),
+ * or to the call's signal (an abort while reading is abort — the caller
+ * classifies it as timeout). A read failure keeps the error for the
+ * caller's cause table. The body is cancelled when the read stops (at the
+ * cap, by the abort, or by a failure that did not close it), so nothing
+ * outlives the slot.
+ */
+async function byokResponseBodyRead(response: Response, maxBytes: number, signal: AbortSignal | undefined): Promise<ByokBodyRead> {
   const body = response.body;
-  if (body === null) {
-    release();
-    return response;
+  if (body === null) return { kind: "bytes", bytes: new Uint8Array(0) };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (!signal?.aborted) {
+      let step;
+      try {
+        step = await abortSignalRace(reader.read(), signal);
+      } catch (error) {
+        // The read was cut: the call's signal ending it (the deadline, the
+        // caller's abort) is the timeout's case; anything else is a cut of
+        // the transport for the common table.
+        if (signal?.aborted) return { kind: "abort", error };
+        return { kind: "error", error };
+      }
+      if (step.done || !step.value) break;
+      if (length + step.value.byteLength > maxBytes) return { kind: "limit" };
+      chunks.push(step.value);
+      length += step.value.byteLength;
+    }
+    if (signal?.aborted) {
+      return { kind: "abort", error: signal.reason instanceof Error ? signal.reason : new Error("the call's signal ended the read") };
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { kind: "bytes", bytes };
+  } catch (error) {
+    return { kind: "error", error };
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Already released.
+    }
+    try {
+      await body.cancel();
+    } catch {
+      // A body that already errored or closed: nothing to cancel.
+    }
   }
-  let settled = false;
-  const settle = () => {
-    if (settled) return;
-    settled = true;
-    release();
-  };
-  const stream = body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
+}
+
+// `promise` raced against the signal's abort: the abort rejects with the
+// signal's reason (the deadline's, the caller's) even while the read is
+// still in flight — the promise's own outcome is always handled, so
+// neither side is left unprocessed. Without a signal (or the loop's
+// `signal.aborted` check before the read) the promise stands alone.
+function abortSignalRace<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      const reason = signal.reason;
+      reject(reason instanceof Error ? reason : new Error("the call's signal aborted the read"));
+    };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
       },
-      // The body read to the end: the call's work is done.
-      flush() {
-        settle();
+      (error) => {
+        cleanup();
+        reject(error);
       },
-      // A cancel (the consumer's abort, an error in the read, a cut body):
-      // the wait is over.
-      cancel() {
-        settle();
-      },
-    }),
-  );
-  return new Response(stream, {
-    headers: response.headers,
-    status: response.status,
-    statusText: response.statusText,
+    );
   });
 }
 

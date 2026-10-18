@@ -1917,6 +1917,22 @@ describe("cloud capture filing follows the user's BYOK embeddings (F5/S3c)", () 
         fail: new Response("{invalid PROVIDER-BODY-SECRET", { status: 200, headers: { "content-type": "application/json" } }),
         label: "the non-JSON 2xx",
       },
+      {
+        // The 2xx whose body the transport cuts mid-read: a READ failure,
+        // not a parse failure — the common table's transport cause,
+        // classified at the egress (inside the slot), not
+        // invalid_response at the consumer's parse.
+        cause: "endpoint_unreachable",
+        fail: new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.error(new Error("socket destroyed"));
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+        label: "the body cut by the transport",
+      },
       { cause: "rate_limited", label: "the cap", holdSlots: true },
     ];
     for (const item of cases) {

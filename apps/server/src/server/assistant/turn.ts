@@ -262,9 +262,12 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   // data part with the details before the error part. Written at most once:
   // the inner and the outer onError may both see the failure.
   let streamErrorPartSent = false;
-  // The error chunk itself, at most once too: the SDK writes it for the
-  // code the onError callbacks return, and the deadline (which the SDK's
-  // onError never sees) writes it from the timer.
+  // The fatal error chunk, at most once: the SDK writes it for the code a
+  // classified failure returns, and the deadline (which the SDK's onError
+  // never sees) writes it from the timer. A recoverable tool error is
+  // formatted without a classification (the SDK writes its tool-error
+  // parts and the model continues), so it does not mark the chunk: a
+  // later deadline can still emit its cause (R1 review fix).
   let streamErrorChunkSent = false;
   const classifyStreamError = (error: unknown): { code: string } | undefined => {
     const classified = input.onStreamError?.(error);
@@ -276,8 +279,15 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     return { code: classified.code };
   };
   const streamError = (error: unknown): string => {
-    streamErrorChunkSent = true;
-    return classifyStreamError(error)?.code ?? errorCodeFor();
+    const code = classifyStreamError(error)?.code;
+    // The fatal error chunk goes out only when the caller classifies the
+    // failure (the SDK writes it with this code; the deadline never writes
+    // a second one). A recoverable tool error is not classified here — the
+    // SDK writes its tool-error parts with the generic code and the model
+    // continues — so it does not mark the chunk, and a later deadline can
+    // still emit its cause once (R1 review fix).
+    if (code !== undefined) streamErrorChunkSent = true;
+    return code ?? errorCodeFor();
   };
 
   // Data parts tools emit go to the UI stream writer. createUIMessageStream

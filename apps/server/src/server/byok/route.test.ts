@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, describe, test } from "node:test";
-import { streamText } from "ai";
+import { jsonSchema, streamText, tool } from "ai";
 import { ByokAssistantTurnError } from "./cause";
 import { byokCrypto } from "./crypto";
 import { untestedCapabilities } from "./api";
@@ -697,6 +697,93 @@ describe("the BYOK turn's deadline", () => {
     assert.ok(!sse.includes("byok_error"), `no byok_error on a cancel: ${sse}`);
     assert.equal(outcome.kind, "error");
     if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_STREAM_FAILED", "a cancel is not a timeout");
+  });
+
+  // A recoverable tool error does not suppress the deadline's cause (R1
+  // review fix): the SDK formats tool-input-error / tool-output-error
+  // through the same onError, but only a classified failure sends the
+  // fatal error chunk.
+  const toolCallAnswer = (name: string) =>
+    `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ function: { arguments: "{}", name }, id: "tool-1", index: 0, type: "function" }] }, index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}\n\n` +
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls", index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}\n\n` +
+    "data: [DONE]\n\n";
+
+  const pendingAfterToolCall = (name: string, requests: { conversationId: string; requestId: string }) => {
+    let calls = 0;
+    const egress: ByokEgress = async (_url, init) => {
+      calls += 1;
+      if (calls === 1)
+        return new Response(toolCallAnswer(name), { headers: { "content-type": "text/event-stream" }, status: 200 });
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    };
+    return { calls: () => calls, model: byokAssistantModel(byokModelRoute(false, egress), requests) };
+  };
+
+  const deadlinePartsOnce = (sse: string, toolPartType: string) => {
+    const parts = sse
+      .split("\n")
+      .filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
+      .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+    assert.equal(parts.filter((part) => part.type === toolPartType).length, 1, `the recoverable tool error was formatted: ${sse}`);
+    const byokParts = parts.filter((part) => part.type === "data-byok-error");
+    const errorParts = parts.filter((part) => part.type === "error");
+    assert.equal(byokParts.length, 1, `the data-byok-error part once: ${sse}`);
+    assert.deepEqual(byokParts[0]!.data, { canUseCredits: true, cause: "timeout" }, "the cause of the deadline");
+    assert.equal(errorParts.length, 1, `the error part once: ${sse}`);
+    assert.equal(errorParts[0]!.errorText, "byok_error");
+    assert.ok(parts.findIndex((part) => part.type === "data-byok-error") < parts.findIndex((part) => part.type === "error"), "the part precedes the error");
+    assert.ok(parts.findIndex((part) => part.type === "error") < parts.findIndex((part) => part.type === "abort"), "the error precedes the abort");
+    assert.ok(!sse.includes(TEST_KEY), "the key is not in the stream");
+  };
+
+  test("an unknown tool error, then the deadline: the cause still goes out once", async () => {
+    const { calls, model } = pendingAfterToolCall("pinar_nonexistent", { conversationId: "conv_a", requestId: "req_f" });
+    const result = runAssistantTurn({
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 80,
+      tools: {},
+    });
+    const sse = await result.response.text();
+    const outcome = await result.outcome;
+    assert.equal(calls(), 2, "the model continues after the recoverable tool error");
+    deadlinePartsOnce(sse, "tool-input-error");
+    assert.equal(outcome.kind, "error");
+    if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_TURN_TIMEOUT");
+  });
+
+  test("a common tool error, then the deadline: the cause still goes out once", async () => {
+    let toolCalls = 0;
+    const { calls, model } = pendingAfterToolCall("fails", { conversationId: "conv_a", requestId: "req_g" });
+    const result = runAssistantTurn({
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 80,
+      tools: {
+        fails: tool({
+          execute: async () => {
+            toolCalls += 1;
+            throw new Error("tool failure");
+          },
+          inputSchema: jsonSchema({ properties: {}, type: "object" }),
+        }),
+      },
+    });
+    const sse = await result.response.text();
+    const outcome = await result.outcome;
+    assert.equal(calls(), 2, "the model continues after the recoverable tool error");
+    assert.equal(toolCalls, 1, "the tool ran and failed");
+    deadlinePartsOnce(sse, "tool-output-error");
+    assert.equal(outcome.kind, "error");
+    if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_TURN_TIMEOUT");
   });
 });
 

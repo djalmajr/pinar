@@ -338,11 +338,21 @@ export function createCloudPinSearch(input: {
  *
  * The limits are the indexing' own, so the search never reads the whole
  * account per call: at most CLOUD_PIN_SEARCH_MAX_SESSIONS (20) sessions
- * are read and built per search, and the build stops at
- * CLOUD_PIN_SEARCH_BUDGET_MS (10 s) from the search's start (a session not
- * built simply does not contribute), joined with the turn's signal.
+ * are read and built per search, and the search settles at
+ * CLOUD_PIN_SEARCH_BUDGET_MS (10 s, or the test's budgetMs) from its start,
+ * joined with the turn's signal. Every read the search starts (the
+ * preparation's listing, the session and comments builds, the hit
+ * resolution) ends its wait on that combined signal (R2 review fix): a
+ * read the driver has already started may keep going alone, but the search
+ * does not wait for it, and checks the signal after each await before
+ * starting the next read. The turn's abort ends the search with the
+ * caller's reason — the gateway search's answer (throwIfAborted and its
+ * bound fetch) — and starts no new read; the budget alone settles it with
+ * what it already resolved (a session not resolved simply does not
+ * contribute). Nothing is written.
  */
 export function createByokTextPinSearch(input: {
+  budgetMs?: number;
   data: CloudPinSourceData;
   env: CloudPinEnv;
   now?: () => Date;
@@ -351,15 +361,26 @@ export function createByokTextPinSearch(input: {
   return {
     async search({ limit, query, signal }) {
       signal?.throwIfAborted();
-      // The indexing' deadline starts with the search; the turn ends it
-      // sooner. A slow session read stops the build: the sessions not
-      // built do not contribute, and nothing is written.
-      const deadline = AbortSignal.timeout(CLOUD_PIN_SEARCH_BUDGET_MS);
+      // The build's deadline starts with the search (10 s by default);
+      // the turn ends it sooner.
+      const deadline = AbortSignal.timeout(input.budgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS);
       const buildSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
       // A fresh source per search: the accessible sessions are read again.
       const source = cloudPinSource(input.data);
-      const owners = await source.owners();
-      const indexStore = cloudOwnerPinIndexStore(input.env, owners);
+      // The combined signal's end at a check point (R2): the turn's abort
+      // rejects with the caller's reason (the gateway search's answer);
+      // the budget alone stops the search.
+      const budgetOnlyEnded = (): boolean => {
+        if (signal?.aborted) throw turnAbortReason(signal);
+        return buildSignal.aborted;
+      };
+      // Checked after each await, before the next read starts: the turn's
+      // abort rejects with the caller's reason (the gateway search's
+      // answer); the budget alone stops the search with what it already
+      // resolved (here: no stored captions, no listing).
+      const ownersRead = await byokRaceSignal(source.owners(), buildSignal);
+      if (ownersRead === undefined) budgetOnlyEnded();
+      const indexStore = cloudOwnerPinIndexStore(input.env, ownersRead ?? new Map());
       // The store searchPins ranks: the current documents, built in memory
       // (entriesFor below). It never writes pin_index.
       const store: PinIndexStore = {
@@ -374,20 +395,34 @@ export function createByokTextPinSearch(input: {
           // sessions (searchPins hands them over newest first).
           const wanted = sessionIds.slice(0, CLOUD_PIN_SEARCH_MAX_SESSIONS);
           const stored = new Map<string, PinIndexEntry[]>();
-          for (const entry of await indexStore.entriesFor(wanted)) {
+          const storedRead = await byokRaceSignal(indexStore.entriesFor(wanted), buildSignal);
+          if (storedRead === undefined) budgetOnlyEnded();
+          for (const entry of storedRead ?? []) {
             const list = stored.get(entry.sessionId) ?? [];
             list.push(entry);
             stored.set(entry.sessionId, list);
           }
           const entries: PinIndexEntry[] = [];
           for (const sessionId of wanted) {
-            if (buildSignal.aborted) break;
-            const session = await source.session(sessionId);
+            if (budgetOnlyEnded()) break;
+            const session = await byokRaceSignal(source.session(sessionId), buildSignal);
+            if (session === undefined) {
+              // Checked after the await, before the comments read starts:
+              // the turn's abort rejects here, the budget stops without a
+              // new read.
+              budgetOnlyEnded();
+              break;
+            }
             if (session === null) continue;
-            const comments = await source.comments(sessionId);
+            const comments = await byokRaceSignal(source.comments(sessionId), buildSignal);
+            if (comments === undefined) {
+              budgetOnlyEnded();
+              break;
+            }
+            const commentList = comments;
             const previous = new Map((stored.get(sessionId) ?? []).map((entry) => [entry.pinId, entry]));
             for (let index = 0; index < session.pins.length; index += 1) {
-              if (buildSignal.aborted) break;
+              if (budgetOnlyEnded()) break;
               const pin = session.pins[index]!;
               const pinId = session.pinIds[index]!;
               const entry = previous.get(pinId);
@@ -407,7 +442,7 @@ export function createByokTextPinSearch(input: {
                   : null;
               const doc = await buildPinDocument({
                 caption,
-                comments: comments.get(pinId) ?? [],
+                comments: commentList.get(pinId) ?? [],
                 page: session.page,
                 pin,
               });
@@ -437,10 +472,68 @@ export function createByokTextPinSearch(input: {
           return [];
         },
       };
+      // The source searchPins reads (the preparation's listing and the hit
+      // resolution): the same rule as the build — the wait ends on the
+      // combined signal, and the check after the await rejects the turn's
+      // abort (the gateway search's answer) or stops at the budget, which
+      // starts no new read and answers with what was already resolved.
+      const guardedSource: PinSource = {
+        ...source,
+        async listSessions(searchInput) {
+          if (budgetOnlyEnded()) return [];
+          const page = await byokRaceSignal(source.listSessions(searchInput), buildSignal);
+          if (page === undefined) {
+            budgetOnlyEnded();
+            return [];
+          }
+          return page;
+        },
+        async session(id) {
+          if (budgetOnlyEnded()) return null;
+          const value = await byokRaceSignal(source.session(id), buildSignal);
+          if (value === undefined) {
+            budgetOnlyEnded();
+            return null;
+          }
+          return value;
+        },
+      };
       // chat: null → no captions from the model; embedding: null → the
       // text-only ranking, which never fetches (searchPins embeds the
       // query only with an embedding endpoint).
-      return searchPins({ chat: null, embedding: null, now, source, store }, { limit, query });
+      return searchPins({ chat: null, embedding: null, now, source: guardedSource, store }, { limit, query });
     },
   };
+}
+
+/**
+ * The wait of a read the search starts (R2 review fix): it ends when the
+ * combined signal aborts. A read the driver has already started may keep
+ * going alone, but the search does not wait for it — the wait ends with
+ * `undefined`, and the caller checks the signal after the await before
+ * starting the next read (the turn's abort rejects with the caller's
+ * reason — the gateway search's answer; the budget alone stops the search
+ * with what it already resolved). The read's own failure still rejects.
+ */
+function byokRaceSignal<T>(read: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  if (signal.aborted) return Promise.resolve(undefined);
+  return new Promise<T | undefined>((resolve, reject) => {
+    const onAbort = () => resolve(undefined);
+    signal.addEventListener("abort", onAbort, { once: true });
+    read.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+/** The abort's reason, the way the gateway search rejects (index.ts). */
+function turnAbortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
 }

@@ -25,6 +25,7 @@ import {
   type Principal,
 } from "./cloud-api";
 import { cloudAssistantStore } from "./assistant/store-cloud";
+import { buildPinDocument } from "./assistant/retrieval/document";
 import type { AssistantToolHost } from "./assistant/tools";
 import { byokCrypto } from "./byok/crypto";
 import { ByokEgressUnavailableError, setByokEgressForTests } from "./byok/fetch";
@@ -1053,9 +1054,10 @@ describe("cloud assistant routes", () => {
   });
 
   // F5/S3: a BYOK turn calls pinar_pins_search: the search is the text-only
-  // ranking over the entries the index already has — no hub detection, no
-  // indexing, no captions, no query embedding, no gateway call at all
-  // (contract §5, A53). The useCredits turn keeps the gateway's search.
+  // ranking over the sessions' CURRENT documents (F1 review fix) — no hub
+  // detection, no indexing, no captions from the model, no query embedding,
+  // no pin_index row read for the ranking and none written, no gateway call
+  // at all (contract §5, A53). The useCredits turn keeps the gateway's search.
   test("S3: a BYOK turn's pinar_pins_search is text-only (no gateway call, no indexing, no index cost); useCredits keeps the gateway's search", async () => {
     const db = migratedDatabase();
     const scripted = scriptedAiServer([
@@ -1080,13 +1082,9 @@ describe("cloud assistant routes", () => {
         { comment: "nota sobre o deploy", number: 1, pinId: "pin_a1" },
         { comment: "outro assunto", number: 2, pinId: "pin_a2" },
       ]);
-      const seedEntry = (pinId: string, number: number, docText: string) =>
-        db.query(
-          `INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run("session_a1", pinId, "usr_a", number, "", null, docText, `hash-${pinId}`, 0, null, null, NOW);
-      seedEntry("pin_a1", 1, "Page: session_a1\nPin #1: nota sobre o deploy");
-      seedEntry("pin_a2", 2, "Page: session_a1\nPin #2: outro assunto");
+      // No row in pin_index: the BYOK turn's search ranks the sessions'
+      // current documents, not the index (F1 review fix) — the pins are
+      // found by their comments with nothing stored yet.
       const entries = () => db.query("SELECT doc_text FROM pin_index WHERE owner_id = 'usr_a' ORDER BY pin_id").all();
       const indexCosts = () => db.query("SELECT id FROM assistant_index_costs").all();
 
@@ -1143,15 +1141,8 @@ describe("cloud assistant routes", () => {
       // embedding — nothing left for the gateway's host.
       assert.equal(scripted.requests.length, 0, "the gateway's chat completions is not called");
       assert.ok(!fetchUrls.some((url) => url.includes(`127.0.0.1:${scripted.server.port}`)), "no URL of the gateway host leaves the server");
-      // No indexing on the BYOK turn: the entries are untouched, no cost.
-      assert.deepEqual(
-        entries(),
-        [
-          { doc_text: "Page: session_a1\nPin #1: nota sobre o deploy" },
-          { doc_text: "Page: session_a1\nPin #2: outro assunto" },
-        ],
-        "the pin index entries are untouched",
-      );
+      // No indexing on the BYOK turn: the index stays empty, no cost.
+      assert.deepEqual(entries(), [], "the pin index stays empty (no indexing on the BYOK turn)");
       assert.deepEqual(indexCosts(), [], "no row of assistant_index_costs");
 
       // The useCredits turn keeps today's path: the gateway's model, the
@@ -1266,6 +1257,358 @@ describe("cloud assistant routes", () => {
         assert.deepEqual(usages(), [], `${c.label}: no charge`);
         assert.deepEqual(balanceOf(), balanceBefore, `${c.label}: the balance did not move`);
       }
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F1 review fix: the BYOK text search ranks the sessions' CURRENT
+  // documents — a pin that was never indexed is found by its comment, an
+  // edited comment is scored by its new text (the old term no longer
+  // matches), and a caption contributes only from an entry that is still
+  // current by the indexing' own rule. The gateway is never called and
+  // nothing is indexed.
+  test("S3: the BYOK text search ranks the current text (unindexed pins, an edited comment, the caption of a current entry)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 25).toString("base64");
+    const BYOK_KEY = "sk-byok-text-test-4321";
+    const fetchUrls: string[] = [];
+    const realFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchUrls.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        return realFetch(input, init);
+      }) as typeof fetch;
+      const { a } = await seedAccounts(db);
+      insertProject(db, "project_a", "usr_a");
+      insertCollection(db, "collection_a", "project_a", "usr_a");
+      insertSession(db, "session_a1", "usr_a", "collection_a", [
+        { comment: "nota sobre o deploy", number: 1, pinId: "pin_a1" },
+        { comment: "outro assunto", number: 2, pinId: "pin_a2" },
+      ]);
+      // One entry that is current by the indexing' own rule (its "Pin #2"
+      // line in place, its stored hash still the hash of its stored text)
+      // and carries a caption: only it may contribute its caption to the
+      // current document of pin_a2.
+      const captionDoc = await buildPinDocument({
+        caption: { caption: "legenda do pin", ocr: "" },
+        comments: [],
+        page: { title: "session_a1", url: "https://example.test/session_a1" },
+        pin: { comment: "outro assunto", number: 2 },
+      });
+      db.query(
+        `INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run("session_a1", "pin_a2", "usr_a", 2, "", null, captionDoc.text, captionDoc.hash, 0, "legenda do pin", null, NOW);
+      const entries = () => db.query("SELECT doc_text, caption FROM pin_index WHERE owner_id = 'usr_a' ORDER BY pin_id").all();
+      const entriesBefore = entries();
+      const indexCosts = () => db.query("SELECT id FROM assistant_index_costs").all();
+      const usages = () => db.query("SELECT id FROM ai_credit_usages").all();
+
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "https://byok-user.test/v1",
+        ciphertext,
+        "4321",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      // One BYOK turn that makes the model search for `query`: the second
+      // request's body is the tool result the model got.
+      const searchBody = async (query: string) => {
+        const calls = scriptedByokEgress([
+          { args: { limit: 5, query }, tool: "pinar_pins_search" },
+          { text: "Achei." },
+        ]);
+        const response = await turn(env, a.cookie, { text: `Procure ${query}` });
+        assert.equal(response.status, 200, `the turn for ${query} streams`);
+        await response.text();
+        assert.equal(calls.length, 2, `the tool's round trip, on the user's endpoint (${query})`);
+        assert.ok(!calls[1].body.includes(BYOK_KEY), `the key is not in the body (${query})`);
+        return calls[1].body;
+      };
+
+      // 1. Unindexed: pin_a1 has no row at all — found by its comment.
+      let body = await searchBody("deploy");
+      assert.ok(body.includes("pin_a1") && body.includes("nota sobre o deploy"), "the unindexed pin is found by its comment");
+      assert.ok(!body.includes("pin_a2"), "the non-matching pin is not a hit");
+
+      // 2. Edited comment: the new term finds, the old one no longer does.
+      db.query("UPDATE sessions SET pins_json = ? WHERE id = 'session_a1'").run(
+        JSON.stringify([
+          { comment: "nota sobre o billing", number: 1, pinId: "pin_a1" },
+          { comment: "outro assunto", number: 2, pinId: "pin_a2" },
+        ]),
+      );
+      body = await searchBody("billing");
+      assert.ok(body.includes("pin_a1") && body.includes("nota sobre o billing"), "the edited comment is scored by its new text");
+      body = await searchBody("deploy");
+      assert.ok(!body.includes("pin_a1") && !body.includes("nota sobre o deploy"), "the old term no longer matches");
+
+      // 3. The caption of the current entry contributes to the document.
+      body = await searchBody("assunto");
+      assert.ok(body.includes("pin_a2"), "pin_a2 matches its comment");
+      assert.ok(body.includes("legenda do pin"), "the current entry's caption is in the document the model got");
+
+      // The gateway was never called, nothing was indexed, nothing charged.
+      assert.equal(fake.calls(), 0, "the gateway's chat completions is not called");
+      assert.ok(!fetchUrls.some((url) => url.includes(`127.0.0.1:${fake.port}`)), "no URL of the gateway host leaves the server");
+      assert.deepEqual(entries(), entriesBefore, "the pin index is untouched");
+      assert.deepEqual(indexCosts(), [], "no row of assistant_index_costs");
+      assert.deepEqual(usages(), [], "no charge");
+    } finally {
+      globalThis.fetch = realFetch;
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F2 review fix: a 2xx that is not the expected shape (malformed SSE, a
+  // valid event outside the chunk schema, JSON where the SSE is expected)
+  // is an error of the SDK's parsing and validation — it ends the BYOK
+  // turn with byok_error and the sanitized cause invalid_response (the
+  // provider's body never crosses the boundary), without the gateway and
+  // without a charge.
+  test("S3: an invalid response from the user's endpoint ends with byok_error / invalid_response (no gateway, no charge)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 26).toString("base64");
+    const BYOK_KEY = "sk-byok-invalid-test-4321";
+    const CANARY = "provider-body-canary";
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "https://byok-user.test/v1",
+        ciphertext,
+        "4321",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      const usages = () => db.query("SELECT id FROM ai_credit_usages").all();
+      const balanceOf = () =>
+        db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+      const balanceBefore = balanceOf();
+      const fixtures: Array<{ body: string; contentType: string; label: string }> = [
+        { body: "data: {broken-json}\n\n", contentType: "text/event-stream", label: "the malformed SSE" },
+        { body: `data: {"secret":"${CANARY}"}\n\n`, contentType: "text/event-stream", label: "the event outside the chunk schema" },
+        { body: `{"error":{"message":"${CANARY}"}}`, contentType: "application/json", label: "the JSON where the SSE is expected" },
+      ];
+      for (const fixture of fixtures) {
+        setByokEgressForTests(async () => new Response(fixture.body, { headers: { "content-type": fixture.contentType }, status: 200 }));
+        const response = await turn(env, a.cookie, { text: fixture.label });
+        assert.equal(response.status, 200, `${fixture.label}: the failure still streams`);
+        const sse = await response.text();
+        const parts = sse.split("\n").filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]").map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+        const byokParts = parts.filter((part) => part.type === "data-byok-error");
+        const errorParts = parts.filter((part) => part.type === "error");
+        assert.equal(byokParts.length, 1, `${fixture.label}: the data-byok-error part once`);
+        const data = byokParts[0]!.data as { canUseCredits?: unknown; cause?: string };
+        assert.equal(data.cause, "invalid_response", fixture.label);
+        assert.equal(data.canUseCredits, true, fixture.label);
+        assert.equal(errorParts.length, 1, `${fixture.label}: the error part once`);
+        assert.equal(errorParts[0]!.errorText, "byok_error", fixture.label);
+        assert.ok(parts.findIndex((part) => part.type === "data-byok-error") < parts.findIndex((part) => part.type === "error"), `${fixture.label}: the part precedes the error`);
+        assert.ok(!sse.includes(CANARY), `${fixture.label}: the provider's body is not in the stream`);
+        assert.ok(!sse.includes(BYOK_KEY), `${fixture.label}: the key is not in the stream`);
+        const stored = db.query("SELECT status, text FROM assistant_messages WHERE role = 'assistant' AND owner_id = 'usr_a' ORDER BY rowid DESC").get() as { status: string; text: string };
+        assert.equal(stored.status, "error", fixture.label);
+        assert.equal(stored.text, "", fixture.label);
+        assert.equal(fake.calls(), 0, `${fixture.label}: the gateway is not called`);
+        assert.deepEqual(usages(), [], `${fixture.label}: no charge`);
+        assert.deepEqual(balanceOf(), balanceBefore, `${fixture.label}: the balance did not move`);
+      }
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F4 review fix: the status answers whether a BYOK route would exist
+  // without decrypting a key the capabilities already refuse; it decrypts
+  // only to tell a readable key from the ciphertext the master key cannot
+  // read (that row has no route and answers false too — the turn falls to
+  // the gateway).
+  test("S3: the status does not decrypt the key when chat or tools is not ok", async () => {
+    const db = migratedDatabase();
+    const master = Buffer.alloc(32, 31).toString("base64");
+    const otherMaster = Buffer.alloc(32, 32).toString("base64");
+    const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    let decrypts = 0;
+    const insertRow = (capabilitiesJson: string, keyCiphertext: string, keyId: string) => {
+      db.query("DELETE FROM byok_endpoints WHERE owner_id = 'usr_a'").run();
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run("usr_a", "https://byok-user.test/v1", keyCiphertext, "1234", keyId, "chat-1", "", "", capabilitiesJson, NOW, NOW);
+    };
+    try {
+      const { a } = await seedAccounts(db);
+      const cryptoObj = (await byokCrypto(master))!;
+      const otherCrypto = (await byokCrypto(otherMaster))!;
+      const readable = await cryptoObj.encrypt("sk-byok-status-test");
+      const unreadable = await otherCrypto.encrypt("sk-byok-other-master");
+      crypto.subtle.decrypt = (async (...args: Parameters<SubtleCrypto["decrypt"]>) => {
+        decrypts += 1;
+        return originalDecrypt(...args);
+      }) as SubtleCrypto["decrypt"];
+      const statusChat = async (): Promise<boolean | undefined> => {
+        const response = await route("/api/assistant/status", assistantEnv(db, { BYOK_MASTER_KEY: master }), { headers: { cookie: a.cookie } });
+        assert.equal(response.status, 200);
+        return ((await response.json()) as { byok?: { chat?: boolean } }).byok?.chat;
+      };
+
+      // The typical production row: the capabilities are not ok → false,
+      // without a single decrypt of the provider's key.
+      insertRow(JSON.stringify({ chat: { ok: false, error: "egress_unavailable" }, tools: { ok: false, error: "egress_unavailable" } }), readable, cryptoObj.keyId);
+      decrypts = 0;
+      assert.equal(await statusChat(), false, "the unusable capabilities answer false");
+      assert.equal(decrypts, 0, "unusable capabilities should not decrypt the provider key for a boolean status");
+
+      // The ok capabilities with the readable key: the route exists.
+      decrypts = 0;
+      insertRow(JSON.stringify({ chat: { ok: true }, tools: { ok: true } }), readable, cryptoObj.keyId);
+      assert.equal(await statusChat(), true, "the readable key answers true");
+      assert.ok(decrypts >= 1, "the readable row may decrypt to prove the route exists");
+
+      // The ok capabilities with a ciphertext the master key cannot read:
+      // no route (the turn falls to the gateway) → false.
+      decrypts = 0;
+      insertRow(JSON.stringify({ chat: { ok: true }, tools: { ok: true } }), unreadable, otherCrypto.keyId);
+      assert.equal(await statusChat(), false, "the unreadable ciphertext has no route");
+    } finally {
+      crypto.subtle.decrypt = originalDecrypt as SubtleCrypto["decrypt"];
+      db.close();
+    }
+  });
+
+  // Item 4 of the review (partial): a synchronous exception between the
+  // slot and the route's handover — byokAssistantModel throwing inside the
+  // Cloud's byokTurn after the slot was taken (here, the row's URL failing
+  // the model's endpoint contract). The slot frees once and the turn gets
+  // the defined 503; a leaked slot would rate_limit the retry.
+  test("S3: a synchronous failure between the BYOK slot and the route frees the slot (503, the retry is not rate_limited)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 27).toString("base64");
+    const BYOK_KEY = "sk-byok-slot-test-9012";
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      // An ok capability row whose URL the model refuses (the ftp scheme
+      // fails assertAssistantBaseUrl): byokAssistantModel throws
+      // synchronously after the slot was taken.
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "ftp://byok-user.test/v1",
+        ciphertext,
+        "9012",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      const first = await turn(env, a.cookie, { text: "a" });
+      assert.equal(first.status, 503, "the synchronous failure gives the defined 503");
+      const body = (await first.json()) as { code: string; error: string };
+      assert.equal(body.code, "assistant_unavailable");
+
+      // The slot is free again: with the URL fixed, the retry runs. The
+      // pending egress keeps one slot in flight; a second turn must still
+      // get a slot (a leaked one would be the cap and rate_limit it).
+      db.query("UPDATE byok_endpoints SET base_url = ? WHERE owner_id = 'usr_a'").run("https://byok-user.test/v1");
+      const pending: Array<() => void> = [];
+      const reply = "data: " + JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 1, model: "chat-1", choices: [{ delta: { role: "assistant", content: "ok" }, index: 0, finish_reason: "stop" }] }) + "\n\ndata: [DONE]\n\n";
+      setByokEgressForTests(async () => new Response(new ReadableStream({ start(controller) {
+        pending.push(() => {
+          controller.enqueue(new TextEncoder().encode(reply));
+          controller.close();
+        });
+      } }), { headers: { "content-type": "text/event-stream" } }));
+      const second = await turn(env, a.cookie, { text: "b" });
+      assert.equal(second.status, 200, "the retry takes a slot");
+      const third = await turn(env, a.cookie, { text: "c" });
+      assert.equal(third.status, 200, "no leaked slot: the second in-flight slot is still free");
+      // The turns' drain (the consumeStream tee) issues the egress calls
+      // lazily: wait for both before releasing them.
+      const deadline = Date.now() + 5_000;
+      while (pending.length < 2) {
+        if (Date.now() > deadline) throw new Error(`only ${pending.length} egress call(s) issued`);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      pending.forEach((release) => release());
+      await Promise.all([second.text(), third.text()]);
+      assert.equal(fake.calls(), 0, "the gateway is not called");
+      assert.deepEqual(db.query("SELECT id FROM ai_credit_usages").all(), [], "no charge");
     } finally {
       setByokEgressForTests(null);
       fake.stop();

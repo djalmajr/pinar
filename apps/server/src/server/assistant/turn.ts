@@ -78,6 +78,17 @@ export function buildTurnWindow(history: AssistantHistoryEntry[]): AssistantHist
 export const ASSISTANT_MAX_STEPS = 8;
 export const ASSISTANT_TURN_TIMEOUT_MS = 60_000;
 
+// The error the turn's own deadline raises when it aborts the call (F5/S3
+// review F3): it is a timeout the caller may classify (the BYOK cause),
+// while the caller's abort is a cancellation and is never a timeout. The
+// class, not a message, is how the caller recognizes it.
+export class AssistantTurnTimeoutError extends Error {
+  constructor() {
+    super("assistant turn timeout");
+    this.name = "AssistantTurnTimeoutError";
+  }
+}
+
 export interface AssistantTurnUsage {
   inputTokens: number;
   outputTokens: number;
@@ -216,10 +227,22 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   // it never re-classifies a late failure as a timeout.
   const controller = new AbortController();
   let timedOut = false;
-  const timeoutError = new Error("assistant turn timeout");
+  const timeoutError = new AssistantTurnTimeoutError();
+  // The deadline's timer (the callback runs later, once the turn's
+  // classifications below are initialized — it never runs synchronously).
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort(timeoutError);
+    // The deadline never reaches the SDK's onError (the stream ends with
+    // its abort part): the turn's own timer writes the error part — once,
+    // and only when the caller classifies it (the BYOK cause, F5/S3). The
+    // local app and the gateway keep today's abort-only answer; a client
+    // abort clears the timer, so a cancellation is never a timeout.
+    if (streamErrorChunkSent) return;
+    const classified = classifyStreamError(timeoutError);
+    if (classified === undefined) return;
+    streamErrorChunkSent = true;
+    writeUiPart({ errorText: classified.code, type: "error" });
   }, timeoutMs);
   const onCallerAbort = () => {
     clearTimeout(timer);
@@ -239,25 +262,34 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   // data part with the details before the error part. Written at most once:
   // the inner and the outer onError may both see the failure.
   let streamErrorPartSent = false;
-  const streamError = (error: unknown): string => {
+  // The error chunk itself, at most once too: the SDK writes it for the
+  // code the onError callbacks return, and the deadline (which the SDK's
+  // onError never sees) writes it from the timer.
+  let streamErrorChunkSent = false;
+  const classifyStreamError = (error: unknown): { code: string } | undefined => {
     const classified = input.onStreamError?.(error);
-    if (classified === undefined) return errorCodeFor();
+    if (classified === undefined) return undefined;
     if (classified.part !== undefined && !streamErrorPartSent) {
       streamErrorPartSent = true;
       emit({ data: classified.part.data, type: classified.part.type });
     }
-    return classified.code;
+    return { code: classified.code };
+  };
+  const streamError = (error: unknown): string => {
+    streamErrorChunkSent = true;
+    return classifyStreamError(error)?.code ?? errorCodeFor();
   };
 
   // Data parts tools emit go to the UI stream writer. createUIMessageStream
   // runs `execute` synchronously below, before any tool can run; parts that
   // would arrive earlier wait for the writer and keep their order.
   let streamWriter: UIMessageStreamWriter | null = null;
-  const pendingParts: Parameters<AssistantStreamEmit>[0][] = [];
-  const emit: AssistantStreamEmit = (part) => {
+  const pendingParts: Parameters<UIMessageStreamWriter["write"]>[0][] = [];
+  const writeUiPart = (part: Parameters<UIMessageStreamWriter["write"]>[0]) => {
     if (streamWriter) streamWriter.write(part);
     else pendingParts.push(part);
   };
+  const emit: AssistantStreamEmit = (part) => writeUiPart(part);
   const tools = typeof input.tools === "function" ? input.tools(emit) : input.tools;
 
   const window = buildTurnWindow(input.history);

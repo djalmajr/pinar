@@ -9083,27 +9083,36 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
       if ("cause" in byokRoute) return { kind: "rate_limited" };
       // The turn's pin search (F5/S3, contract §5): the BYOK turn makes no
       // gateway call — the route carries the text-only ranking over the
-      // index entries that already exist (no hub detection, no indexing,
-      // no captions, no query embedding). The gateway's cloudPinSearch
-      // stays with the useCredits turns.
-      const { createByokTextPinSearch } = await import("./assistant/retrieval/runtime-cloud");
-      return {
-        endpoint: {
-          apiKey: byokRoute.apiKey,
-          baseUrl: byokRoute.baseUrl,
-          kind: "openai-compatible",
-          model: byokRoute.model,
-          thinkingControl: false,
-        },
-        kind: "route",
-        model: byokAssistantModel(byokRoute, { conversationId, requestId }),
-        pinSearch: createByokTextPinSearch({
-          data: cloudPinSourceData(env, principal, { shared: true }),
-          env,
-          now: currentDate,
-        }),
-        release: byokRoute.release,
-      };
+      // sessions' current documents (no hub detection, no indexing, no
+      // captions from the model, no query embedding, no pin_index write).
+      // The gateway's cloudPinSearch stays with the useCredits turns.
+      // The slot was taken by byokAssistantRoute above: a synchronous
+      // failure before the route is handed over (the model's v4 contract,
+      // the search's build, the lazy import) must still free it — released
+      // here, once, and the turn gets the defined 503 (http.ts catch).
+      try {
+        const { createByokTextPinSearch } = await import("./assistant/retrieval/runtime-cloud");
+        return {
+          endpoint: {
+            apiKey: byokRoute.apiKey,
+            baseUrl: byokRoute.baseUrl,
+            kind: "openai-compatible",
+            model: byokRoute.model,
+            thinkingControl: false,
+          },
+          kind: "route",
+          model: byokAssistantModel(byokRoute, { conversationId, requestId }),
+          pinSearch: createByokTextPinSearch({
+            data: cloudPinSourceData(env, principal, { shared: true }),
+            env,
+            now: currentDate,
+          }),
+          release: byokRoute.release,
+        };
+      } catch (error) {
+        byokRoute.release();
+        throw error;
+      }
     },
     // The turn's model is the chain (assistant/chain.ts); the endpoint only
     // names its first link.

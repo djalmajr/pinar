@@ -26,9 +26,20 @@
 // canUseCredits: true; the turn never falls to the gateway and never
 // charges.
 
-import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
+import {
+  APICallError,
+  InvalidResponseDataError,
+  JSONParseError,
+  NoContentGeneratedError,
+  NoOutputGeneratedError,
+  TypeValidationError,
+  wrapLanguageModel,
+  type LanguageModel,
+  type LanguageModelMiddleware,
+} from "ai";
 import { planIncludesAi } from "../../lib/entitlements";
 import { assistantLanguageModel, guardRedirects } from "../assistant/models";
+import { AssistantTurnTimeoutError } from "../assistant/turn";
 import type { CloudEnv, Principal } from "../cloud-api";
 import { capabilitiesOf } from "./api";
 import {
@@ -37,6 +48,7 @@ import {
   byokReadBody,
   byokResponseCause,
   byokStreamCutCause,
+  type ByokCause,
 } from "./cause";
 import { byokCrypto } from "./crypto";
 import type { ByokEgress } from "./fetch";
@@ -152,13 +164,17 @@ export type ByokAssistantRouteResult = ByokAssistantRoute | null | { cause: "rat
 // decryption — the three capabilities (tools, chat and vision) all run on
 // the chat model, so the same row and the same decryption answer all of
 // them (a round-1 review noted the three separate byokRouteOf reads).
+// F4 review fix: the answer is null before the decrypt when chat or tools
+// is not ok — the capabilities alone already make the route unusable, and
+// the status (which only asks "would a route exist?") must not decrypt a
+// key they would refuse. The decrypt then runs with one job left: detect
+// the ciphertext the master key cannot read (that row answers null too,
+// silently, as before — a driver or a tag may echo the key).
 interface ByokAssistantBase {
   apiKey: string;
   baseUrl: string;
   chatModel: string;
-  chatOk: boolean;
   egress: ByokEgress;
-  toolsOk: boolean;
   visionOk: boolean;
 }
 
@@ -171,6 +187,7 @@ async function byokAssistantBaseOf(env: CloudEnv, principal: Principal): Promise
   const capabilities = capabilitiesOf(row.capabilitiesJson);
   // tools, chat and vision all run on the chat model.
   if (row.chatModel === "") return null;
+  if (capabilities.tools.ok !== true || capabilities.chat.ok !== true) return null;
   let apiKey: string;
   try {
     apiKey = await crypto.decrypt(row.keyCiphertext);
@@ -183,9 +200,7 @@ async function byokAssistantBaseOf(env: CloudEnv, principal: Principal): Promise
     apiKey,
     baseUrl: row.baseUrl,
     chatModel: row.chatModel,
-    chatOk: capabilities.chat.ok === true,
     egress: byokEgressFor(env),
-    toolsOk: capabilities.tools.ok === true,
     visionOk: capabilities.vision.ok === true,
   };
 }
@@ -193,13 +208,13 @@ async function byokAssistantBaseOf(env: CloudEnv, principal: Principal): Promise
 /**
  * The assistant's BYOK route: chat and tools, one concurrency slot (the
  * turn is one BYOK call), the key read and decrypted once for the three
- * capabilities. Tools is checked before the slot is taken: without tools
- * there is no BYOK turn, and a capped account still goes to the gateway
+ * capabilities. Tools and chat are checked before the slot is taken: without
+ * them there is no BYOK turn, and a capped account still goes to the gateway
  * path instead of a false rate_limited.
  */
 export async function byokAssistantRoute(env: CloudEnv, principal: Principal): Promise<ByokAssistantRouteResult> {
   const base = await byokAssistantBaseOf(env, principal);
-  if (base === null || !base.toolsOk || !base.chatOk) return null;
+  if (base === null) return null;
   // The check and the mark are one synchronous step, so a concurrent call
   // always sees the first one's mark.
   if (!byokTryAcquire(principal.id)) return { cause: "rate_limited" };
@@ -213,10 +228,15 @@ export async function byokAssistantRoute(env: CloudEnv, principal: Principal): P
   };
 }
 
-/** The assistant's BYOK route without taking a concurrency slot (the status). */
+/**
+ * The assistant's BYOK route without taking a concurrency slot (the status).
+ * F4 review fix: a row whose capabilities are not ok answers false before
+ * the key is decrypted; only a row with chat and tools ok may decrypt, to
+ * tell a readable key from the ciphertext the master key cannot read (which
+ * has no route and answers false too).
+ */
 export async function byokAssistantRouteExists(env: CloudEnv, principal: Principal): Promise<boolean> {
-  const base = await byokAssistantBaseOf(env, principal);
-  return base !== null && base.toolsOk && base.chatOk;
+  return (await byokAssistantBaseOf(env, principal)) !== null;
 }
 
 // ---------- the turn's model ----------
@@ -370,6 +390,63 @@ function byokTurnErrorOf(error: unknown): ByokAssistantTurnError | null {
   return null;
 }
 
+// The turn's own deadline behind the error (assistant/turn.ts): the timer
+// marks its abort with AssistantTurnTimeoutError, and the SDK may carry it
+// as the cause of a wrapper — wherever it sits in the chain it is the
+// deadline.
+function byokTimeoutOf(error: unknown): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (typeof current === "object" && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof AssistantTurnTimeoutError) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+// The SDK's response errors (F2 review fix): a 2xx that is not the expected
+// shape — malformed SSE (JSONParseError), a valid event outside the chunk
+// schema (TypeValidationError), JSON where the SSE is expected
+// (InvalidResponseDataError), a stream that ends without content
+// (NoContentGeneratedError / NoOutputGeneratedError) and the APICallError
+// the provider wraps them in (one without the ByokAssistantTurnError above,
+// which always wins). The SDK's own isInstance checks — the classes never
+// match by message. The provider's body and the original object never cross
+// the boundary; only the cause code does.
+const BYOK_RESPONSE_ERROR_CLASSES = [
+  APICallError,
+  InvalidResponseDataError,
+  JSONParseError,
+  NoContentGeneratedError,
+  NoOutputGeneratedError,
+  TypeValidationError,
+] as const;
+
+function byokInvalidResponseOf(error: unknown): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (typeof current === "object" && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if (BYOK_RESPONSE_ERROR_CLASSES.some((cls) => cls.isInstance(current))) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+// The cause of the turn's BYOK failure, in precedence: the turn's own
+// class (the egress, the response and the stream-cut classifications of
+// byokTurnFetch), then the deadline, then the SDK's response errors. A tool
+// or any other non-model error answers null — the turn's standard code
+// keeps it.
+function byokTurnCauseOf(error: unknown): ByokCause | null {
+  const byokError = byokTurnErrorOf(error);
+  if (byokError !== null) return { cause: byokError.cause, retryAfterSeconds: byokError.retryAfterSeconds };
+  if (byokTimeoutOf(error)) return { cause: "timeout", retryAfterSeconds: null };
+  if (byokInvalidResponseOf(error)) return { cause: "invalid_response", retryAfterSeconds: null };
+  return null;
+}
+
 /**
  * The BYOK stream error for the turn's onStreamError (assistant/turn.ts):
  * the byok_error code and one data part with the cause, the retryAfter in
@@ -379,15 +456,15 @@ function byokTurnErrorOf(error: unknown): ByokAssistantTurnError | null {
 export function byokStreamErrorPart(
   error: unknown,
 ): { code: string; part?: { data: Record<string, unknown>; type: `data-${string}` } } | undefined {
-  const byokError = byokTurnErrorOf(error);
-  if (byokError === null) return undefined;
+  const byokCause = byokTurnCauseOf(error);
+  if (byokCause === null) return undefined;
   return {
     code: "byok_error",
     part: {
       data: {
         canUseCredits: true,
-        cause: byokError.cause,
-        ...(byokError.retryAfterSeconds !== null ? { retryAfter: byokError.retryAfterSeconds } : {}),
+        cause: byokCause.cause,
+        ...(byokCause.retryAfterSeconds !== null ? { retryAfter: byokCause.retryAfterSeconds } : {}),
       },
       type: "data-byok-error",
     },

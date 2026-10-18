@@ -29,6 +29,7 @@ import {
   resetByokConcurrencyForTests,
   type ByokAssistantRoute,
 } from "./route";
+import { runAssistantTurn } from "../assistant/turn";
 import type { CloudEnv, Principal } from "../cloud-api";
 
 const NOW = "2026-10-01T12:00:00.000Z";
@@ -635,6 +636,67 @@ describe("byokAssistantModel", () => {
     });
     // A non-byok error is not reclassified.
     assert.equal(byokStreamErrorPart(new Error("boom")), undefined);
+  });
+});
+
+// ---------- the turn's deadline and the client's cancel (F3) ----------
+
+describe("the BYOK turn's deadline", () => {
+  // The egress stays pending until the turn's signal aborts it (the
+  // reviewer's probe): the deadline fires while the call is in flight.
+  function pendingEgress(): ByokEgress {
+    return async (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+  }
+
+  test("the deadline writes the byok_error part and the cause once", async () => {
+    const model = byokAssistantModel(byokModelRoute(false, pendingEgress()), { conversationId: "conv_a", requestId: "req_d" });
+    const result = runAssistantTurn({
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 30,
+      tools: {},
+    });
+    const sse = await result.response.text();
+    const outcome = await result.outcome;
+    const parts = sse.split("\n").filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]").map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+    const byokParts = parts.filter((part) => part.type === "data-byok-error");
+    const errorParts = parts.filter((part) => part.type === "error");
+    assert.equal(byokParts.length, 1, `the data-byok-error part once: ${sse}`);
+    assert.deepEqual(byokParts[0]!.data, { canUseCredits: true, cause: "timeout" }, "the cause of the deadline");
+    assert.equal(errorParts.length, 1, `the error part once: ${sse}`);
+    assert.equal(errorParts[0]!.errorText, "byok_error");
+    assert.ok(parts.findIndex((part) => part.type === "data-byok-error") < parts.findIndex((part) => part.type === "error"), "the part precedes the error");
+    assert.equal(outcome.kind, "error");
+    if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.ok(!sse.includes(TEST_KEY), "the key is not in the stream");
+  });
+
+  test("the client's cancel is not a timeout: no byok_error", async () => {
+    const controller = new AbortController();
+    const model = byokAssistantModel(byokModelRoute(false, pendingEgress()), { conversationId: "conv_a", requestId: "req_e" });
+    setTimeout(() => controller.abort(new Error("client cancel")), 20);
+    const result = runAssistantTurn({
+      abortSignal: controller.signal,
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 60_000,
+      tools: {},
+    });
+    const sse = await result.response.text();
+    const outcome = await result.outcome;
+    assert.ok(!sse.includes("data-byok-error"), `no byok data part on a cancel: ${sse}`);
+    assert.ok(!sse.includes("byok_error"), `no byok_error on a cancel: ${sse}`);
+    assert.equal(outcome.kind, "error");
+    if (outcome.kind === "error") assert.equal(outcome.code, "ASSISTANT_STREAM_FAILED", "a cancel is not a timeout");
   });
 });
 

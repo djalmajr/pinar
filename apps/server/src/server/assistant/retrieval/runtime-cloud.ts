@@ -48,11 +48,13 @@
 import { parseAssistantChain, type AssistantChainLink } from "../chain";
 import type { AssistantD1Database } from "../store-cloud";
 import type { AssistantEndpoint } from "../models";
+import { buildPinDocument, pinDocumentHash } from "./document";
 import { detectGatewayRetrievalCapabilities, detectRetrievalCapabilities } from "./detect";
 import type { EmbeddingEndpoint } from "./embeddings";
 import { GATEWAY_OPENAI_BASE_URL, type GatewayCallOptions } from "./gateway";
 import {
   indexStale,
+  sameSection,
   searchPins,
   withAbortSignal,
   type PinIndexDeps,
@@ -322,11 +324,23 @@ export function createCloudPinSearch(input: {
 
 /**
  * The pin search of a BYOK assistant turn (F5/S3, contract §5): the turn
- * makes no gateway call — no hub detection, no indexing, no captions, no
- * query embedding. The ranking is the text-only one searchPins already
- * has (embedding: null), over the entries the index already has; S3c
- * indexes with the user's own capabilities, and until then the text
- * ranking stands, never the gateway's.
+ * makes no gateway call — no hub detection, no indexing, no captions from
+ * the model, no query embedding, no pin_index write. The ranking is the
+ * text-only one searchPins already has (embedding: null), over the
+ * CURRENT documents of the accessible sessions — page, URL, the pin's own
+ * fields and the conversation comments — built in memory from the same
+ * source the indexing reads (F1 review fix: a pin that was never indexed
+ * is found, and an edited comment is scored by its new text, not by the
+ * stale entry). An entry that is still current by the indexing' own rule
+ * (its "Pin #n" line in place and its stored hash still the hash of its
+ * stored text) contributes its caption; without it the document is
+ * caption-less. S3c indexes with the user's own capabilities.
+ *
+ * The limits are the indexing' own, so the search never reads the whole
+ * account per call: at most CLOUD_PIN_SEARCH_MAX_SESSIONS (20) sessions
+ * are read and built per search, and the build stops at
+ * CLOUD_PIN_SEARCH_BUDGET_MS (10 s) from the search's start (a session not
+ * built simply does not contribute), joined with the turn's signal.
  */
 export function createByokTextPinSearch(input: {
   data: CloudPinSourceData;
@@ -337,13 +351,95 @@ export function createByokTextPinSearch(input: {
   return {
     async search({ limit, query, signal }) {
       signal?.throwIfAborted();
+      // The indexing' deadline starts with the search; the turn ends it
+      // sooner. A slow session read stops the build: the sessions not
+      // built do not contribute, and nothing is written.
+      const deadline = AbortSignal.timeout(CLOUD_PIN_SEARCH_BUDGET_MS);
+      const buildSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
       // A fresh source per search: the accessible sessions are read again.
       const source = cloudPinSource(input.data);
-      const store = cloudOwnerPinIndexStore(input.env, await source.owners());
-      signal?.throwIfAborted();
-      // chat: null → no captions; embedding: null → the text-only ranking,
-      // which never fetches (searchPins embeds the query only with an
-      // embedding endpoint).
+      const owners = await source.owners();
+      const indexStore = cloudOwnerPinIndexStore(input.env, owners);
+      // The store searchPins ranks: the current documents, built in memory
+      // (entriesFor below). It never writes pin_index.
+      const store: PinIndexStore = {
+        async deleteSession() {
+          throw new Error("the byok text pin search does not write the pin index");
+        },
+        async entries() {
+          throw new Error("the byok text pin search does not read stored entries per session");
+        },
+        async entriesFor(sessionIds) {
+          // The CLOUD_PIN_SEARCH_MAX_SESSIONS most recent accessible
+          // sessions (searchPins hands them over newest first).
+          const wanted = sessionIds.slice(0, CLOUD_PIN_SEARCH_MAX_SESSIONS);
+          const stored = new Map<string, PinIndexEntry[]>();
+          for (const entry of await indexStore.entriesFor(wanted)) {
+            const list = stored.get(entry.sessionId) ?? [];
+            list.push(entry);
+            stored.set(entry.sessionId, list);
+          }
+          const entries: PinIndexEntry[] = [];
+          for (const sessionId of wanted) {
+            if (buildSignal.aborted) break;
+            const session = await source.session(sessionId);
+            if (session === null) continue;
+            const comments = await source.comments(sessionId);
+            const previous = new Map((stored.get(sessionId) ?? []).map((entry) => [entry.pinId, entry]));
+            for (let index = 0; index < session.pins.length; index += 1) {
+              if (buildSignal.aborted) break;
+              const pin = session.pins[index]!;
+              const pinId = session.pinIds[index]!;
+              const entry = previous.get(pinId);
+              // The indexing' own "current" rule (indexSession): the pin's
+              // line still in place, the stored hash still the hash of the
+              // stored text, the same number. Only such an entry's caption
+              // is the caption of the current pin; otherwise the document
+              // is built without a caption (no model call, BYOK).
+              const caption =
+                entry !== undefined &&
+                entry.number === pin.number &&
+                entry.caption !== null &&
+                entry.caption !== "" &&
+                sameSection(entry.docText, pin) &&
+                (await pinDocumentHash(entry.docText)) === entry.docHash
+                  ? { caption: entry.caption, ocr: "" }
+                  : null;
+              const doc = await buildPinDocument({
+                caption,
+                comments: comments.get(pinId) ?? [],
+                page: session.page,
+                pin,
+              });
+              entries.push({
+                caption: caption?.caption ?? null,
+                docHash: doc.hash,
+                docText: doc.text,
+                model: "",
+                number: pin.number,
+                ocr: null,
+                pinId,
+                sessionId,
+                truncated: doc.truncated,
+                updatedAt: now().toISOString(),
+                vector: null,
+              });
+            }
+          }
+          return entries;
+        },
+        async replaceSession() {
+          throw new Error("the byok text pin search does not write the pin index");
+        },
+        async staleSessions() {
+          // There is no index to be stale: the text store is the current
+          // documents.
+          return [];
+        },
+      };
+      // chat: null → no captions from the model; embedding: null → the
+      // text-only ranking, which never fetches (searchPins embeds the
+      // query only with an embedding endpoint).
       return searchPins({ chat: null, embedding: null, now, source, store }, { limit, query });
     },
   };

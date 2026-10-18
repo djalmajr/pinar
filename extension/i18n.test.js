@@ -21,6 +21,14 @@ test("i18n translations dictionary", () => {
     "overlay_hint_regions",
     "overlay_regions_on",
     "overlay_write_comment",
+    "overlay_voice_byok_key",
+    "overlay_voice_byok_model",
+    "overlay_voice_byok_rate",
+    "overlay_voice_byok_rate_wait",
+    "overlay_voice_byok_endpoint",
+    "overlay_voice_byok_invalid",
+    "overlay_voice_byok_generic",
+    "overlay_voice_byok_use_credits",
   ];
 
   for (const lang of Object.keys(translations)) {

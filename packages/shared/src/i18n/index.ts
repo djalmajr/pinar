@@ -97,8 +97,8 @@ export interface TranslationDictionary {
   local_desc_windows: string;
   remote_title: string;
   remote_desc: string;
-  staging_title: string;
-  staging_desc: string;
+  local_cloud_title: string;
+  local_cloud_desc: string;
   extension_origin_rejected: string;
   legal_acceptance_label: string;
   legal_acceptance_required: string;
@@ -353,8 +353,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc_windows: "Everything stays 100% local and private on this device at $HOME\\.pinar\\shots.",
     remote_title: "Remote Server",
     remote_desc: "Uploads to remote server. Data is never shared or sold.",
-    staging_title: "Staging",
-    staging_desc: "Development environment with isolated test data.",
+    local_cloud_title: "Local Cloud",
+    local_cloud_desc: "The Pinar Cloud running on this computer, with test data.",
     extension_origin_rejected: "This extension build is not authorized by the selected server.",
     legal_acceptance_label: "I accept the current documents for Pinar's hosted service.",
     legal_acceptance_required: "Accept the current legal documents before using remote storage.",
@@ -607,8 +607,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc_windows: "Tudo fica 100% local e privado neste dispositivo em $HOME\\.pinar\\shots.",
     remote_title: "Servidor Remoto",
     remote_desc: "Salva no servidor remoto. Os dados nunca são compartilhados nem vendidos.",
-    staging_title: "Staging",
-    staging_desc: "Ambiente de desenvolvimento com dados de teste isolados.",
+    local_cloud_title: "Cloud local",
+    local_cloud_desc: "O Pinar Cloud rodando neste computador, com dados de teste.",
     extension_origin_rejected: "Esta build da extensão não está autorizada pelo servidor selecionado.",
     legal_acceptance_label: "Aceito os documentos vigentes do serviço hospedado do Pinar.",
     legal_acceptance_required: "Aceite os documentos legais vigentes antes de usar o armazenamento remoto.",
@@ -861,8 +861,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc_windows: "Todo permanece 100% local y privado en este dispositivo en $HOME\\.pinar\\shots.",
     remote_title: "Servidor Remoto",
     remote_desc: "Sube al servidor remoto. Los datos nunca se comparten ni se venden.",
-    staging_title: "Staging",
-    staging_desc: "Entorno de desarrollo con datos de prueba aislados.",
+    local_cloud_title: "Cloud local",
+    local_cloud_desc: "El Pinar Cloud que se ejecuta en este equipo, con datos de prueba.",
     extension_origin_rejected: "Esta compilación de la extensión no está autorizada por el servidor seleccionado.",
     legal_acceptance_label: "Acepto los documentos vigentes del servicio alojado de Pinar.",
     legal_acceptance_required: "Acepta los documentos legales vigentes antes de usar el almacenamiento remoto.",
@@ -1115,8 +1115,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc_windows: "Tout reste 100 % local et privé sur cet appareil dans $HOME\\.pinar\\shots.",
     remote_title: "Serveur Distant",
     remote_desc: "Téléverse vers le serveur distant. Les données ne sont jamais partagées ni vendues.",
-    staging_title: "Staging",
-    staging_desc: "Environnement de développement avec des données de test isolées.",
+    local_cloud_title: "Cloud local",
+    local_cloud_desc: "Le Pinar Cloud qui s’exécute sur cet ordinateur, avec des données de test.",
     extension_origin_rejected: "Cette version de l’extension n’est pas autorisée par le serveur sélectionné.",
     legal_acceptance_label: "J’accepte les documents en vigueur du service hébergé de Pinar.",
     legal_acceptance_required: "Acceptez les documents juridiques en vigueur avant d’utiliser le stockage distant.",
@@ -1369,8 +1369,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc_windows: "Alles bleibt zu 100 % lokal und privat auf diesem Gerät unter $HOME\\.pinar\\shots.",
     remote_title: "Remote-Server",
     remote_desc: "Lädt auf den Remote-Server hoch. Daten werden nie geteilt oder verkauft.",
-    staging_title: "Staging",
-    staging_desc: "Entwicklungsumgebung mit isolierten Testdaten.",
+    local_cloud_title: "Lokale Cloud",
+    local_cloud_desc: "Die Pinar Cloud, die auf diesem Computer läuft, mit Testdaten.",
     extension_origin_rejected: "Dieser Erweiterungs-Build ist vom ausgewählten Server nicht autorisiert.",
     legal_acceptance_label: "Ich akzeptiere die aktuellen Dokumente für Pinars gehosteten Dienst.",
     legal_acceptance_required: "Akzeptiere die aktuellen Rechtsdokumente, bevor du Remote-Speicher verwendest.",
@@ -1623,8 +1623,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc_windows: "所有数据均 100% 保存在此设备的 $HOME\\.pinar\\shots 中，并保持私密。",
     remote_title: "远程服务器",
     remote_desc: "上传到远程服务器。数据绝不会被共享或出售。",
-    staging_title: "Staging",
-    staging_desc: "使用隔离测试数据的开发环境。",
+    local_cloud_title: "本地云",
+    local_cloud_desc: "在本机上运行的 Pinar Cloud，使用测试数据。",
     extension_origin_rejected: "所选服务器未授权此扩展构建。",
     legal_acceptance_label: "我接受 Pinar 托管服务的现行文件。",
     legal_acceptance_required: "使用远程存储前，请接受现行法律文件。",
@@ -1877,8 +1877,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc_windows: "すべてのデータはこのデバイスの $HOME\\.pinar\\shots にのみ保存され、完全に非公開です。",
     remote_title: "リモートサーバー",
     remote_desc: "リモートサーバーに保存。データは共有・販売されません。",
-    staging_title: "Staging",
-    staging_desc: "分離されたテストデータを使用する開発環境です。",
+    local_cloud_title: "ローカル Cloud",
+    local_cloud_desc: "このコンピューター上で動作する Pinar Cloud。テストデータを使用します。",
     extension_origin_rejected: "この拡張機能ビルドは選択したサーバーで許可されていません。",
     legal_acceptance_label: "Pinar のホステッドサービスに関する現行文書に同意します。",
     legal_acceptance_required: "リモートストレージを使用する前に、現行の法的文書に同意してください。",

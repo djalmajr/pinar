@@ -52,7 +52,7 @@ describe("deploy/k8s/pinar", () => {
 
   test("certificates are issued by the cluster DNS-01 issuer with the exact names", () => {
     const certificates = docs("certificates.yaml");
-    expect(certificates).toHaveLength(2);
+    expect(certificates).toHaveLength(1);
     for (const certificate of certificates) {
       expect(certificate.apiVersion).toBe("cert-manager.io/v1");
       expect(certificate.kind).toBe("Certificate");
@@ -61,7 +61,6 @@ describe("deploy/k8s/pinar", () => {
     }
     const byName = Object.fromEntries(certificates.map((c) => [c.metadata.name, c]));
     expect(byName["pinar-tls"].spec.dnsNames).toEqual(["pinar.dev", "www.pinar.dev"]);
-    expect(byName["pinar-stg-tls"].spec.dnsNames).toEqual(["stg.pinar.dev"]);
   });
 
   test("the cloudflare-only middleware allowlists exactly the published ranges and sets no ipStrategy", () => {
@@ -75,7 +74,7 @@ describe("deploy/k8s/pinar", () => {
 
   test("each ingress route points at edger:3000 through the cloudflare-only middleware", () => {
     const routes = docs("ingressroutes.yaml");
-    expect(routes).toHaveLength(2);
+    expect(routes).toHaveLength(1);
     for (const route of routes) {
       expect(route.apiVersion).toBe("traefik.io/v1alpha1");
       expect(route.kind).toBe("IngressRoute");
@@ -100,7 +99,6 @@ describe("deploy/k8s/pinar", () => {
     const certBySecret = Object.fromEntries(certificates.map((c) => [c.spec.secretName, c]));
     const expected: Record<string, { match: string; secretName: string }> = {
       pinar: { match: "Host(`pinar.dev`) || Host(`www.pinar.dev`)", secretName: "pinar-tls" },
-      "pinar-stg": { match: "Host(`stg.pinar.dev`)", secretName: "pinar-stg-tls" },
     };
     for (const route of routes) {
       const name = route.metadata.name;

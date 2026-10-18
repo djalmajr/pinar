@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEVELOPMENT_EXTENSION_ID,
   DEVELOPMENT_EXTENSION_KEY,
-  STAGING_CLOUD_URL,
+  LOCAL_CLOUD_URL,
   resolveCloudUrl,
 } from "../extension/environment.js";
 import {
@@ -79,11 +79,11 @@ describe("extension package", () => {
     expect(() => extensionVersions(fixture)).toThrow("extension version mismatch");
   });
 
-  test("the tracked source manifest is the development identity pinned to staging", () => {
+  test("the tracked source manifest is the development identity pinned to the local cloud", () => {
     const { manifest } = extensionVersions(root);
     expect(manifest.key).toBe(DEVELOPMENT_EXTENSION_KEY);
     expect(chromeExtensionId(manifest.key)).toBe(DEVELOPMENT_EXTENSION_ID);
-    expect(resolveCloudUrl(manifest)).toBe(STAGING_CLOUD_URL);
+    expect(resolveCloudUrl(manifest)).toBe(LOCAL_CLOUD_URL);
   });
 
   test("the official unpacked release key is pinned to the official extension ID", () => {

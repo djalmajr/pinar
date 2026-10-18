@@ -238,8 +238,8 @@ describe("capture destination", () => {
 
   test("uses the build-authorized environment in extension settings", () => {
     assert.match(optionsSrc, /cloudEnvironment\(manifest, settings\.cloudUrl\)/);
-    assert.match(optionsSrc, /environment === "staging" \? t\.staging_title : t\.remote_title/);
-    assert.match(optionsSrc, /environment === "staging" \? t\.staging_desc : t\.remote_desc/);
+    assert.match(optionsSrc, /environment === "local-cloud" \? t\.local_cloud_title : t\.remote_title/);
+    assert.match(optionsSrc, /environment === "local-cloud" \? t\.local_cloud_desc : t\.remote_desc/);
   });
 
   test("uses a Windows-specific local storage path description", () => {

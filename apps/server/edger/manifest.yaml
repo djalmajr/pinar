@@ -60,7 +60,8 @@ secrets:
   # the operator through the EdgeR admin API (secrets:write scope).
   - BYOK_MASTER_KEY
 # The installer defines the hosts per environment: pinar.dev and
-# www.pinar.dev in prd, stg.pinar.dev in stg.
+# www.pinar.dev in prd. The staging profile has no active destination
+# (staging was retired on 2026-10-18).
 # hosts:
 #   - pinar.dev
 env:

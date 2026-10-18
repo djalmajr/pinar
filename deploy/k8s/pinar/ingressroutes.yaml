@@ -23,20 +23,3 @@ spec:
           port: 3000
   tls:
     secretName: pinar-tls
----
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: pinar-stg
-spec:
-  entryPoints: [websecure]
-  routes:
-    - kind: Rule
-      match: Host(`stg.pinar.dev`)
-      middlewares:
-        - name: cloudflare-only
-      services:
-        - name: edger
-          port: 3000
-  tls:
-    secretName: pinar-stg-tls

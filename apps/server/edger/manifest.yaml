@@ -50,6 +50,15 @@ allowNet:
   - api.stripe.com:443
   # Vercel AI Gateway: the assistant chain's gateway links (F4).
   - ai-gateway.vercel.sh:443
+# The EdgeR egress guard (EDG-38): the only way out to an AI endpoint the
+# user configures (BYOK, F5). The EdgeR serves the guard on a per-process
+# unix socket and injects EDGER_EGRESS_SOCKET and EDGER_EGRESS_HOST; byokFetch
+# sends every BYOK call through it, and without them the BYOK refuses. HTTPS
+# only; the timeouts and limits keep the EdgeR defaults. rc.23 accepts and
+# ignores the block. allowNet above stays declared: the guard requires it.
+egress:
+  enabled: true
+  ports: [443]
 # The EdgeR app secrets (EDG-38, provisional): the names only — the values
 # live in the EdgeR vault and are injected at spawn into this worker's
 # process env only. They never appear in the manifest, in the version

@@ -28,6 +28,17 @@ const CONTENT_TYPES = {
   ".woff2": "font/woff2",
 };
 const ONLY_KEY = process.env.PINAR_HELP_SCREENSHOT_ONLY || "";
+
+// The detached Cloud of the own-ai-endpoint cover lives in its own process
+// group, so a Ctrl+C or a SIGTERM never reaches it: the run stops what it
+// registered here before it exits.
+const stopOnSignal = new Set();
+for (const [name, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+  process.once(name, () => {
+    process.stdout.write(`${name}: stopping the servers this run started\n`);
+    void Promise.allSettled([...stopOnSignal].map((stop) => stop())).finally(() => process.exit(code));
+  });
+}
 const UI_MESSAGE_LOADERS = {
   de: () => import("../apps/server/src/lib/ui-locales/de.ts"),
   en: () => import("../apps/server/src/lib/ui-locales/en.ts"),
@@ -421,7 +432,9 @@ async function startByokCloud() {
   const baseUrl = `http://127.0.0.1:${port}`;
   let server = null;
   let output = "";
-  const stop = async () => {
+  // Idempotent: the signal handler and the finally may both call it.
+  let stopping = null;
+  const stop = () => (stopping ??= (async () => {
     if (server && server.exitCode === null) {
       const exited = new Promise((resolveExit) => server.once("exit", resolveExit));
       const signal = (name) => {
@@ -446,7 +459,9 @@ async function startByokCloud() {
       }
     }
     await rm(statePath, { force: true, recursive: true });
-  };
+    stopOnSignal.delete(stop);
+  })());
+  stopOnSignal.add(stop);
   try {
     server = spawn(
       "bun",
@@ -573,19 +588,24 @@ async function showByokSettings(page, cloud, language, ui) {
   });
 }
 
+// Playwright's own signal handlers exit the process right away, before the
+// servers in stopOnSignal are stopped; the run closes the browser itself.
+const BROWSER_SIGNALS = { handleSIGINT: false, handleSIGTERM: false };
+
 async function launchHelpScreenshotBrowser() {
   if (process.env.PINAR_HELP_SCREENSHOT_CHANNEL) {
     return chromium.launch({
+      ...BROWSER_SIGNALS,
       channel: process.env.PINAR_HELP_SCREENSHOT_CHANNEL,
       headless: true,
     });
   }
   try {
-    return await chromium.launch({ headless: true });
+    return await chromium.launch({ ...BROWSER_SIGNALS, headless: true });
   } catch (error) {
     const message = String(error?.message || error);
     if (!message.includes("Executable doesn't exist")) throw error;
-    return chromium.launch({ channel: "msedge", headless: true });
+    return chromium.launch({ ...BROWSER_SIGNALS, channel: "msedge", headless: true });
   }
 }
 
@@ -597,9 +617,11 @@ const baseUrl = SCREENSHOTS.some(
   ? await discoverBaseUrl()
   : null;
 await mkdir(STAGING_ROOT, { recursive: true });
+stopOnSignal.add(() => rm(STAGING_ROOT, { force: true, recursive: true }));
 
 try {
   const browser = await launchHelpScreenshotBrowser();
+  stopOnSignal.add(() => browser.close());
   let assistantDemo = null;
   let byokCloud = null;
   try {

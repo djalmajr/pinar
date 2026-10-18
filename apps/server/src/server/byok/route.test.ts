@@ -30,6 +30,7 @@ import {
   type ByokAssistantRoute,
 } from "./route";
 import { runAssistantTurn } from "../assistant/turn";
+import { createAssistantConversation } from "../../components/assistant/assistant-conversation";
 import type { CloudEnv, Principal } from "../cloud-api";
 
 const NOW = "2026-10-01T12:00:00.000Z";
@@ -894,6 +895,72 @@ describe("the BYOK turn's deadline", () => {
 });
 
 // ---------- the cause table of the turn ----------
+
+// The SSE the BYOK turn writes, read by the panel's real transport (the
+// SDK Chat with DefaultChatTransport): each part must be its own SSE event,
+// or the client sees a JSON parse error instead of byok_error.
+describe("the BYOK error through the panel's chat transport", () => {
+  async function consume(response: Response): Promise<{ errors: Error[]; parts: Array<{ data?: unknown; type: string }> }> {
+    const sse = await response.text();
+    const errors: Error[] = [];
+    const conversation = createAssistantConversation({
+      chatId: "assistant:probe",
+      fetch: async () => new Response(sse, { headers: response.headers }),
+      generation: 0,
+      hooks: { generation: { current: 0 }, onTurnError: (error) => errors.push(error) },
+      messages: [],
+      threadId: "thread_a",
+    });
+    await conversation.chat.sendMessage({ text: "hello" });
+    const last = conversation.chat.messages.at(-1);
+    const parts = (last?.role === "assistant" ? last.parts : []) as Array<{ data?: unknown; type: string }>;
+    return { errors, parts };
+  }
+
+  test("a provider failure reaches the chat as byok_error with its cause part", async () => {
+    const egress: ByokEgress = async () =>
+      new Response(JSON.stringify({ error: { message: "rejected" } }), { headers: { "content-type": "application/json" }, status: 401 });
+    const model = byokAssistantModel(byokModelRoute(false, egress), { conversationId: "conv_a", requestId: "req_t" });
+    const result = runAssistantTurn({
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 5_000,
+      tools: {},
+    });
+    const { errors, parts } = await consume(result.response);
+    await result.outcome;
+    assert.deepEqual(errors.map((error) => error.message), ["byok_error"], "the chat error is byok_error, not a JSON parse error");
+    const byokParts = parts.filter((part) => part.type === "data-byok-error");
+    assert.equal(byokParts.length, 1, JSON.stringify(parts));
+    assert.deepEqual(byokParts[0]!.data, { canUseCredits: true, cause: "key_rejected" });
+  });
+
+  test("the deadline reaches the chat as byok_error with the timeout cause", async () => {
+    const egress: ByokEgress = async (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    const model = byokAssistantModel(byokModelRoute(false, egress), { conversationId: "conv_a", requestId: "req_u" });
+    const result = runAssistantTurn({
+      history: [{ role: "user", text: "hello" }],
+      model,
+      onStreamError: byokStreamErrorPart,
+      system: "test",
+      thread: { id: "thread_a", title: "probe" },
+      timeoutMs: 30,
+      tools: {},
+    });
+    const { errors, parts } = await consume(result.response);
+    await result.outcome;
+    assert.deepEqual(errors.map((error) => error.message), ["byok_error"]);
+    const byokParts = parts.filter((part) => part.type === "data-byok-error");
+    assert.equal(byokParts.length, 1, JSON.stringify(parts));
+    assert.deepEqual(byokParts[0]!.data, { canUseCredits: true, cause: "timeout" });
+  });
+});
 
 describe("ByokAssistantTurnError", () => {
   test("carries only the cause, the retry and the fixed message", () => {

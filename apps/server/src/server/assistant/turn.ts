@@ -401,7 +401,8 @@ export function runAssistantTurn(input: AssistantTurnInput): {
         let out = "";
         if (entry.streamError.part !== undefined && !streamErrorPartSent) {
           streamErrorPartSent = true;
-          out += `data: ${JSON.stringify(entry.streamError.part)}\n`;
+          // Its own SSE event: the blank line ends it before the error.
+          out += `data: ${JSON.stringify(entry.streamError.part)}\n\n`;
         }
         return `${out}data: ${JSON.stringify({ errorText: entry.streamError.code, type: "error" })}`;
       }

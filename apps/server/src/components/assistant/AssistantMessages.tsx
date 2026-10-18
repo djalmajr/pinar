@@ -67,6 +67,8 @@ export interface AssistantMessagesProps {
   onAsk: (option: string) => void;
   onProposalAction: (kind: AssistantProposalActionKind, proposal: AssistantPublicProposal) => void;
   onRetry: () => void;
+  /** The same request with useCredits for this send only (F5/S4). */
+  onRetryWithCredits: () => void;
   /** Per proposal id; a proposal without an entry shows the state its part carried. */
   proposalStates: Readonly<Record<string, AssistantProposalCardState>>;
   t: Translate;
@@ -75,13 +77,32 @@ export interface AssistantMessagesProps {
 function AssistantAnswer({
   message,
   onRetry,
+  onRetryWithCredits,
   t,
 }: {
   message: AssistantUIMessage;
   onRetry: () => void;
+  onRetryWithCredits: () => void;
   t: Translate;
 }) {
   const errorCode = message.metadata?.errorCode;
+  if (errorCode === "byok_error") {
+    // A stored BYOK failure: the cause is not stored with the message (F5/S3
+    // records the code only), so the generic BYOK note and the two actions.
+    return (
+      <div className="flex min-w-0 flex-col items-start gap-2" role="alert">
+        <p className="text-sm text-destructive">{t("byok.errorGeneric")}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={onRetry} size="sm" type="button" variant="outline">
+            {t("assistant.retry")}
+          </Button>
+          <Button onClick={onRetryWithCredits} size="sm" type="button" variant="outline">
+            {t("byok.useCredits")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (errorCode !== undefined) {
     // A stored turn failure: the message has no text; show the translated
     // error note and the retry action instead.
@@ -207,6 +228,7 @@ export function AssistantMessages({
   onAsk,
   onProposalAction,
   onRetry,
+  onRetryWithCredits,
   proposalStates,
   t,
 }: AssistantMessagesProps) {
@@ -226,7 +248,7 @@ export function AssistantMessages({
             </div>
           ) : (
             <>
-              <AssistantAnswer message={message} onRetry={onRetry} t={t} />
+              <AssistantAnswer message={message} onRetry={onRetry} onRetryWithCredits={onRetryWithCredits} t={t} />
               <AssistantAskOptions
                 busy={busy}
                 message={message}

@@ -3,18 +3,21 @@ import { useChat } from "@ai-sdk/react";
 import { Link } from "@tanstack/react-router";
 import { Button, cn } from "@pinar/ui";
 import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
+import { byokCauseMessageKey } from "@/lib/ai-error-presentation";
 import type { Translate } from "@/lib/i18n";
 import IconHistory from "~icons/lucide/history";
 import IconPlus from "~icons/lucide/plus";
 import IconSparkles from "~icons/lucide/sparkles";
 import IconX from "~icons/lucide/x";
 import {
+  assistantByokErrorFromChatError,
   assistantCreditsFromChatError,
   assistantErrorFromChatError,
   assistantErrorMessageKey,
   buildTurnRequestBody,
   deleteAssistantThread,
   fetchAssistantThreads,
+  type AssistantByokErrorInfo,
   type AssistantErrorKey,
   type AssistantProposalActionKind,
   type AssistantPublicProposal,
@@ -37,15 +40,20 @@ import { AssistantMessages } from "./AssistantMessages";
 import { AssistantThreadList } from "./AssistantThreadList";
 
 // The note of a failed turn; a turn refused for lack of credits (402
-// insufficient_ai_credits) also carries the balance and the price.
+// insufficient_ai_credits) also carries the balance and the price, and a
+// BYOK failure (byok_error, F5/S3) carries the cause, the Retry-After when
+// there is one and the credits offer.
 export interface AssistantTurnError {
+  byok: AssistantByokErrorInfo | null;
   credits: { balance: number; required: number } | null;
   key: AssistantErrorKey;
 }
 
-// Lack of credits shows the balance and a link to buy more (/pricing); any
-// other failure offers to try again.
-export function AssistantTurnErrorNote({ error, onRetry, t }: { error: AssistantTurnError; onRetry: () => void; t: Translate }) {
+// Lack of credits shows the balance and a link to buy more (/pricing); a
+// BYOK failure shows the cause text and the two actions ("Tentar de novo"
+// and "Usar créditos do Pinar", F5/S4); any other failure offers to try
+// again.
+export function AssistantTurnErrorNote({ error, onRetry, onRetryWithCredits, t }: { error: AssistantTurnError; onRetry: () => void; onRetryWithCredits: () => void; t: Translate }) {
   if (error.key === "assistant.errorNoCredits") {
     return (
       <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
@@ -57,6 +65,26 @@ export function AssistantTurnErrorNote({ error, onRetry, t }: { error: Assistant
         <Button render={<Link to="/pricing" />} size="sm" type="button" variant="outline">
           {t("assistant.buyCredits")}
         </Button>
+      </div>
+    );
+  }
+  if (error.byok !== null) {
+    return (
+      <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
+        <p className="text-sm text-destructive">{t(byokCauseMessageKey(error.byok.cause))}</p>
+        {error.byok.retryAfter !== null ? (
+          <p className="text-xs text-muted-foreground">{t("byok.retryAfter", { seconds: error.byok.retryAfter })}</p>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={onRetry} size="sm" type="button" variant="outline">
+            {t("assistant.retry")}
+          </Button>
+          {error.byok.canUseCredits ? (
+            <Button onClick={onRetryWithCredits} size="sm" type="button" variant="outline">
+              {t("byok.useCredits")}
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -116,11 +144,22 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       onActiveThreadCreated: (id) => {
         setActiveThreadId(id);
       },
-      onTurnError: (error) => {
+      onTurnError: (error, byokPart) => {
         // The transport delivers the JSON error body as the error message;
         // only the mapped i18n key is ever shown, never the raw text.
-        const key = assistantErrorMessageKey(assistantErrorFromChatError(error));
-        setTurnError({ credits: key === "assistant.errorNoCredits" ? assistantCreditsFromChatError(error) : null, key });
+        const code = assistantErrorFromChatError(error);
+        const key = assistantErrorMessageKey(code);
+        // The cause of a BYOK failure (F5/S4): the `data-byok-error` part of
+        // the same turn when it failed mid-stream, or the pre-stream 429
+        // body; a byok_error without either still shows the generic note.
+        const byok = code === "byok_error"
+          ? byokPart ?? assistantByokErrorFromChatError(error) ?? { canUseCredits: true, cause: "", retryAfter: null }
+          : null;
+        setTurnError({
+          byok,
+          credits: key === "assistant.errorNoCredits" ? assistantCreditsFromChatError(error) : null,
+          key,
+        });
       },
     }),
     [],
@@ -239,6 +278,16 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     void sendMessage({ text });
   }
 
+  // "Use Pinar credits" (F5/S4): the same request with useCredits true only
+  // for this send (the body of the call, F5 contract §5); the next send goes
+  // back to the account's normal routing.
+  function handleRetryWithCredits() {
+    const text = buildTurnRequestBody(null, messages).text;
+    if (!text) return;
+    setTurnError(null);
+    void sendMessage({ text }, { body: { useCredits: true } });
+  }
+
   const body =
     status === null || (status !== null && status.reason === "disabled") ? (
       <p className="px-4 py-6 text-sm text-muted-foreground">
@@ -273,10 +322,11 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
             void handleProposalAction(kind, proposal);
           }}
           onRetry={handleRetry}
+          onRetryWithCredits={handleRetryWithCredits}
           proposalStates={proposalStates}
           t={t}
         />
-        {turnError !== null ? <AssistantTurnErrorNote error={turnError} onRetry={handleRetry} t={t} /> : null}
+        {turnError !== null ? <AssistantTurnErrorNote error={turnError} onRetry={handleRetry} onRetryWithCredits={handleRetryWithCredits} t={t} /> : null}
       </>
     );
 

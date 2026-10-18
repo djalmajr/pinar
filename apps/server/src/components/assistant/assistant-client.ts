@@ -12,6 +12,8 @@ export type AssistantReason = "disabled" | "not_configured" | "requires_pro" | n
 
 export interface AssistantStatus {
   available: boolean;
+  /** F5/S3: the BYOK route of the account (chat with tools ok); kept for the future, nothing visible depends on it yet. */
+  byok?: { chat: boolean };
   reason: AssistantReason;
   surface: "cloud" | "local";
 }
@@ -136,7 +138,20 @@ export type AssistantErrorKey =
   | "assistant.errorNoCredits"
   | "assistant.errorRateLimited"
   | "assistant.errorTimeout"
-  | "assistant.requiresPro";
+  | "assistant.requiresPro"
+  | "byok.errorGeneric";
+
+/**
+ * The BYOK failure info the UI shows (F5 contract §5): the cause code of the
+ * common table, the Retry-After in seconds when there is one and the credits
+ * offer. It crosses the turn as a `data-byok-error` part (mid-stream) or in
+ * the pre-stream 429 JSON body; the provider's body and the key never do.
+ */
+export interface AssistantByokErrorInfo {
+  canUseCredits: boolean;
+  cause: string;
+  retryAfter: number | null;
+}
 
 function isAssistantThread(value: unknown): value is AssistantThread {
   return isRecord(value)
@@ -231,25 +246,33 @@ function isAssistantMessage(value: unknown): value is AssistantMessage {
 }
 
 function isAssistantStatus(value: unknown): value is AssistantStatus {
-  return isRecord(value)
-    && typeof value.available === "boolean"
+  if (!isRecord(value)) return false;
+  const byok = value.byok;
+  return typeof value.available === "boolean"
     && (value.reason === "disabled"
       || value.reason === "not_configured"
       || value.reason === "requires_pro"
       || value.reason === null)
-    && (value.surface === "cloud" || value.surface === "local");
+    && (value.surface === "cloud" || value.surface === "local")
+    && (byok === undefined || (isRecord(byok) && typeof byok.chat === "boolean"));
 }
 
 /**
  * `GET /api/assistant/status`. Returns the parsed status on a valid 2xx
  * answer and null on an error answer (404 before the route lands, 401, ...)
- * or an invalid body. Network failures reject.
+ * or an invalid body. Network failures reject. The F5/S3 `byok` block (when
+ * the server carries it) is kept as is for the future.
  */
 export async function fetchAssistantStatus(): Promise<AssistantStatus | null> {
   const response = await fetch("/api/assistant/status");
   const data = await readResponseRecord(response);
   if (!response.ok || data === null || !isAssistantStatus(data)) return null;
-  return { available: data.available, reason: data.reason, surface: data.surface };
+  return {
+    available: data.available,
+    byok: data.byok !== undefined ? { chat: data.byok.chat } : undefined,
+    reason: data.reason,
+    surface: data.surface,
+  };
 }
 
 /** `GET /api/assistant/threads`. null on error answers or an invalid list. */
@@ -424,6 +447,8 @@ export function assistantErrorMessageKey(code: string | null | undefined): Assis
       return "assistant.errorRateLimited";
     case "assistant_requires_pro":
       return "assistant.requiresPro";
+    case "byok_error":
+      return "byok.errorGeneric";
     case "insufficient_ai_credits":
       return "assistant.errorNoCredits";
     case "network":
@@ -489,6 +514,9 @@ const STREAM_ERROR_CODES = new Set([
   "ASSISTANT_STREAM_FAILED",
   "ASSISTANT_TURN_INCOMPLETE",
   "ASSISTANT_TURN_TIMEOUT",
+  // F5/S3: the BYOK failure of a turn: the fatal part carries the caller's
+  // code, after the data-byok-error part that explains the cause.
+  "byok_error",
 ]);
 
 export function assistantErrorFromChatError(error: Error): string {
@@ -529,6 +557,32 @@ function readErrorBodyCode(message: string): string | null {
     // Not a JSON body: the message does not carry an API answer code.
   }
   return null;
+}
+
+/**
+ * The byok_error of a pre-stream JSON answer (the 429 concurrency cap, F5
+ * contract §5): the cause and the Retry-After, read from the body the
+ * transport puts in the error message; null for any other error or a body
+ * without a cause. The mid-stream cause rides the `data-byok-error` part
+ * instead (assistant-conversation reads it).
+ */
+export function assistantByokErrorFromChatError(error: Error): AssistantByokErrorInfo | null {
+  try {
+    const body: unknown = JSON.parse(error.message);
+    if (!isRecord(body) || body.code !== "byok_error" || typeof body.cause !== "string" || body.cause === "") {
+      return null;
+    }
+    const retryAfter = typeof body.retryAfter === "number" && Number.isFinite(body.retryAfter) && body.retryAfter > 0
+      ? body.retryAfter
+      : null;
+    return {
+      canUseCredits: typeof body.canUseCredits === "boolean" ? body.canUseCredits : true,
+      cause: body.cause,
+      retryAfter,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function isAssistantNetworkError(error: Error): boolean {

@@ -49,6 +49,9 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
   const [recovery, setRecovery] = useState<AiRecovery>(null);
+  // The byok_error details (F5/S3b): the Retry-After in seconds and the
+  // credits offer, read from the error body; the cause is the message key.
+  const [byok, setByok] = useState<{ canUseCredits: boolean; retryAfter: number | null } | null>(null);
   const aiRequestId = useRef<string | null>(null);
   const generated = reproduction.generated;
 
@@ -83,15 +86,18 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
     await persistSteps(steps);
   }
 
-  async function generate() {
+  // The same request; useCredits is sent only when the user asked for it
+  // (F5/S4: "Usar créditos do Pinar" rides the request, never the default).
+  async function generate(useCredits = false) {
     if (generating) return;
     setGenerating(true);
     setError("");
     setRecovery(null);
+    setByok(null);
     aiRequestId.current ||= requestId();
     try {
       const response = await fetch("/api/ai/reproduction", {
-        body: JSON.stringify({ language, requestId: aiRequestId.current, sessionId }),
+        body: JSON.stringify({ language, requestId: aiRequestId.current, sessionId, ...(useCredits ? { useCredits: true } : {}) }),
         headers: { "content-type": "application/json" },
         method: "POST",
       });
@@ -109,7 +115,16 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
         return;
       }
       if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") aiRequestId.current = null;
-      const presentation = aiErrorPresentation(response.status, code);
+      const cause = isRecord(data) && typeof data.cause === "string" ? data.cause : undefined;
+      const presentation = aiErrorPresentation(response.status, code, undefined, cause);
+      if (presentation.recovery === "byok") {
+        setByok({
+          canUseCredits: !isRecord(data) || data.canUseCredits !== false,
+          retryAfter: isRecord(data) && typeof data.retryAfter === "number" && Number.isFinite(data.retryAfter) && data.retryAfter > 0
+            ? data.retryAfter
+            : null,
+        });
+      }
       setError(t(presentation.messageKey));
       setRecovery(presentation.recovery);
     } catch {
@@ -139,8 +154,14 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
       {error ? (
         <p className="flex flex-wrap items-center gap-2 text-xs text-destructive">
           {error}
-          {recovery === "retry" ? (
+          {recovery === "byok" && byok !== null && byok.retryAfter !== null ? (
+            <span className="text-muted-foreground">{t("byok.retryAfter", { seconds: byok.retryAfter })}</span>
+          ) : null}
+          {recovery === "retry" || recovery === "byok" ? (
             <Button size="sm" type="button" variant="outline" onClick={() => void generate()}>{t("viewer.aiRetry")}</Button>
+          ) : null}
+          {recovery === "byok" && byok !== null && byok.canUseCredits ? (
+            <Button size="sm" type="button" variant="outline" onClick={() => void generate(true)}>{t("byok.useCredits")}</Button>
           ) : null}
           {recovery === "pricing" ? (
             <Button render={<a href="/pricing" />} size="sm" variant="outline">{t("viewer.aiViewPlans")}</Button>

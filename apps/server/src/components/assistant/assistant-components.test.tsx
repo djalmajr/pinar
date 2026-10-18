@@ -87,6 +87,7 @@ const messageProps = {
   onAsk: () => undefined,
   onProposalAction: () => undefined,
   onRetry: () => undefined,
+  onRetryWithCredits: () => undefined,
   proposalStates: {},
   t,
 };
@@ -939,8 +940,9 @@ describe("assistant turn error note (F4/S2 credits)", () => {
   test("a 402 shows the balance, the price and a link to buy credits, without retry", async () => {
     const { AssistantTurnErrorNote } = await import("./AssistantPanel");
     const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
-      error: { credits: { balance: 2, required: 3 }, key: "assistant.errorNoCredits" },
+      error: { byok: null, credits: { balance: 2, required: 3 }, key: "assistant.errorNoCredits" },
       onRetry: () => {},
+      onRetryWithCredits: () => {},
       t: tv,
     }));
     expect(markup).toContain('role="alert"');
@@ -953,8 +955,9 @@ describe("assistant turn error note (F4/S2 credits)", () => {
   test("a 402 without a readable balance still links to /pricing with the generic note", async () => {
     const { AssistantTurnErrorNote } = await import("./AssistantPanel");
     const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
-      error: { credits: null, key: "assistant.errorNoCredits" },
+      error: { byok: null, credits: null, key: "assistant.errorNoCredits" },
       onRetry: () => {},
+      onRetryWithCredits: () => {},
       t: tv,
     }));
     expect(markup).toContain("viewer.aiNoCredits");
@@ -964,13 +967,92 @@ describe("assistant turn error note (F4/S2 credits)", () => {
   test("any other failure keeps the retry action and no pricing link", async () => {
     const { AssistantTurnErrorNote } = await import("./AssistantPanel");
     const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
-      error: { credits: null, key: "assistant.errorRateLimited" },
+      error: { byok: null, credits: null, key: "assistant.errorRateLimited" },
       onRetry: () => {},
+      onRetryWithCredits: () => {},
       t: tv,
     }));
     expect(markup).toContain("assistant.errorRateLimited");
     expect(markup).toContain("assistant.retry");
     expect(markup).not.toContain("/pricing");
+  });
+});
+
+describe("assistant turn error note (F5/S3 byok_error)", () => {
+  test("a byok_error shows the cause text, the retryAfter and the two actions", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: {
+        byok: { canUseCredits: true, cause: "key_rejected", retryAfter: 15 },
+        credits: null,
+        key: "byok.errorGeneric",
+      },
+      onRetry: () => {},
+      onRetryWithCredits: () => {},
+      t: tv,
+    }));
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("byok.cause.key_rejected");
+    expect(markup).toContain("byok.retryAfter[seconds=15]");
+    expect(markup).toContain("assistant.retry");
+    expect(markup).toContain("byok.useCredits");
+    expect(markup).not.toContain("/pricing");
+  });
+
+  test("each cause has its own text, the retryAfter line only when there is one, and the credits button only when offered", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    for (const cause of [
+      "egress_unavailable",
+      "endpoint_blocked",
+      "endpoint_unreachable",
+      "invalid_response",
+      "key_rejected",
+      "model_not_configured",
+      "model_not_found",
+      "rate_limited",
+      "scope_denied",
+      "service_disabled",
+      "timeout",
+      "unavailable",
+    ] as const) {
+      const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+        error: { byok: { canUseCredits: true, cause, retryAfter: null }, credits: null, key: "byok.errorGeneric" },
+        onRetry: () => {},
+        onRetryWithCredits: () => {},
+        t,
+      }));
+      expect(markup).toContain(`byok.cause.${cause}`);
+      expect(markup).not.toContain("byok.retryAfter");
+    }
+    const notOffered = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: { byok: { canUseCredits: false, cause: "unavailable", retryAfter: null }, credits: null, key: "byok.errorGeneric" },
+      onRetry: () => {},
+      onRetryWithCredits: () => {},
+      t,
+    }));
+    expect(notOffered).toContain("assistant.retry");
+    expect(notOffered).not.toContain("byok.useCredits");
+  });
+
+  test("a stored byok_error message (reopened thread) shows the generic note and the two buttons", () => {
+    const markup = renderToStaticMarkup(createElement(AssistantMessages, {
+      messages: [{ id: "m1", metadata: { errorCode: "byok_error" }, parts: [], role: "assistant" }],
+      ...messageProps,
+    }));
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("byok.errorGeneric");
+    expect(markup).toContain("assistant.retry");
+    expect(markup).toContain("byok.useCredits");
+  });
+
+  test("a stored non-byok error message keeps its own key and the single retry", () => {
+    const markup = renderToStaticMarkup(createElement(AssistantMessages, {
+      messages: [{ id: "m1", metadata: { errorCode: "ASSISTANT_STREAM_FAILED" }, parts: [], role: "assistant" }],
+      ...messageProps,
+    }));
+    expect(markup).toContain("assistant.errorFailed");
+    expect(markup).toContain("assistant.retry");
+    expect(markup).not.toContain("byok.useCredits");
   });
 });
 

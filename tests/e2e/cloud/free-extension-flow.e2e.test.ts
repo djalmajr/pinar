@@ -7,6 +7,7 @@ import { pressCopyShortcut } from "../helpers/extension-shortcut";
 
 const EXTENSION_DIR = resolve(process.cwd(), "extension");
 const BASE_URL = "http://127.0.0.1:17384";
+const ONE_PIXEL_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 // Fixed CRX key so the unpacked extension always gets the id the local cloud
 // runtime trusts as EXTENSION_ORIGIN (chrome-extension://bobfbkbogoiemdcjchoakflgepmekdeh).
 const DEV_EXTENSION_KEY = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmkNabf6ZtL0IPuCEEFlnf8YxL9j92z9eIbPksunV62jHw001fI3JLiou3NVyfV8qyT5Qp7suOkKwImuqvzWwRlHQCObEhtCMhnq7TAYvPT5k9WiB6pUs8t1RJzuwS3vLicklGxGPHPyWnNHbPmh/Ovn2iZWIhp55eQxujsGUzZ9P66WIDYR8459GBa0o3x4AQ2l2hlP0ANsyeJjg/f+3T038ulOfQr0TMvgsmLN/Ca+OByAKKR9f5wWIl2y7EdJMCBfZ8hWLlmy/vaM4tF6n9U+E/W4h9nwzQfgd/VuAZnSBS01KORSrv6JEbdKoo9LRR0mdvramaVNDhUzQDLOLpwIDAQAB";
@@ -81,8 +82,10 @@ test("the real extension signs in with the email account, captures to the cloud,
   });
   // The Pro fixture account is shared with the other cloud tests and its
   // storage use is asserted elsewhere, so the capture made here is removed
-  // again (also when an assertion fails).
+  // again (also when an assertion fails): everything that is not in the
+  // baseline taken right after sign-in, the earlier session seeded below included.
   let cleanupToken = "";
+  let baseline = new Set<string>();
   let preexisting = new Set<string>();
   try {
     const worker = await backgroundWorker(context);
@@ -134,7 +137,33 @@ test("the real extension signs in with the email account, captures to the cloud,
     expect(identity.token).toMatch(/^pit_/);
     expect(identity.deviceToken).toMatch(/^pdt_/);
     cleanupToken = identity.deviceToken;
-    preexisting = new Set((await cloudHistory(cleanupToken)).map((candidate) => candidate.id));
+    baseline = new Set((await cloudHistory(cleanupToken)).map((candidate) => candidate.id));
+
+    // Regression for the selection below: an earlier session with a pin is
+    // already in the account when the capture under test is made (what an
+    // interrupted earlier run leaves behind), so "the first session with a
+    // pin" would be the wrong one. It is seeded through the cloud API with the
+    // device token (a capture made by the extension would join this run's
+    // review batch instead of staying a separate session). Both comments carry
+    // a per-run suffix.
+    const runId = Date.now().toString(36);
+    const earlierId = `earlier_${runId}`;
+    const earlierComment = `Earlier capture ${runId}`;
+    const comment = `Cloud flow capture ${runId}`;
+    const seeded = await fetch(`${BASE_URL}/api/shots`, {
+      body: JSON.stringify({
+        id: earlierId,
+        image: ONE_PIXEL_PNG,
+        page: { title: `Earlier run ${runId}`, url: `${BASE_URL}/earlier-run` },
+        pins: [{ comment: earlierComment, number: 1 }],
+      }),
+      headers: { authorization: `Bearer ${identity.deviceToken}`, "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(seeded.status).toBe(201);
+    preexisting = new Set((await cloudHistory(identity.deviceToken)).map((candidate) => candidate.id));
+    expect(preexisting.has(earlierId)).toBe(true);
+    expect((await cloudHistory(identity.deviceToken)).find((candidate) => candidate.id === earlierId)?.pinCount).toBe(1);
 
     // Real capture: the same files the toolbar action injects, on a real page.
     const target = await context.newPage();
@@ -155,20 +184,22 @@ test("the real extension signs in with the email account, captures to the cloud,
     }, { baseUrl: BASE_URL, files: contentInjectionFiles() });
     await expect(target.locator('[data-pinar="host"]')).toBeVisible();
     await target.mouse.click(400, 300);
-    await target.keyboard.type("Cloud flow capture");
+    await target.keyboard.type(comment);
     await pressCopyShortcut(target);
     // sendPins hides the overlay only after the cloud upload + handoff succeed.
     await expect(target.locator('[data-pinar="host"]')).toBeHidden({ timeout: 30_000 });
 
     // The capture is listed for the signed-in account (via the extension's
-    // device token), and the viewer opens from the web app.
-    // The session row can exist a moment before its pin is stored, so wait for
-    // a session that already carries the pin.
-    const pinned = async () => (await cloudHistory(identity.deviceToken)).filter((candidate) => candidate.pinCount > 0);
-    await expect.poll(() => pinned().then((sessions) => sessions.length), {
+    // device token). The session row can exist a moment before its pin is
+    // stored, so wait for a session that is new in this run and already
+    // carries the pin; that exact id is the one the viewer opens.
+    const created = async () => (await cloudHistory(identity.deviceToken))
+      .filter((candidate) => !preexisting.has(candidate.id) && candidate.pinCount > 0);
+    await expect.poll(() => created().then((sessions) => sessions.length), {
       timeout: 20_000,
     }).toBeGreaterThan(0);
-    const [session] = await pinned();
+    const [session] = await created();
+    expect(session.id).not.toBe(earlierId);
     expect(session.page.url).toContain("127.0.0.1:17384");
 
     // The signed-in workspace lists the capture (its own web session cookie).
@@ -177,13 +208,14 @@ test("the real extension signs in with the email account, captures to the cloud,
     await app.goto(`${BASE_URL}/app`);
     await expect(app.getByText(session.page.title).first()).toBeVisible();
     await app.goto(`${BASE_URL}/v/${session.id}`);
-    // The viewer opens the captured page with its pin and comment.
-    await expect(app.getByText("Cloud flow capture").first()).toBeVisible();
+    // The viewer opens the captured page with this run's pin comment.
+    await expect(app.getByText(comment).first()).toBeVisible();
+    await expect(app.getByText(earlierComment)).toHaveCount(0);
   } finally {
     await context.close();
     if (cleanupToken) {
-      for (const created of (await cloudHistory(cleanupToken)).filter((candidate) => !preexisting.has(candidate.id))) {
-        await fetch(`${BASE_URL}/api/history/${encodeURIComponent(created.id)}`, {
+      for (const leftover of (await cloudHistory(cleanupToken)).filter((candidate) => !baseline.has(candidate.id))) {
+        await fetch(`${BASE_URL}/api/history/${encodeURIComponent(leftover.id)}`, {
           headers: { authorization: `Bearer ${cleanupToken}` },
           method: "DELETE",
         });

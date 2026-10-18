@@ -180,6 +180,24 @@ interface R2Bucket {
   put(key: string, value: Uint8Array, options: { httpMetadata: { contentType: string } }): Promise<unknown>;
 }
 
+/**
+ * The BYOK egress guard (F5/S6a, EDG-38 §2): present only when the EdgeR
+ * injects the guard into this worker's env — the per-worker Unix socket
+ * (EDGER_EGRESS_SOCKET) and the fake host (EDGER_EGRESS_HOST, a name that
+ * never resolves); edgerCloudEnv builds it once from the pair. The fetch is
+ * bound to the client the EdgeR's Deno runtime created for the socket
+ * (Deno's `client` init): the destination crosses only in the
+ * x-edger-egress-url header, never as the fetch's target. Absent — the
+ * production of today — byokFetch refuses (ByokEgressUnavailableError): the
+ * egress never bypasses the guard, not on error.
+ */
+export interface ByokEgressGuard {
+  /** The injected fake host (EDGER_EGRESS_HOST); the guard call is http://<host>/. */
+  host: string;
+  /** The fetch bound to the guard's client; the destination is never its input. */
+  fetch: (input: string, init?: RequestInit) => Promise<Response>;
+}
+
 // The filing thresholds (F3.5 §1) are part of the env, so runtimeEnv keeps them.
 export interface CloudEnv extends FilingThresholdEnv {
   ADMIN_API_KEY?: string;
@@ -220,6 +238,11 @@ export interface CloudEnv extends FilingThresholdEnv {
   // key_id for rotation. The egress guard's presence is signalled by the
   // EdgeR itself (EDGER_EGRESS_SOCKET, S6), not by a CloudEnv variable.
   BYOK_MASTER_KEY?: string;
+  // The BYOK egress guard (F5/S6a, EDG-38 §2): built by edgerCloudEnv when
+  // the EdgeR injects the per-worker Unix socket and the fake host
+  // (EDGER_EGRESS_SOCKET and EDGER_EGRESS_HOST) into this worker's env.
+  // Absent, byokFetch refuses: the egress never bypasses the guard.
+  BYOK_EGRESS?: ByokEgressGuard;
   CLOUD_TRIAL_ENABLED?: string;
   COMPLIMENTARY_PRO_USER_IDS?: string;
   DB?: D1Database;

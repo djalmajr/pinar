@@ -16,6 +16,7 @@ export function runtimeEnv(source: CloudEnv): CloudEnv {
     ASSISTANT_ENABLED: source.ASSISTANT_ENABLED,
     AUTH_PEPPER: source.AUTH_PEPPER,
     BYOK_MASTER_KEY: source.BYOK_MASTER_KEY,
+    BYOK_EGRESS: source.BYOK_EGRESS,
     CLOUD_TRIAL_ENABLED: source.CLOUD_TRIAL_ENABLED,
     COMPLIMENTARY_PRO_USER_IDS: source.COMPLIMENTARY_PRO_USER_IDS,
     DB: source.DB,

@@ -232,3 +232,120 @@ describe("edgerCloudEnv", () => {
     }
   });
 });
+
+describe("edgerCloudEnv — the BYOK egress guard (F5/S6a, EDG-38 §2)", () => {
+  const GUARD_VARS: Vars = {
+    EDGER_EGRESS_HOST: "edger-egress.invalid",
+    EDGER_EGRESS_SOCKET: "/tmp/pinar-egress.sock",
+  };
+  type EgressOptions = { proxy: { path: string; transport: "unix" } };
+  const factory = (calls: EgressOptions[], client: object) => (options: EgressOptions) => {
+    calls.push(options);
+    return client;
+  };
+
+  test("with the socket, the host and a factory: the client is created once and the field exists", () => {
+    const calls: EgressOptions[] = [];
+    const client = { fake: "client" };
+    const env = edgerCloudEnv(readVars(GUARD_VARS), factory(calls, client));
+    assert.ok(env.BYOK_EGRESS, "the field exists");
+    assert.equal(env.BYOK_EGRESS!.host, "edger-egress.invalid");
+    assert.equal(typeof env.BYOK_EGRESS!.fetch, "function");
+    assert.equal(calls.length, 1, "the client is created once");
+    assert.deepEqual(calls[0], { proxy: { path: "/tmp/pinar-egress.sock", transport: "unix" } });
+  });
+
+  test("the field's fetch is bound to the client and forwards the init", async () => {
+    const client = { fake: "client" };
+    const env = edgerCloudEnv(readVars(GUARD_VARS), () => client);
+    const guard = env.BYOK_EGRESS;
+    assert.ok(guard, "the field exists");
+    const seen: Array<{ input: unknown; init: unknown }> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = ((input: unknown, init?: unknown) => {
+      seen.push({ input, init });
+      return Promise.resolve(new Response("ok"));
+    }) as typeof fetch;
+    try {
+      const response = await guard.fetch("http://edger-egress.invalid/", {
+        headers: { Authorization: "Bearer sk-byok-test-secret" },
+        method: "POST",
+      });
+      assert.equal(await response.text(), "ok");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0]!.input, "http://edger-egress.invalid/");
+    const init = seen[0]!.init as { client?: unknown; headers?: HeadersInit; method?: string };
+    assert.equal(init.client, client, "the client is passed in the init");
+    assert.equal(init.method, "POST");
+    assert.equal(new Headers(init.headers).get("authorization"), "Bearer sk-byok-test-secret");
+  });
+
+  test("any missing piece keeps the field absent and the factory uncalled", () => {
+    const cases: Vars[] = [
+      { EDGER_EGRESS_HOST: "edger-egress.invalid" },
+      { EDGER_EGRESS_SOCKET: "/tmp/pinar-egress.sock" },
+      { EDGER_EGRESS_HOST: "https://edger-egress.invalid", EDGER_EGRESS_SOCKET: "/tmp/pinar-egress.sock" },
+      { EDGER_EGRESS_HOST: "edger-egress.invalid:8443", EDGER_EGRESS_SOCKET: "/tmp/pinar-egress.sock" },
+      { EDGER_EGRESS_HOST: "edger-egress.invalid/v1", EDGER_EGRESS_SOCKET: "/tmp/pinar-egress.sock" },
+      { EDGER_EGRESS_HOST: "edger-egress.invalid?x=1", EDGER_EGRESS_SOCKET: "/tmp/pinar-egress.sock" },
+      { EDGER_EGRESS_HOST: " ", EDGER_EGRESS_SOCKET: "/tmp/pinar-egress.sock" },
+    ];
+    for (const vars of cases) {
+      const calls: EgressOptions[] = [];
+      const env = edgerCloudEnv(readVars(vars), factory(calls, { fake: "client" }));
+      assert.equal(env.BYOK_EGRESS, undefined, JSON.stringify(vars));
+      assert.equal(calls.length, 0, JSON.stringify(vars));
+    }
+    // Without any factory (and no Deno global in Bun): the pair alone
+    // cannot build the field.
+    const env = edgerCloudEnv(readVars(GUARD_VARS));
+    assert.equal(env.BYOK_EGRESS, undefined);
+  });
+
+  test("without an injected factory the EdgeR's Deno global provides it", () => {
+    const calls: EgressOptions[] = [];
+    const previous = (globalThis as { Deno?: unknown }).Deno;
+    (globalThis as { Deno?: unknown }).Deno = { createHttpClient: factory(calls, { fake: "client" }) };
+    try {
+      const env = edgerCloudEnv(readVars(GUARD_VARS));
+      assert.ok(env.BYOK_EGRESS, "the field exists");
+      assert.equal(calls.length, 1, "the client is created once, from the Deno global");
+      assert.deepEqual(calls[0], { proxy: { path: "/tmp/pinar-egress.sock", transport: "unix" } });
+    } finally {
+      if (previous === undefined) delete (globalThis as { Deno?: unknown }).Deno;
+      else (globalThis as { Deno?: unknown }).Deno = previous;
+    }
+  });
+
+  test("the guard does not change the other env fields", () => {
+    const env = edgerCloudEnv(
+      readVars({
+        ...GUARD_VARS,
+        ADMIN_API_KEY: "admin-key",
+        BYOK_MASTER_KEY: "bmFtZS1ub3QtYS1rZXk=",
+        DEPLOYMENT_ENV: "staging",
+        STRIPE_SECRET_KEY: "sk-test",
+      }),
+      () => ({ fake: "client" }),
+    );
+    assert.ok(env.BYOK_EGRESS, "the field exists");
+    assert.equal(env.ADMIN_API_KEY, "admin-key");
+    assert.equal(env.BYOK_MASTER_KEY, "bmFtZS1ub3QtYS1rZXk=");
+    assert.equal(env.DEPLOYMENT_ENV, "staging");
+    assert.equal(env.STRIPE_SECRET_KEY, "sk-test");
+    assert.equal(env.DB, undefined);
+    assert.equal(env.AI, undefined);
+    assert.equal(env.PINAR_BUCKET, undefined);
+    assert.equal(env.EMAIL, undefined);
+  });
+
+  test("a client the runtime cannot build keeps the field absent, without an error", () => {
+    const env = edgerCloudEnv(readVars(GUARD_VARS), () => {
+      throw new Error("socket path /tmp/pinar-egress.sock refused");
+    });
+    assert.equal(env.BYOK_EGRESS, undefined, "the refusal stands");
+  });
+});

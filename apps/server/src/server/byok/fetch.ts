@@ -1,23 +1,20 @@
 // F5/S1: the BYOK egress interface (F5 contract §1, decision A55).
 //
 // A55: the egress to the user's endpoint goes only through the EdgeR egress
-// guard (EDG-38). That guard does not exist yet; S6 wires it up when it
-// ships, and the EdgeR signals its presence by injecting EDGER_EGRESS_SOCKET
-// into the worker — there is no CloudEnv variable for it. Until then,
-// byokFetch ALWAYS refuses, with a ByokEgressUnavailableError: there is no
-// fallback to a plain fetch, and nothing in S1 may reach the user's
-// endpoint. The refusal is silent about the input (never the URL), so it can
-// be surfaced or logged without leaking the endpoint. The rest of the Cloud
-// is not affected.
-//
-// What S6 will use (EDG-38 §2): the per-worker Unix socket the EdgeR
-// injects as EDGER_EGRESS_SOCKET, reached with a normal fetch through
-// Deno.createHttpClient({ proxy: { transport: "unix", path: ... } }); the
-// host of that call is the injected EDGER_EGRESS_HOST
-// (edger-egress.invalid, a name that never resolves); and the real
-// destination goes in the x-edger-egress-url header, which the guard
-// replaces with the destination's Host. Without the socket the refusal
-// stands.
+// guard (EDG-38). The EdgeR signals the guard by injecting it into the
+// worker's env: the per-worker Unix socket (EDGER_EGRESS_SOCKET) and the
+// fake host (EDGER_EGRESS_HOST, a name that never resolves), which
+// edgerCloudEnv turns into the optional BYOK_EGRESS field of the CloudEnv
+// (the fetch bound to the client created once for the socket). With the
+// field, byokFetch calls http://<host>/ through it, with the destination in
+// the x-edger-egress-url header (EDG-38 §2). Without it — the production of
+// today, until the EdgeR ships the guard — byokFetch refuses, with a
+// ByokEgressUnavailableError: there is no fallback to a plain fetch, not on
+// error, and nothing in this layer may reach the user's endpoint. The
+// refusal and the errors stay silent about the input (never the URL, the
+// key or the socket path), so they can be surfaced or logged without
+// leaking. The guard's answer (or the destination's, past the guard) is
+// returned untouched, streaming as it came.
 //
 // This function is the injectable egress of the BYOK layer: S2's capability
 // tests and S3's routing receive it (or a fake in the tests) through the
@@ -25,7 +22,7 @@
 
 import type { CloudEnv } from "../cloud-api";
 
-/** The BYOK egress is unavailable: the EdgeR guard does not exist yet (A55, S6). */
+/** The BYOK egress is unavailable: the EdgeR has not injected the guard (A55, EDG-38). */
 export class ByokEgressUnavailableError extends Error {
   constructor() {
     super("byok egress is unavailable until the EdgeR guard exists");
@@ -38,8 +35,9 @@ export type ByokEgress = (url: string, init?: RequestInit) => Promise<Response>;
 
 // The egress the BYOK layer actually calls: the injected fake in the tests
 // (setByokEgressForTests, S2), or byokFetch bound to the env (the refusal
-// until S6). S2's test route (byok/api.ts) and S3's routing (byok/route.ts)
-// share the same injection, so one fake answers both.
+// while the EdgeR has not injected the guard). S2's test route
+// (byok/api.ts) and S3's routing (byok/route.ts) share the same injection,
+// so one fake answers both.
 let byokEgressForTests: ByokEgress | null = null;
 
 export function setByokEgressForTests(egress: ByokEgress | null) {
@@ -51,14 +49,24 @@ export function byokEgressFor(env: CloudEnv): ByokEgress {
 }
 
 /**
- * The S1 egress: it always refuses, until S6 routes the call through the
- * EdgeR guard (the EDGER_EGRESS_SOCKET Unix socket, the EDGER_EGRESS_HOST
- * host and the x-edger-egress-url header of EDG-38 §2). Nothing switches it
- * on: the refusal must stand until S6 replaces this function.
+ * The BYOK egress (F5/S6a, EDG-38 §2): with the guard the EdgeR injected
+ * (env.BYOK_EGRESS), the call goes to http://<host>/ through the field's
+ * fetch, already bound to the guard's client — the method, the headers
+ * (Authorization included) and the body ride the init, and the destination
+ * is set in x-edger-egress-url, replacing any value the caller sent. The
+ * answer comes back untouched, streaming as it came. Without the field the
+ * refusal stands. There is no path to a direct fetch of the destination,
+ * not on error, and the refusal names no URL, key or socket.
  */
 export function byokFetch(env: CloudEnv, url: string, init?: RequestInit): Promise<Response> {
-  void env;
-  void url;
-  void init;
-  return Promise.reject(new ByokEgressUnavailableError());
+  const guard = env.BYOK_EGRESS;
+  if (guard === undefined) {
+    return Promise.reject(new ByokEgressUnavailableError());
+  }
+  const headers = new Headers(init?.headers);
+  headers.set("x-edger-egress-url", url);
+  return guard.fetch(`http://${guard.host}/`, {
+    ...init,
+    headers,
+  });
 }

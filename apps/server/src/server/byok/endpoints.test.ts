@@ -430,6 +430,54 @@ describe("byokSlotEgress (F5/S3c)", () => {
     assert.equal(after.status, 200);
   });
 
+  test("a source whose cancel never settles does not hold the slot past the deadline or the cap", async () => {
+    let cancels = 0;
+    const neverSettlingCancel = () => {
+      cancels++;
+      return new Promise<void>(() => {});
+    };
+    // The deadline: the source never closes, and its cancel never settles.
+    const slow = byokSlotEgress(async () => new Response(new ReadableStream<Uint8Array>({
+      cancel: neverSettlingCancel,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"));
+      },
+    })), "owner-pending-cancel");
+    await assert.rejects(slow("https://byok.test/v1/embeddings", { signal: AbortSignal.timeout(20) }), (error: unknown) => {
+      assert.ok(error instanceof ByokCallError);
+      assert.equal(error.cause, "timeout");
+      return true;
+    });
+    // The cap: more than 8 MiB, and the same cancel.
+    const chunk = new Uint8Array(1024 * 1024);
+    const big = byokSlotEgress(async () => new Response(new ReadableStream<Uint8Array>({
+      cancel: neverSettlingCancel,
+      start(controller) {
+        for (let i = 0; i < 9; i++) controller.enqueue(chunk);
+      },
+    })), "owner-pending-cancel");
+    await assert.rejects(big("https://byok.test/v1/embeddings", { signal: AbortSignal.timeout(2_000) }), (error: unknown) => {
+      assert.ok(error instanceof ByokCallError);
+      assert.equal(error.cause, "invalid_response");
+      return true;
+    });
+    assert.equal(cancels, 2, "both reads cancelled their source");
+    // Both slots were freed although neither cancel settled.
+    const after = byokSlotEgress(async () => new Response("done", { status: 200 }), "owner-pending-cancel");
+    assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
+    assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
+  });
+
+  test("a bodyless 2xx (204, 205, a null body) stays bodyless, and its parse refuses it", async () => {
+    for (const status of [200, 204, 205]) {
+      const egress = byokSlotEgress(async () => new Response(null, { status }), "owner-bodyless");
+      const response = await egress("https://byok.test/v1/embeddings");
+      assert.equal(response.status, status);
+      assert.equal(response.body, null, `${status}: no body is invented`);
+      await assert.rejects(response.json(), `${status}: the empty answer is not JSON`);
+    }
+  });
+
   test("the egress the tests inject (setByokEgressForTests) is the one the endpoints use", async () => {
     const seen: string[] = [];
     setByokEgressForTests(async (url) => {

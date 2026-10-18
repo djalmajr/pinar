@@ -94,7 +94,11 @@ export function byokSlotEgress(egress: ByokEgress, ownerId: string): ByokEgress 
       if (body.kind === "limit") throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
       if (body.kind === "abort") throw new ByokCallError({ cause: "timeout", retryAfterSeconds: null });
       if (body.kind === "error") throw new ByokCallError(byokEgressErrorCause(body.error));
-      return new Response(body.bytes, { headers: response.headers, status: response.status, statusText: response.statusText });
+      // A 2xx without a body (204, 205, or a null body) stays bodyless: a
+      // runtime may refuse a body on those statuses, and the caller's
+      // parse then refuses the empty answer as invalid_response.
+      const bodyless = body.bytes === null || response.status === 204 || response.status === 205;
+      return new Response(bodyless ? null : body.bytes, { headers: response.headers, status: response.status, statusText: response.statusText });
     } catch (error) {
       if (error instanceof ByokCallError) throw error;
       throw new ByokCallError(byokEgressErrorCause(error));
@@ -111,7 +115,7 @@ export function byokSlotEgress(egress: ByokEgress, ownerId: string): ByokEgress 
 // transport; the caller classifies it with the common table).
 type ByokBodyRead =
   | { kind: "abort"; error: unknown }
-  | { kind: "bytes"; bytes: Uint8Array<ArrayBuffer> }
+  | { kind: "bytes"; bytes: Uint8Array<ArrayBuffer> | null }
   | { kind: "error"; error: unknown }
   | { kind: "limit" };
 
@@ -126,7 +130,7 @@ type ByokBodyRead =
  */
 async function byokResponseBodyRead(response: Response, maxBytes: number, signal: AbortSignal | undefined): Promise<ByokBodyRead> {
   const body = response.body;
-  if (body === null) return { kind: "bytes", bytes: new Uint8Array(0) };
+  if (body === null) return { kind: "bytes", bytes: null };
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
@@ -165,8 +169,11 @@ async function byokResponseBodyRead(response: Response, maxBytes: number, signal
     } catch {
       // Already released.
     }
+    // Not awaited: a source whose cancel never settles must not hold the
+    // read, and with it the slot, past the deadline or the cap. Its
+    // rejection is handled.
     try {
-      await body.cancel();
+      body.cancel().catch(() => {});
     } catch {
       // A body that already errored or closed: nothing to cancel.
     }

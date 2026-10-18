@@ -339,7 +339,13 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
           // inside the path's execute, after the reservation, so a failed
           // transcription refunds the reserved credit.
           const mixedSpec: AiFeatureSpec = { ...spec, credits: 1, model: STRUCTURING_MODEL };
-          return runMeteredAiFeaturePath<VoicePinResult>({
+          // F5 review round 2: R2 — `return await`: the finally releases the
+          // slot only after the protected work ends (the mixed path runs the
+          // BYOK transcription inside `execute`); R1 — the transcription's
+          // ByokCallError is mapped back to the byok_error with its cause
+          // after the refund (the gateway's error — the structuring — stays
+          // as today).
+          return await runMeteredAiFeaturePath<VoicePinResult>({
             env,
             execute: async () => {
               const { detectedLanguage, transcript } = await runTranscription();
@@ -397,6 +403,7 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
               };
             },
             origin: "byok",
+            onInferenceError: (error) => byokErrorResponse(error),
             parse: parseVoicePinResult,
             principal,
             request,
@@ -409,7 +416,7 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
         }
         const { detectedLanguage, transcript } = await runTranscription();
         if (!postProcess) {
-          return byokSuccessJson(env, principal, {
+          return await byokSuccessJson(env, principal, {
             acceptanceCriteria: [],
             comment: transcript.slice(0, 2_000),
             detectedLanguage,
@@ -446,7 +453,7 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
           // to refund.
           throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
         }
-        return byokSuccessJson(env, principal, result, {
+        return await byokSuccessJson(env, principal, result, {
           costUsdMicros: 0,
           inputTokens,
           model: `${transcriptionRoute.model} + ${structuringRoute!.model}`,

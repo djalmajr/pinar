@@ -276,7 +276,7 @@ export async function generateReproduction(request: Request, env: CloudEnv): Pro
           return json({ code: "ai_inference_failed", error: "Reproduction generation unavailable" }, 503);
         }
         if (shortCircuit) return shortCircuit;
-        return byokSuccessJson(env, principal, result, {
+        return await byokSuccessJson(env, principal, result, {
           costUsdMicros: 0,
           inputTokens: output.inputTokens,
           model: route.model,

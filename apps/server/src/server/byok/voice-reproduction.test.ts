@@ -1178,6 +1178,185 @@ describe("POST /api/ai/voice-pin on BYOK (F5/S3b)", () => {
       db.close();
     }
   });
+
+  test("R1: a failed mixed transcription refunds the reservation and answers the byok_error with the cause (the retry runs)", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_r1", "pro");
+      // The transcription is ok; the chat is untested: the mixed case
+      // (the transcription on the BYOK inside the metered path).
+      await seedByokRow(db, "usr_r1", { capabilitiesJson: capabilities({ transcription: true }) });
+      setPostProcessing(db, "usr_r1");
+      const gateway = gatewayStub({
+        [STRUCTURING_MODEL]: () => ({
+          output: [{ content: [{ text: STRUCTURED, type: "output_text" }], type: "message" }],
+          usage: { input_tokens: 12, output_tokens: 10 },
+        }),
+        [TRANSCRIPTION_MODEL]: () => { throw new Error("the transcription does not charge: it is on the BYOK"); },
+      });
+      const env: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+        ...gateway.env,
+      };
+      const cookie = await byokCookie(db, env, "usr_r1");
+      let attempts = 0;
+      setByokEgressForTests(async (url) => {
+        if (url.includes("transcriptions")) {
+          attempts += 1;
+          // The reviewer's MIXED_BYOK_ERROR: the first call is a 429 with
+          // Retry-After: 7.
+          if (attempts === 1) {
+            return new Response("slow down", { status: 429, headers: { "retry-after": "7" } });
+          }
+          return transcriptReply();
+        }
+        return chatReply(STRUCTURED)();
+      });
+
+      const response = await api("/api/ai/voice-pin", { body: voiceForm("byok_voice_r1_001"), headers: { cookie }, method: "POST" }, env);
+      assert.equal(response.status, 429, "the BYOK's 429 keeps its status");
+      const body = await jsonBody(response);
+      assert.equal(body.code, "byok_error", "not the generic ai_inference_failed");
+      assert.equal(body.cause, "rate_limited", "the sanitized cause survives the refund");
+      assert.equal(body.retryAfter, 7);
+      assert.equal(body.canUseCredits, true, "the contractual alternative is offered");
+      assert.ok(!JSON.stringify(body).includes(BASE_URL), "the user's endpoint never crosses the response");
+      assert.deepEqual(ledgerRows(db), [{ feature: "voice_pin", status: "refunded", credits: 1, model: STRUCTURING_MODEL }], "the reserved credit went back");
+      assert.equal(grantBalance(db, "usr_r1"), 500);
+      assert.equal(gateway.calls.length, 0, "the structuring never ran (the gateway got nothing)");
+
+      // The retry runs: the second call is ok — the mixed case completes.
+      const retry = await api("/api/ai/voice-pin", { body: voiceForm("byok_voice_r1_002"), headers: { cookie }, method: "POST" }, env);
+      assert.equal(retry.status, 200, await retry.clone().text());
+      const retryBody = await jsonBody(retry);
+      assert.equal(retryBody.source, "byok");
+      assert.equal(retryBody.creditsCharged, 1);
+      assert.equal(gateway.calls.length, 1, "only the structuring");
+      assert.equal(attempts, 2);
+      assert.equal(grantBalance(db, "usr_r1"), 499);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("R1: a rejected key in the mixed transcription answers 502 key_rejected (the credit goes back, no gateway)", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_r1b", "pro");
+      await seedByokRow(db, "usr_r1b", { capabilitiesJson: capabilities({ transcription: true }) });
+      setPostProcessing(db, "usr_r1b");
+      const gateway = gatewayStub({
+        [STRUCTURING_MODEL]: () => ({
+          output: [{ content: [{ text: STRUCTURED, type: "output_text" }], type: "message" }],
+          usage: { input_tokens: 12, output_tokens: 10 },
+        }),
+        [TRANSCRIPTION_MODEL]: () => { throw new Error("no transcription on the gateway"); },
+      });
+      const env: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+        ...gateway.env,
+      };
+      const cookie = await byokCookie(db, env, "usr_r1b");
+      setByokEgressForTests(async () => new Response("nope", { status: 401 }));
+
+      const response = await api("/api/ai/voice-pin", { body: voiceForm("byok_voice_r1b_001"), headers: { cookie }, method: "POST" }, env);
+      assert.equal(response.status, 502);
+      const body = await jsonBody(response);
+      assert.equal(body.code, "byok_error");
+      assert.equal(body.cause, "key_rejected");
+      assert.equal(body.canUseCredits, true);
+      assert.deepEqual(ledgerRows(db), [{ feature: "voice_pin", status: "refunded", credits: 1, model: STRUCTURING_MODEL }]);
+      assert.equal(grantBalance(db, "usr_r1b"), 500);
+      assert.equal(gateway.calls.length, 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("R2: the mixed path holds the slot until the transcription it protects ends (the third mixed is capped)", async () => {
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_r2", "pro");
+      // The transcription is ok; the chat is untested: every request is
+      // the mixed case (the R2 window: the slot vs. the metered path's
+      // promise).
+      await seedByokRow(db, "usr_r2", { capabilitiesJson: capabilities({ transcription: true }) });
+      setPostProcessing(db, "usr_r2");
+      const gateway = gatewayStub({
+        [STRUCTURING_MODEL]: () => ({
+          output: [{ content: [{ text: STRUCTURED, type: "output_text" }], type: "message" }],
+          usage: { input_tokens: 12, output_tokens: 10 },
+        }),
+        [TRANSCRIPTION_MODEL]: () => { throw new Error("the transcription does not charge: it is on the BYOK"); },
+      });
+      const env: CloudEnv = {
+        BYOK_MASTER_KEY: MASTER_KEY,
+        DB: sqliteD1(db),
+        DEPLOYMENT_ENV: "staging",
+        ...gateway.env,
+      };
+      const cookie = await byokCookie(db, env, "usr_r2");
+      let transcriptions = 0;
+      let release!: () => void;
+      const hold = new Promise<void>((resolve) => { release = resolve; });
+      setByokEgressForTests(async (url) => {
+        if (url.includes("transcriptions")) {
+          transcriptions += 1;
+          await hold; // the mixed transcriptions stay in flight
+          return transcriptReply();
+        }
+        return chatReply(STRUCTURED)();
+      });
+      const first = api("/api/ai/voice-pin", { body: voiceForm("byok_voice_r2_001"), headers: { cookie }, method: "POST" }, env);
+      const second = api("/api/ai/voice-pin", { body: voiceForm("byok_voice_r2_002"), headers: { cookie }, method: "POST" }, env);
+      while (transcriptions < 2) await new Promise((resolve) => setTimeout(resolve, 10));
+      // Two mixed transcriptions in flight: the slot still covers them
+      // (the release comes only after the protected work — R2).
+      const third = api("/api/ai/voice-pin", { body: voiceForm("byok_voice_r2_003"), headers: { cookie }, method: "POST" }, env);
+      let settled = false;
+      const capped = await new Promise<boolean>((resolve) => {
+        const timer = setInterval(() => {
+          if (transcriptions >= 3) {
+            settled = true;
+            clearInterval(timer);
+            resolve(false);
+          }
+        }, 10);
+        void third.then((response) => {
+          if (settled) return;
+          settled = true;
+          clearInterval(timer);
+          resolve(response.status === 429);
+        });
+      });
+      assert.equal(capped, true, "the third mixed request never reaches the BYOK egress (the slot is still held)");
+      const thirdResponse = await third;
+      assert.equal(thirdResponse.status, 429);
+      assert.deepEqual(await jsonBody(thirdResponse), { canUseCredits: true, cause: "rate_limited", code: "byok_error" });
+      assert.deepEqual(ledgerRows(db), [
+        { feature: "voice_pin", status: "reserved", credits: 1, model: STRUCTURING_MODEL },
+        { feature: "voice_pin", status: "reserved", credits: 1, model: STRUCTURING_MODEL },
+      ], "the two in flight reserved (the capped one never did)");
+      release();
+      const firstResponse = await first;
+      const secondResponse = await second;
+      assert.equal(firstResponse.status, 200, await firstResponse.clone().text());
+      assert.equal(secondResponse.status, 200, await secondResponse.clone().text());
+      // With the slots back the account is not capped.
+      const after = await api("/api/ai/voice-pin", { body: voiceForm("byok_voice_r2_004"), headers: { cookie }, method: "POST" }, env);
+      assert.equal(after.status, 200, await after.clone().text());
+      assert.equal(transcriptions, 3, "the capped one never called the endpoint");
+      assert.equal(gateway.calls.length, 3, "the structuring of each completed request");
+      assert.deepEqual(ledgerRows(db).map((row) => row.status), ["succeeded", "succeeded", "succeeded"]);
+      assert.equal(grantBalance(db, "usr_r2"), 497, "one credit per mixed request");
+    } finally {
+      db.close();
+    }
+  });
 });
 
 // ---------- reproduction ----------

@@ -6522,6 +6522,16 @@ export type MeteredAiFeaturePathInput<T> = Omit<RunMeteredAiFeatureInput<T>, "by
    * metered call is the structuring (one credit, the gateway).
    */
   origin?: "byok";
+  /**
+   * Maps the inference error into the answer after the refund has resolved
+   * — the BYOK error keeps the provider's sanitized cause and status (the
+   * 429/502 `byok_error`); the caller never receives the error because this
+   * path converts it into a Response. Not consulted when the refund fails:
+   * the answer keeps the `ai_refund_pending` it had before. A falsy return
+   * (`null`/`undefined`) keeps the default 503 (the gateway's error stays
+   * as-is).
+   */
+  onInferenceError?: (error: unknown) => Response | null | undefined;
 };
 
 /**
@@ -6794,6 +6804,14 @@ export async function runMeteredAiFeaturePath<T>(input: MeteredAiFeaturePathInpu
       status: refunded ? "refunded" : "refund_pending",
       usageId: reservation.usage.id,
     }));
+    // F5/S3b round 2 (R1): after the refund has resolved, the caller can
+    // map its own error into the answer (a BYOK error keeps the cause and
+    // the 429/502); if the refund failed, the answer keeps the
+    // `ai_refund_pending` it had before.
+    if (refunded) {
+      const mapped = input.onInferenceError?.(error);
+      if (mapped) return mapped;
+    }
     return json({
       code: refunded ? errorCode : "ai_refund_pending",
       error: refunded

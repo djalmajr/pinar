@@ -20,8 +20,8 @@
 // stands.
 //
 // This function is the injectable egress of the BYOK layer: S2's capability
-// tests will receive it (or a fake in the tests) through the same
-// ByokEgress signature.
+// tests and S3's routing receive it (or a fake in the tests) through the
+// same ByokEgress signature (byokEgressFor below).
 
 import type { CloudEnv } from "../cloud-api";
 
@@ -35,6 +35,20 @@ export class ByokEgressUnavailableError extends Error {
 
 /** The BYOK layer's egress: the signature S2's tests inject a fake into. */
 export type ByokEgress = (url: string, init?: RequestInit) => Promise<Response>;
+
+// The egress the BYOK layer actually calls: the injected fake in the tests
+// (setByokEgressForTests, S2), or byokFetch bound to the env (the refusal
+// until S6). S2's test route (byok/api.ts) and S3's routing (byok/route.ts)
+// share the same injection, so one fake answers both.
+let byokEgressForTests: ByokEgress | null = null;
+
+export function setByokEgressForTests(egress: ByokEgress | null) {
+  byokEgressForTests = egress;
+}
+
+export function byokEgressFor(env: CloudEnv): ByokEgress {
+  return byokEgressForTests ?? ((url, init) => byokFetch(env, url, init));
+}
 
 /**
  * The S1 egress: it always refuses, until S6 routes the call through the

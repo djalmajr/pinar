@@ -319,3 +319,32 @@ export function createCloudPinSearch(input: {
     },
   };
 }
+
+/**
+ * The pin search of a BYOK assistant turn (F5/S3, contract §5): the turn
+ * makes no gateway call — no hub detection, no indexing, no captions, no
+ * query embedding. The ranking is the text-only one searchPins already
+ * has (embedding: null), over the entries the index already has; S3c
+ * indexes with the user's own capabilities, and until then the text
+ * ranking stands, never the gateway's.
+ */
+export function createByokTextPinSearch(input: {
+  data: CloudPinSourceData;
+  env: CloudPinEnv;
+  now?: () => Date;
+}): PinSearchService {
+  const now = input.now ?? (() => new Date());
+  return {
+    async search({ limit, query, signal }) {
+      signal?.throwIfAborted();
+      // A fresh source per search: the accessible sessions are read again.
+      const source = cloudPinSource(input.data);
+      const store = cloudOwnerPinIndexStore(input.env, await source.owners());
+      signal?.throwIfAborted();
+      // chat: null → no captions; embedding: null → the text-only ranking,
+      // which never fetches (searchPins embeds the query only with an
+      // embedding endpoint).
+      return searchPins({ chat: null, embedding: null, now, source, store }, { limit, query });
+    },
+  };
+}

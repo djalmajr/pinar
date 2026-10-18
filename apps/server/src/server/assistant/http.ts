@@ -24,6 +24,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { LanguageModel } from "ai";
+import { byokStreamErrorPart } from "../byok/route";
 import { ASSISTANT_SYSTEM_PROMPT } from "./prompt";
 import {
   assistantLanguageModel,
@@ -70,8 +71,33 @@ export type AssistantStatusReason = "not_configured" | "requires_pro" | "disable
 
 export interface AssistantStatus {
   available: boolean;
+  // F5/S3: the BYOK route of the assistant (Cloud, while the assistant is
+  // available): whether the turn would run on the user's endpoint. Never
+  // the key.
+  byok?: { chat: boolean };
   reason: AssistantStatusReason | null;
 }
+
+// F5/S3: the BYOK route of the Cloud turn (the user's endpoint, one link,
+// no credits). The Cloud passes it; the local app does not.
+export interface AssistantByokTurnContext {
+  conversationId: string;
+  requestId: string;
+  useCredits: boolean;
+}
+
+export type AssistantByokTurn =
+  | {
+      endpoint: AssistantEndpoint;
+      kind: "route";
+      model: LanguageModel;
+      // The turn's pin search (contract §5): the BYOK route carries its own
+      // text-only search, so the turn makes no gateway call at all.
+      pinSearch: PinSearchService;
+      release(): void;
+    }
+  | { kind: "none" }
+  | { kind: "rate_limited" };
 
 // What a settled turn charges (F4 contract §2): the link that answered,
 // its tokens and cost, and { fallback, link, costSource } as result_json.
@@ -102,6 +128,9 @@ export interface AssistantRequestDeps {
   now?: () => Date;
   // the runtime's pin search; without it pinar_pins_search is not offered
   pinSearch?: PinSearchService;
+  // F5/S3: the BYOK route of the Cloud turn, called with the parsed
+  // useCredits of the body; the decision and the turn's model come from it.
+  byokTurn?: (context: AssistantByokTurnContext) => Promise<AssistantByokTurn>;
   // The Cloud's credits (F4 contract §2): reserves the turn under its
   // assistant message id before the model runs; reserved: false → 402
   // insufficient_ai_credits, or 409 assistant_turn_in_progress when the
@@ -440,7 +469,12 @@ function threadIdFromPath(pathname: string): string | null {
 
 async function statusRoute(deps: AssistantRequestDeps): Promise<Response> {
   const status = await deps.status();
-  return assistantJson({ available: status.available, reason: status.reason, surface: deps.surface });
+  return assistantJson({
+    available: status.available,
+    ...(status.byok !== undefined ? { byok: status.byok } : {}),
+    reason: status.reason,
+    surface: deps.surface,
+  });
 }
 
 async function listThreadsRoute(url: URL, deps: AssistantRequestDeps): Promise<Response> {
@@ -482,6 +516,13 @@ async function deleteThreadRoute(deps: AssistantRequestDeps, id: string): Promis
   return deleted ? assistantJson({ ok: true }) : assistantError(404, "thread_not_found", "Thread not found");
 }
 
+// F5/S3: the BYOK concurrency cap, answered before the turn (no queue): the
+// byok_error code with the rate_limited cause and canUseCredits. The text
+// is the UI's (S4); the body carries only the machine fields.
+function byokRateLimitedResponse(): Response {
+  return assistantJson({ canUseCredits: true, cause: "rate_limited", code: "byok_error" }, 429);
+}
+
 async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<Response> {
   const now = deps.now ?? (() => new Date());
   const stamp = () => now().toISOString();
@@ -512,6 +553,15 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
       return assistantError(400, "invalid_request", "Invalid request body");
     }
     threadId = parsed.threadId;
+  }
+  // useCredits (F5/S3): the optional boolean that opts this request out of
+  // the BYOK route; any other type is invalid.
+  let useCredits = false;
+  if (parsed.useCredits !== undefined) {
+    if (typeof parsed.useCredits !== "boolean") {
+      return assistantError(400, "invalid_request", "Invalid request body");
+    }
+    useCredits = parsed.useCredits;
   }
 
   // 3. Rate limit (absent on the local app).
@@ -552,6 +602,17 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
   const assistantMessageId = newAssistantMessageId();
   // The credits held for this turn, released once by whoever settles it.
   let reservation: Extract<AssistantTurnReservation, { reserved: true }> | null = null;
+  // The BYOK concurrency slot (F5/S3): held while the turn's call to the
+  // user's endpoint runs, released once — by the outcome's finally when the
+  // turn took over, by the catch when a synchronous failure gave the turn
+  // back before it.
+  let byokRelease: (() => void) | null = null;
+  let byokReleased = false;
+  const releaseByok = () => {
+    if (byokReleased || byokRelease === null) return;
+    byokReleased = true;
+    byokRelease();
+  };
 
   try {
     // 6. The user message is persisted before the model, then the history
@@ -586,17 +647,36 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
 
     // 7. Endpoint, model and tools; the streamed response goes back to the
     //    client right away.
-    const endpoint = await deps.endpoint();
+    const requestId = randomUUID();
+    const conversationId = thread.id;
+    // 7a. The BYOK route (F5/S3): with a route and without useCredits the
+    //     turn runs on the user's endpoint — one link, no fallback to the
+    //     gateway, no credits.
+    let byok: Extract<AssistantByokTurn, { kind: "route" }> | null = null;
+    let endpoint: AssistantEndpoint | null;
+    if (deps.byokTurn) {
+      const byokTurn = await deps.byokTurn({ conversationId, requestId, useCredits });
+      if (byokTurn.kind === "rate_limited") {
+        releaseThread();
+        return byokRateLimitedResponse();
+      }
+      if (byokTurn.kind === "route") byok = byokTurn;
+      endpoint = byok !== null ? byok.endpoint : await deps.endpoint();
+      if (byok !== null) byokRelease = byok.release;
+    } else {
+      endpoint = await deps.endpoint();
+    }
     if (!endpoint) {
       releaseThread();
       return assistantError(503, "assistant_unavailable", "The assistant is unavailable");
     }
-    // 7b. The Cloud reserves the turn's credits before the model runs;
+    // 7b. The Cloud reserves the turn's credits before the model runs —
+    //     never on the BYOK route (F5/S3: no credit, no margin monitor);
     //     without them nothing else is written (the user message above
     //     already was) and the model is never called. A reservation that
     //     already existed belongs to another run of this message: that run
     //     answers and settles it, this one does neither.
-    if (deps.meterTurn) {
+    if (deps.meterTurn && byok === null) {
       const reserved = await deps.meterTurn({ messageId: assistantMessageId, threadId: thread.id });
       if (!reserved.reserved) {
         releaseThread();
@@ -612,11 +692,11 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
       }
       reservation = reserved;
     }
-    const requestId = randomUUID();
-    const conversationId = thread.id;
-    const model = deps.model
-      ? deps.model(endpoint, { conversationId, requestId })
-      : assistantLanguageModel(endpoint, { conversationId, fetch: deps.fetch, requestId });
+    const model = byok !== null
+      ? byok.model
+      : deps.model
+        ? deps.model(endpoint, { conversationId, requestId })
+        : assistantLanguageModel(endpoint, { conversationId, fetch: deps.fetch, requestId });
     // The turn's proposal sink: prepare over the state reader, store the
     // full record under this turn's assistant message, stream it as a
     // data-proposal part. A store or reader failure is a generic tool
@@ -655,10 +735,19 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
         }
       },
     });
+    // The turn's origin for the UI (F5/S3): byok on the user's endpoint,
+    // pinar on the Cloud's own (the local app records none).
+    const turnSource = byok !== null ? "byok" : deps.byokTurn !== undefined ? "pinar" : undefined;
+    // The turn's pin search (F5/S3, contract §5): a BYOK route carries its
+    // own text-only search — the BYOK turn makes no gateway call; the
+    // gateway's search (deps.pinSearch) serves the other turns.
+    const turnPinSearch = byok !== null ? byok.pinSearch : deps.pinSearch;
     const { outcome, response } = runAssistantTurn({
       history: buildTurnWindow(history),
       model,
+      ...(byok !== null ? { onStreamError: byokStreamErrorPart } : {}),
       providerOptions: assistantProviderOptions(endpoint),
+      ...(turnSource !== undefined ? { source: turnSource } : {}),
       system: ASSISTANT_SYSTEM_PROMPT,
       thread: { id: thread.id, title: thread.title },
       tools: (emit) =>
@@ -666,7 +755,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
           emit,
           host: deps.toolHost,
           kinds: TURN_TOOL_KINDS,
-          ...(deps.pinSearch ? { pinSearch: deps.pinSearch } : {}),
+          ...(turnPinSearch ? { pinSearch: turnPinSearch } : {}),
           proposals: proposalSink(emit),
           surface: deps.surface,
         }),
@@ -705,11 +794,15 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
       .catch(() => {})
       .finally(() => {
         releaseThread();
+        // The BYOK call is over once the outcome settles (the stream was
+        // drained to the end): the concurrency slot frees here.
+        releaseByok();
       });
 
     return withNoStore(watched ? watched.response : response);
   } catch {
     releaseThread();
+    releaseByok();
     // A failure after the reservation and before the turn took it over
     // gives the credits back.
     if (reservation) await reservation.refund("assistant_unavailable").catch(() => {});

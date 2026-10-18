@@ -9063,6 +9063,8 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
   const { assistantChainLinkName, assistantChainModel, assistantChainOpen, createAssistantCircuitBreaker } = await import("./assistant/chain");
+  // F5/S3: the BYOK routing (lazily, like the assistant: it pulls in the AI SDK).
+  const { byokAssistantModel, byokAssistantRoute, byokAssistantRouteExists } = await import("./byok/route");
   const breaker = cloudAssistantBreaker ??= createAssistantCircuitBreaker();
   const origin = new URL(request.url).origin;
   const pinSearch = await cloudPinSearch(env, principal);
@@ -9071,6 +9073,38 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
     // null (503 assistant_unavailable) with the gate off or every link's
     // breaker open.
     endpoint: async () => (chain && !assistantChainOpen(chain, breaker) ? cloudAssistantEndpoint(env, chain[0]) : null),
+    // F5/S3: the BYOK route of the turn (the user's endpoint, one link, no
+    // credits). useCredits: true opts this request out of it and keeps
+    // today's path (the gateway, the credits).
+    byokTurn: async ({ conversationId, requestId, useCredits }) => {
+      if (useCredits) return { kind: "none" };
+      const byokRoute = await byokAssistantRoute(env, principal);
+      if (byokRoute === null) return { kind: "none" };
+      if ("cause" in byokRoute) return { kind: "rate_limited" };
+      // The turn's pin search (F5/S3, contract §5): the BYOK turn makes no
+      // gateway call — the route carries the text-only ranking over the
+      // index entries that already exist (no hub detection, no indexing,
+      // no captions, no query embedding). The gateway's cloudPinSearch
+      // stays with the useCredits turns.
+      const { createByokTextPinSearch } = await import("./assistant/retrieval/runtime-cloud");
+      return {
+        endpoint: {
+          apiKey: byokRoute.apiKey,
+          baseUrl: byokRoute.baseUrl,
+          kind: "openai-compatible",
+          model: byokRoute.model,
+          thinkingControl: false,
+        },
+        kind: "route",
+        model: byokAssistantModel(byokRoute, { conversationId, requestId }),
+        pinSearch: createByokTextPinSearch({
+          data: cloudPinSourceData(env, principal, { shared: true }),
+          env,
+          now: currentDate,
+        }),
+        release: byokRoute.release,
+      };
+    },
     // The turn's model is the chain (assistant/chain.ts); the endpoint only
     // names its first link.
     model: (_endpoint, context) =>
@@ -9093,7 +9127,13 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
         { limit: 60, scope: `ip:${clientIp(request)}` },
       ], 60_000),
     reader: cloudAssistantStateReader(env, principal),
-    status: async () => status,
+    status: async () => {
+      // F5/S3: while the assistant is available, the status reports whether
+      // the turn would run on the user's endpoint (no key, no concurrency
+      // slot). Without availability there is no route to report.
+      if (!status.available) return status;
+      return { ...status, byok: { chat: await byokAssistantRouteExists(env, principal) } };
+    },
     store: cloudAssistantStore(env, principal.id),
     surface: "cloud",
     // The turn reads only (defense in depth: it never calls a write); the

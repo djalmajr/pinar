@@ -38,22 +38,11 @@
 
 import { silentWav } from "../ai/inference";
 import type { ByokCapability, ByokCapabilities } from "./api";
-import { ByokEgressUnavailableError, type ByokEgress } from "./fetch";
+import { byokEgressErrorCause, byokReadBody, byokResponseCause, type ByokCauseCode } from "./cause";
+import type { ByokEgress } from "./fetch";
 
 /** A short cause for a capability that did not pass (F5 contract §2). */
-export type ByokCauseCode =
-  | "key_rejected"
-  | "scope_denied"
-  | "model_not_found"
-  | "service_disabled"
-  | "rate_limited"
-  | "unavailable"
-  | "timeout"
-  | "invalid_response"
-  | "egress_unavailable"
-  | "endpoint_blocked"
-  | "endpoint_unreachable"
-  | "model_not_configured";
+export type { ByokCauseCode };
 
 /** The endpoint to probe: the saved base URL, the decrypted key (server-side only) and the three models. */
 export interface ByokDetectEndpoint {
@@ -94,94 +83,12 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isAbort(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("name" in error)) return false;
-  const name = (error as { name?: unknown }).name;
-  return name === "AbortError" || name === "TimeoutError";
-}
-
 function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
     return undefined;
   }
-}
-
-/** The error type/code of a provider error body ({"error":{"type"...}}); never its message. */
-function bodyErrorMarker(bodyText: string | undefined): string {
-  const body = bodyText === undefined ? undefined : parseJson(bodyText);
-  if (!record(body)) return "";
-  const error = record(body.error) ? body.error : {};
-  const type = typeof error.type === "string" ? error.type : "";
-  const code = typeof error.code === "string" ? error.code : "";
-  return `${type} ${code}`.toLowerCase();
-}
-
-/** The cause of a non-2xx response: the guard's header wins, then the status (EDG-38 §4). */
-function responseCause(response: Response, bodyText: string | undefined): ByokCauseCode {
-  const guardError = response.headers.get("x-edger-egress-error");
-  if (guardError !== null) {
-    switch (guardError) {
-      case "EGRESS_TIMEOUT":
-        return "timeout";
-      case "EGRESS_LIMIT":
-        return "rate_limited";
-      case "EGRESS_BAD_TARGET":
-      case "EGRESS_HOST_BLOCKED":
-      case "EGRESS_PORT_BLOCKED":
-        return "endpoint_blocked";
-      default:
-        // DNS, upstream, redirects, response size and any code the
-        // provisional contract still names differently: the endpoint did
-        // not answer as it should.
-        return "endpoint_unreachable";
-    }
-  }
-  const marker = bodyErrorMarker(bodyText);
-  switch (response.status) {
-    case 401:
-      return "key_rejected";
-    case 403:
-      return marker.includes("scope_denied") ? "scope_denied" : "key_rejected";
-    case 404:
-      return marker.includes("model") ? "model_not_found" : "service_disabled";
-    case 429:
-      return "rate_limited";
-    case 503:
-      return "unavailable";
-    case 504:
-      return "timeout";
-    default:
-      // A 4xx (400, 422, ...) is the endpoint refusing what the model was
-      // asked to do; any other 5xx is the endpoint itself.
-      return response.status < 500 ? "model_not_found" : "unavailable";
-  }
-}
-
-async function boundedText(body: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<string> {
-  if (body === null) return "";
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (length < maxBytes) {
-      const { done, value } = await reader.read();
-      if (done || !value) break;
-      const keep = Math.min(value.byteLength, maxBytes - length);
-      chunks.push(keep === value.byteLength ? value : value.subarray(0, keep));
-      length += keep;
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
 }
 
 /** One egress call with its deadline; the refusal, the abort and the network failure map to causes.
@@ -204,35 +111,13 @@ async function callEgress(
       redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    bodyText = await readBody(response, BODY_LIMIT_BYTES);
+    bodyText = await byokReadBody(response, BODY_LIMIT_BYTES);
   } catch (error) {
-    if (error instanceof ByokEgressUnavailableError) return { cause: "egress_unavailable" };
-    if (isAbort(error)) return { cause: "timeout" };
-    return { cause: "endpoint_unreachable" };
+    return { cause: byokEgressErrorCause(error).cause };
   }
   if (response.ok) return { bodyText, status: response.status };
-  return { bodyText, cause: responseCause(response, bodyText), status: response.status };
-}
-
-/**
- * The body capped at `maxBytes`, with the stream cancelled when the read
- * stops (at the cap, or by a failure that already closed it): a 200 cut at
- * the cap must not keep the connection open, and the lock is released
- * before the cancel. The read and the cancel stay inside the caller's
- * classification try, so a failure of either is a failure of the call.
- */
-async function readBody(response: Response, maxBytes: number): Promise<string> {
-  const body = response.body;
-  if (body === null) return "";
-  try {
-    return await boundedText(body, maxBytes);
-  } finally {
-    try {
-      await body.cancel();
-    } catch {
-      // A body that already errored or closed: nothing to cancel.
-    }
-  }
+  const cause = byokResponseCause(response, bodyText);
+  return { bodyText, cause: cause.cause, status: response.status };
 }
 
 interface CatalogItem {

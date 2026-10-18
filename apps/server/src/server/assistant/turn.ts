@@ -100,7 +100,16 @@ type AssistantAsk = { options: string[]; question: string };
 
 export type AssistantStreamEmit = (part:
   | { data: AssistantPublicProposal; type: "data-proposal" }
-  | { data: { options: string[]; question: string }; type: "data-ask" }) => void;
+  | { data: { options: string[]; question: string }; type: "data-ask" }
+  | { data: Record<string, unknown>; type: `data-${string}` }) => void;
+
+// What the stream's error part carries when the caller classifies it
+// (the BYOK cause, F5/S3): the error code and one data part with the
+// details, written before the error part.
+export interface AssistantTurnStreamError {
+  code: string;
+  part?: { data: Record<string, unknown>; type: `data-${string}` };
+}
 
 // The plan's outcomes map onto two kinds: final (ask null), intentional
 // stop (final with the pinar_ask question) and missing final (error
@@ -112,6 +121,9 @@ export type AssistantTurnOutcome =
 
 export interface AssistantTurnInput {
   abortSignal?: AbortSignal;
+  // F5/S3: the origin of the turn (the user's BYOK endpoint or Pinar's own),
+  // recorded in the turn's first data part for the UI.
+  source?: "byok" | "pinar";
   history: AssistantHistoryEntry[];
   maxSteps?: number;
   model: LanguageModel;
@@ -120,6 +132,9 @@ export interface AssistantTurnInput {
   thread: { id: string; title: string };
   timeoutMs?: number;
   tools: ToolSet | ((emit: AssistantStreamEmit) => ToolSet);
+  // The stream's error part: the AssistantErrorCode by default, or the
+  // caller's classification (F5/S3: the BYOK cause and its data part).
+  onStreamError?: (error: unknown) => AssistantTurnStreamError | undefined;
 }
 
 const ASK_TOOL_NAME = toLlmToolName(ASSISTANT_ASK_TOOL.name);
@@ -219,6 +234,21 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   const errorCodeFor = (): AssistantErrorCode =>
     timedOut ? "ASSISTANT_TURN_TIMEOUT" : "ASSISTANT_STREAM_FAILED";
 
+  // The stream's error part: the AssistantErrorCode by default; the caller's
+  // classification (the BYOK cause, F5/S3) replaces the code and writes one
+  // data part with the details before the error part. Written at most once:
+  // the inner and the outer onError may both see the failure.
+  let streamErrorPartSent = false;
+  const streamError = (error: unknown): string => {
+    const classified = input.onStreamError?.(error);
+    if (classified === undefined) return errorCodeFor();
+    if (classified.part !== undefined && !streamErrorPartSent) {
+      streamErrorPartSent = true;
+      emit({ data: classified.part.data, type: classified.part.type });
+    }
+    return classified.code;
+  };
+
   // Data parts tools emit go to the UI stream writer. createUIMessageStream
   // runs `execute` synchronously below, before any tool can run; parts that
   // would arrive earlier wait for the writer and keep their order.
@@ -259,12 +289,19 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   const response = createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
-        writer.write({ data: { id: input.thread.id, title: input.thread.title }, type: "data-thread" });
+        writer.write({
+          data: {
+            id: input.thread.id,
+            ...(input.source !== undefined ? { source: input.source } : {}),
+            title: input.thread.title,
+          },
+          type: "data-thread",
+        });
         streamWriter = writer;
         for (const part of pendingParts.splice(0)) writer.write(part);
         writer.merge(
           toUIMessageStream({
-            onError: () => errorCodeFor(),
+            onError: (error) => streamError(error),
             sendReasoning: false,
             stream: result.stream,
             tools,
@@ -273,7 +310,7 @@ export function runAssistantTurn(input: AssistantTurnInput): {
       },
       // Stream-level failures surface as a part whose errorText is only
       // the AssistantErrorCode; the provider error never leaks.
-      onError: () => errorCodeFor(),
+      onError: (error) => streamError(error),
     }),
   });
 

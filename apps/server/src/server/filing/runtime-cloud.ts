@@ -62,16 +62,20 @@ export async function cloudFilingEngine(
 
 /**
  * GET and PATCH /api/preferences behind the gate: an engine is available.
- * The answer waits at most `timeoutMs`; a detection still running then
- * answers false, and its result reaches the cache for the next read.
+ * F5/S3c: `byok` (the owner's retrieval endpoints, the Pro gate and the
+ * no-decrypt rule inside byokRetrievalEndpoints) answers the availability
+ * too — the user's embeddings ok make the automatic destination
+ * available, with no deployment detection call. The answer waits at most
+ * `timeoutMs`; a detection still running then answers false, and its
+ * result reaches the cache for the next read.
  */
-export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, timeoutMs: number): Promise<boolean> {
+export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, byok: ByokRetrievalEndpoints | null, timeoutMs: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), Math.max(0, timeoutMs));
   });
   try {
-    return (await Promise.race([cloudFilingEngine(env).catch(() => null), late])) !== null;
+    return (await Promise.race([cloudFilingEngine(env, byok).catch(() => null), late])) !== null;
   } finally {
     clearTimeout(timer);
   }

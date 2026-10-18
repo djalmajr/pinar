@@ -19,6 +19,7 @@ export async function postEndpointJson(input: {
   apiKey?: string;
   baseUrl: string;
   body: unknown;
+  byok?: boolean; // F5/S3c: the user's BYOK call (the caused 2xx failures)
   fetch?: typeof fetch;
   label: string;
   path: string;
@@ -53,6 +54,12 @@ export async function postEndpointJson(input: {
   try {
     return await response.json();
   } catch {
+    // F5/S3c: the user's BYOK 2xx that cannot be parsed (or the deadline
+    // cut its body mid-read) is the caused ByokCallError at the
+    // operation's boundary — the caller's cause table, the fixed message
+    // — never a generic error that loses the cause at the layer's
+    // boundary. The deployment's endpoints keep their fixed message.
+    if (input.byok === true) throw new ByokCallError({ cause: signal.aborted ? "timeout" : "invalid_response", retryAfterSeconds: null });
     throw new Error(signal.aborted ? `${input.label} timed out` : `${input.label} returned invalid JSON`);
   }
 }

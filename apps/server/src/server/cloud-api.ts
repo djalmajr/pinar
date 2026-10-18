@@ -7238,7 +7238,11 @@ async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Pr
   const startedAt = Date.now();
   try {
     const filing = await import("./filing/runtime-cloud");
-    return await filing.cloudAutoCaptureDestinationAvailable(env, FILING_TIMEOUT_MS - (Date.now() - startedAt));
+    const { byokRetrievalEndpoints } = await import("./byok/endpoints");
+    // F5/S3c: the owner's BYOK endpoints answer the availability too (the
+    // Pro gate and the no-decrypt rule are inside byokRetrievalEndpoints):
+    // the user's embeddings ok make the automatic destination available.
+    return await filing.cloudAutoCaptureDestinationAvailable(env, await byokRetrievalEndpoints(env, principal), FILING_TIMEOUT_MS - (Date.now() - startedAt));
   } catch {
     return false;
   }

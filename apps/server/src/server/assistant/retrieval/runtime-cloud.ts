@@ -46,6 +46,7 @@
 // cloud-api.ts applies the gates (A3) before calling it.
 
 import { parseAssistantChain, type AssistantChainLink } from "../chain";
+import { ByokCallError } from "../../byok/cause";
 import type { AssistantD1Database } from "../store-cloud";
 import type { AssistantEndpoint } from "../models";
 import { buildPinDocument, pinDocumentHash } from "./document";
@@ -308,6 +309,13 @@ export function createCloudPinSearch(input: {
 }): PinSearchService {
   const now = input.now ?? (() => new Date());
   const indexBudgetMs = input.indexBudgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS;
+  // A failure of the question's BYOK embedding degrades the rest of the
+  // turn's searches to the text-only ranking (searchPins settles the failed
+  // query text-only and swallows the error: the mark below keeps the
+  // degradation persistent, so the next search does not call the user's
+  // endpoint again — no repeated 429 during its Retry-After — and no
+  // gateway vector ever enters the BYOK's space).
+  let byokTurnQueryDegraded = false;
   // The BYOK endpoint's egress bound to a signal (the per-call slot rides
   // inside it): null when the endpoint is absent.
   const withSignal = <T extends { fetch?: typeof fetch }>(
@@ -342,11 +350,38 @@ export function createCloudPinSearch(input: {
       // The question's embedding is bound to the turn only.
       const { fetch: _indexFetch, ...rest } = indexing;
       const searchFetch = withAbortSignal(input.fetch, signal);
-      // The BYOK embedding endpoint's egress is re-bound to the turn only,
-      // like the deployment's searchFetch (the indexing's budget does not
-      // cut the question's embedding, as today).
-      const embedding = withSignal(rest.embedding, signal);
-      return searchPins({ ...rest, ...(embedding ? { embedding } : {}), ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
+      // The BYOK embedding endpoint's egress for the question: the ORIGINAL
+      // endpoint, bound to the turn only — the indexing's copy (rest.embedding)
+      // carries the indexSignal's deadline, which must not cut the question's
+      // embedding (as the deployment's searchFetch is bound to the turn only,
+      // and the indexing's budget never cut the gateway's question's embedding
+      // either). A failure of the question's BYOK embedding marks the turn
+      // (byokTurnQueryDegraded): the rest of it ranks text-only.
+      let byokQueryFailed = false;
+      const originalByok = byokTurnQueryDegraded === false ? (input.byok?.embedding ?? null) : null;
+      const byokQueryFetch = originalByok?.fetch ?? null;
+      const embedding =
+        byokQueryFetch === null
+          ? withSignal(rest.embedding, signal)
+          : {
+              ...originalByok!,
+              fetch: (async (target: RequestInfo | URL, init?: RequestInit) => {
+                try {
+                  // The question's egress bound to the turn only: the
+                  // indexing's deadline (indexSignal) is not joined here,
+                  // as the deployment's searchFetch is bound to the turn
+                  // only.
+                  const bound = withAbortSignal(byokQueryFetch, signal) ?? byokQueryFetch;
+                  return await bound(target, init);
+                } catch (error) {
+                  byokQueryFailed = true;
+                  throw error;
+                }
+              }) as typeof fetch,
+            };
+      const result = await searchPins({ ...rest, ...(embedding ? { embedding } : {}), ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
+      if (byokQueryFailed) byokTurnQueryDegraded = true;
+      return result;
     },
   };
 }
@@ -640,6 +675,13 @@ export function createByokPinSearch(input: {
           ? null
           : { ...input.byok.vision, fetch: marking(withAbortSignal(input.byok.vision.fetch, indexSignal)!) },
         embedding: { ...input.byok.embedding, fetch: marking(withAbortSignal(input.byok.embedding.fetch, indexSignal)!) },
+        // The session's indexing failure, as the error crossed it (the
+        // caption's or the embedding's 2xx parse and schema — outside the
+        // fetch's marking): the BYOK's control sees the ByokCallError and
+        // degrades the turn as an egress failure degrades it (F5/S3c).
+        onSessionError: (error) => {
+          if (error instanceof ByokCallError) byokFailed = true;
+        },
         now,
         source,
         store,
@@ -658,7 +700,19 @@ export function createByokPinSearch(input: {
           ...deps,
           embedding: { ...input.byok.embedding, fetch: marking(withAbortSignal(input.byok.embedding.fetch, signal)!) },
         };
-        return await searchPins(queryDeps, { limit, query });
+        const result = await searchPins(queryDeps, { limit, query });
+        // A failure of the question's BYOK embedding that searchPins
+        // settled text-only (semantic: false, the error swallowed): the
+        // degradation is persistent for the rest of the turn — the next
+        // search does not call the provider again (no repeated 429 during
+        // its Retry-After) — and the fallback runs over the CURRENT
+        // documents, as the turn's text-only search does.
+        if (byokFailed) {
+          degraded = true;
+          const remaining = Math.max(0, budgetMs - (now().getTime() - startedAt));
+          return byokTextSearch({ budgetMs: remaining, data: input.data, env: input.env, now }, { limit, query, ...(signal ? { signal } : {}) });
+        }
+        return result;
       } catch (error) {
         // The turn's abort is the caller's reason, as the gateway search
         // answers; anything else (the BYOK's failure, the budget) settles

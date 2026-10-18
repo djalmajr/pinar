@@ -21,6 +21,7 @@
 import { assistantTableCostMicros } from "../chain";
 import { assistantProviderOptions, type AssistantEndpoint } from "../models";
 import { ASSISTANT_TURN_TIMEOUT_MS } from "../turn";
+import { ByokCallError } from "../../byok/cause";
 import { clipText } from "./document";
 import { postEndpointJson } from "./endpoint";
 import { assistantIndexCostLog, gatewayIndexCost, gatewayPrivacyOptions, recordIndexCost, usageTokens, type GatewayCallOptions } from "./gateway";
@@ -64,6 +65,14 @@ const INVALID_RESPONSE = "vision response invalid";
 
 /** The chat endpoint of the captions; `gateway` is set for the Vercel AI Gateway. */
 export type VisionEndpoint = AssistantEndpoint & {
+  /**
+   * F5/S3c: the endpoint is the user's BYOK one: a failure of its
+   * operation (the egress, the cause, the per-user cap, or the 2xx's
+   * parse and schema) crosses as the caused ByokCallError, so the BYOK's
+   * control (the turn's marking) sees it and the session stays pending;
+   * the deployment's endpoints keep their fixed-message errors.
+   */
+  byok?: true;
   /**
    * F5/S3c: the endpoint's own egress (the BYOK call, the per-user slot and
    * the caused failures): it wins over the deps' fetch; unset for the
@@ -171,6 +180,7 @@ export async function captionSessionPins(input: {
         type: "json_schema",
       },
     },
+    ...(input.endpoint.byok === true ? { byok: true } : {}),
     fetch: input.fetch,
     label: "vision request",
     path: "/chat/completions",
@@ -182,7 +192,18 @@ export async function captionSessionPins(input: {
     assistantIndexCostLog({ ...cost, kind: "caption", model });
     await recordIndexCost(input.endpoint.gateway, { ...cost, kind: "caption", model });
   }
-  const captions = parseCaptions(body, new Set(input.pins.map((pin) => pin.number)));
+  let captions: Map<number, { caption: string; ocr: string }>;
+  try {
+    captions = parseCaptions(body, new Set(input.pins.map((pin) => pin.number)));
+  } catch (error) {
+    // The user's caption (F5/S3c): a 2xx outside the schema is the caused
+    // ByokCallError at the operation's boundary, so the BYOK's control sees
+    // it (the session stays pending, the turn settles text-only); the
+    // provider's body never crosses it. The deployment's endpoints keep
+    // their fixed message.
+    if (input.endpoint.byok === true && !(error instanceof ByokCallError)) throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
+    throw error;
+  }
   const result: Array<{ caption: string; number: number; ocr: string }> = [];
   for (const pin of input.pins) {
     const caption = captions.get(pin.number);

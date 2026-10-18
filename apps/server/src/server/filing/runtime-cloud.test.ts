@@ -22,7 +22,7 @@ import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "../assistant/retrieval/e
 import { embeddingIdentity } from "../assistant/retrieval/index";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
 import { FILING_NONE_OPTION, FILING_SIMILARITY_MIN } from "./choose";
-import { cloudFilingEngine, setCloudFilingFetchForTests } from "./runtime-cloud";
+import { cloudAutoCaptureDestinationAvailable, cloudFilingEngine, setCloudFilingFetchForTests } from "./runtime-cloud";
 import { byokCrypto } from "../byok/crypto";
 import { ByokEgressUnavailableError, setByokEgressForTests } from "../byok/fetch";
 import { byokAcquireSlot, byokSlotRelease, resetByokConcurrencyForTests } from "../byok/route";
@@ -1579,6 +1579,51 @@ describe("cloud GET /api/preferences autoCaptureDestinationAvailable", () => {
     assert.equal(result.value, false);
     assert.equal(result.calls, 1, "one /models detection");
   });
+
+  test("with the user's BYOK embeddings ok: available, and the detection never leaves to the deployment (F5/S3c)", async () => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    const db = migratedDatabase();
+    const byokKey = Buffer.alloc(32, 41).toString("base64");
+    try {
+      const env = filingEnv(db, { BYOK_MASTER_KEY: byokKey });
+      const cookie = await signIn(db, env);
+      appliance = fakeAppliance({ engine: "none" });
+      // The user's BYOK row: the embeddings ok (the capability tested),
+      // the chat model without the vision ok (the captions stay the
+      // deployment's, if the turn asks for them).
+      const cryptoObj = await byokCrypto(byokKey);
+      const ciphertext = await cryptoObj.encrypt("sk-byok-pref-test-3141");
+      db.query(`INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        OWNER,
+        "https://byok-pref.test/v1",
+        ciphertext,
+        "3141",
+        cryptoObj.keyId,
+        "chat-1",
+        EMBEDDING_MODEL,
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: 256, error: null, ok: true, testedAt: NOW },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+      const response = await handleCloudApiRequest(new Request("https://pinar.test/api/preferences", { headers: { cookie } }), env);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as Record<string, unknown>;
+      assert.equal(body.autoCaptureDestinationAvailable, true, "the user's embeddings ok make the destination available");
+      assert.equal(appliance.calls.length, 0, "the BYOK wins: no deployment detection call left");
+    } finally {
+      db.close();
+    }
+  });
 });
 
 // ---------- production through the gateway (F4 contract §4) ----------
@@ -1857,6 +1902,21 @@ describe("cloud capture filing follows the user's BYOK embeddings (F5/S3c)", () 
   test("S3c: a BYOK failure keeps the capture in the default destination with the cause (no gateway, no credit)", async () => {
     const cases: Array<{ cause: string; label: string; fail?: Response | null; holdSlots?: boolean }> = [
       { cause: "key_rejected", fail: new Response("PROVIDER-BODY-SECRET", { status: 401 }), label: "401" },
+      {
+        // The 2xx outside the embeddings' schema (the 256 dimensions):
+        // the caused ByokCallError at the operation's boundary — the
+        // cause reaches the choice's result, not a generic error.
+        cause: "invalid_response",
+        fail: new Response(JSON.stringify({ data: [{ index: 0, embedding: [1], note: "PROVIDER-BODY-SECRET" }] }), { status: 200, headers: { "content-type": "application/json" } }),
+        label: "the invalid 2xx",
+      },
+      {
+        // The 2xx that is not even a JSON body: the same caused boundary
+        // (the parse failed), the cause, not a generic error.
+        cause: "invalid_response",
+        fail: new Response("{invalid PROVIDER-BODY-SECRET", { status: 200, headers: { "content-type": "application/json" } }),
+        label: "the non-JSON 2xx",
+      },
       { cause: "rate_limited", label: "the cap", holdSlots: true },
     ];
     for (const item of cases) {
@@ -1976,6 +2036,44 @@ describe("cloud capture filing follows the user's BYOK embeddings (F5/S3c)", () 
       assert.equal(second.filing.reason, "chosen", "a lone centroid: the BYOK vector stayed out of the deployment's centroid");
     } finally {
       db.close();
+    }
+  });
+
+  test("S3c: the availability sees the user's BYOK embeddings (the destination is available, no deployment detection call)", async () => {
+    resetRetrievalCapabilitiesCacheForTests();
+    const db = migratedDatabase();
+    try {
+      const env = filingEnv(db);
+      const deployment = fakeAppliance({ engine: "none" });
+      setCloudFilingFetchForTests(deployment.fetch);
+      // The user's retrieval endpoints (the capabilities ok, as
+      // byokRetrievalEndpoints answers them — the Pro gate and the
+      // no-decrypt rule are inside it): the embedding endpoint is never
+      // called by the availability, it only answers the engine's choice.
+      const byok = {
+        embedding: { apiKey: BYOK_FILING_KEY, baseUrl: BYOK_FILING_URL, byok: true as const, model: S3C_BYOK_EMBEDDING },
+        vision: null,
+      };
+      const engine = await cloudFilingEngine(env, byok);
+      assert.equal(engine?.kind, "similarity", "the BYOK's engine wins");
+      assert.equal((engine as { byok?: boolean }).byok, true);
+      const available = await cloudAutoCaptureDestinationAvailable(env, byok, 100);
+      assert.equal(available, true, "the user's embeddings ok make the automatic destination available");
+      assert.deepEqual(deployment.calls, [], "the BYOK wins: no deployment detection call");
+      // Without the BYOK, today's rule: the deployment's detection decides
+      // — a deployment without an embedding model leaves the destination
+      // unavailable (the preferences keep advertising false).
+      const bare = (async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/models")) return Response.json({ data: [{ id: "mock", type: "chat" }] });
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+      setCloudFilingFetchForTests(bare);
+      const withoutByok = await cloudAutoCaptureDestinationAvailable({ ...env, AI_EMBEDDING_MODEL: undefined }, null, 100);
+      assert.equal(withoutByok, false, "without the BYOK, the deployment's detection decides");
+    } finally {
+      db.close();
+      setCloudFilingFetchForTests(null);
+      resetRetrievalCapabilitiesCacheForTests();
     }
   });
 });

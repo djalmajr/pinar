@@ -94,6 +94,12 @@ export interface PinIndexDeps {
   chat: VisionEndpoint | null; // null or no image input → no captions
   embedding: EmbeddingEndpoint | null; // null → text-only entries
   fetch?: typeof fetch;
+  // F5/S3c: the session's indexing failure, as the error crossed it (the
+  // BYOK turn observes the ByokCallError of the caption's or the
+  // embedding's schema — outside the fetch's marking — and degrades the
+  // turn as an egress failure degrades it). Unset for the deployment's
+  // runtimes, where a failed session simply stays stale.
+  onSessionError?: (error: unknown) => void;
   now: () => Date;
   source: PinSource;
   store: PinIndexStore;
@@ -215,7 +221,16 @@ export async function indexSession(
         });
         fresh = new Map(result.map((item) => [item.number, { caption: item.caption, ocr: item.ocr }]));
         captioned = result.length > 0;
-      } catch {
+      } catch (error) {
+        // F5/S3c: the user's caption is a BYOK operation: a failure of its
+        // egress, cause, per-user cap, or the 2xx's parse and schema is a
+        // failure of the session's indexing — nothing is written, the
+        // whole work stays pending for the next pass, and the error
+        // crosses to the caller's marking (the BYOK's control sees it).
+        // The deployment's endpoints keep today's soft fallback: the
+        // session indexes without a caption, the caption pending for the
+        // next pass.
+        if (deps.chat.byok === true) throw error;
         fresh = null;
       }
     }
@@ -348,8 +363,11 @@ export async function indexStale(
     try {
       await indexSession(deps, sessionId, { notBefore: listedAt.get(sessionId) });
       indexed += 1;
-    } catch {
-      // The session stays stale and is retried by the next pass.
+    } catch (error) {
+      // The session stays stale and is retried by the next pass. F5/S3c:
+      // the failure crosses to the deps' observer (the BYOK turn's
+      // control) as the error reached it.
+      deps.onSessionError?.(error);
       remaining = true;
     }
   }

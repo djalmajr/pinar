@@ -1,14 +1,16 @@
 // F5/S3c: the retrieval endpoints of the user's BYOK row (byok/endpoints.ts).
 // byokSlotEgress holds one per-user concurrency slot per egress call (the
-// slot is released in the finally, even on failure; above the cap the call
-// is refused with rate_limited, no queue) and classifies every failure into
-// the common cause table as a caused ByokCallError (the provider's body,
-// the URL and the key never cross the error); a 2xx passes through
-// untouched. byokRetrievalEndpoints answers the caption endpoint on the
-// user's chat model (vision ok) and the embedding endpoint on the saved
-// embedding model (embeddings ok) — null in the no-route cases, without
-// decrypting a key the capabilities would refuse — and marks the embedding
-// endpoint byok (the legacy plain-model vectors never enter its space).
+// slot is held for the call: a thrown egress failure and a non-2xx release
+// it at once, a 2xx keeps it until the body settles — read to the end, an
+// error, or a cancel — and above the cap the call is refused with
+// rate_limited, no queue) and classifies every failure into the common
+// cause table as a caused ByokCallError (the provider's body, the URL and
+// the key never cross the error); a 2xx passes through untouched. The
+// caption and the embedding endpoints mark byok (the legacy plain-model
+// vectors never enter their space). byokRetrievalEndpoints answers the
+// caption endpoint on the user's chat model (vision ok) and the embedding
+// endpoint on the saved embedding model (embeddings ok) — null in the
+// no-route cases, without decrypting a key the capabilities would refuse.
 
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
@@ -19,7 +21,7 @@ import { untestedCapabilities } from "./api";
 import { ByokCallError } from "./cause";
 import { byokCrypto } from "./crypto";
 import { setByokEgressForTests } from "./fetch";
-import { byokAcquireSlot, resetByokConcurrencyForTests } from "./route";
+import { byokAcquireSlot, byokSlotRelease, resetByokConcurrencyForTests } from "./route";
 import { byokSlotEgress, byokRetrievalEndpoints } from "./endpoints";
 
 const NOW = "2026-10-01T12:00:00.000Z";
@@ -239,7 +241,7 @@ describe("byokSlotEgress (F5/S3c)", () => {
     );
   });
 
-  test("one slot per egress call: the third in flight is rate_limited, no queue, and the release frees the slot", async () => {
+  test("one slot per egress call: the third in flight is rate_limited, no queue, and the settled body frees the slot", async () => {
     let releaseGate!: () => void;
     const gate = new Promise<void>((resolve) => {
       releaseGate = resolve;
@@ -263,20 +265,81 @@ describe("byokSlotEgress (F5/S3c)", () => {
     releaseGate();
     const first = await inFlight;
     assert.equal(first.status, 200);
-    // The in-flight call's slot was released in the finally: a new call
-    // fits now.
+    // While the first body is still pending, its slot is held: the third
+    // call is refused too (the body's read and parse are inside the call).
+    assert.equal(byokAcquireSlot("owner-x"), false, "the pending body still holds the slot");
+    await first.text(); // the body settles: the slot frees
+    // The in-flight call's slot was released with the body's settle: a
+    // new call fits now.
     const after = await byokSlotEgress(async () => new Response("after", { status: 200 }), "owner-x")("https://byok.test/embeddings");
     assert.equal(after.status, 200);
+    await after.text();
   });
 
-  test("the slot is released in the finally, on success and on failure", async () => {
+  test("the slot is released at once on failure, and with the settled body on success", async () => {
     const egress = byokSlotEgress(async () => new Response("ok", { status: 200 }), "owner-x");
     const failing = byokSlotEgress(async () => new Response("no", { status: 500 }), "owner-x");
-    await egress("https://byok.test/embeddings"); // success: the slot frees
-    await assert.rejects(failing("https://byok.test/embeddings"), ByokCallError); // failure: the slot frees too
-    assert.equal(byokAcquireSlot("owner-x"), true, "no slot leaked by either call");
+    const ok = await egress("https://byok.test/embeddings"); // success: held until the body settles
+    await assert.rejects(failing("https://byok.test/embeddings"), ByokCallError); // failure: the slot frees at once
+    assert.equal(byokAcquireSlot("owner-x"), true, "the failed call's slot is already free");
+    assert.equal(byokAcquireSlot("owner-x"), false, "the success body still holds its slot");
+    byokSlotRelease("owner-x")(); // the probe's slot
+    await ok.text(); // the body settles: the last slot frees
+    assert.equal(byokAcquireSlot("owner-x"), true, "nothing leaked by either call");
     assert.equal(byokAcquireSlot("owner-x"), true);
     assert.equal(byokAcquireSlot("owner-x"), false, "the cap is two");
+    byokSlotRelease("owner-x")();
+    byokSlotRelease("owner-x")();
+    byokSlotRelease("owner-x")();
+  });
+
+  test("a pending 2xx body holds the per-user slot: the next call is rate_limited, until the body settles (EOF or cancel)", async () => {
+    const holders: Array<ReadableStreamDefaultController<Uint8Array>> = [];
+    const pendingEgress = byokSlotEgress(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              holders.push(controller);
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      "owner-y",
+    );
+    // The turn (byokAssistantRoute) holds one slot; the first call takes
+    // the second and its body is still pending — the consumer's read is
+    // blocked on it, as the embedding's parse is while the provider holds
+    // the answer.
+    assert.equal(byokAcquireSlot("owner-y"), true, "the turn's slot");
+    const first = await pendingEgress("https://byok.test/embeddings");
+    assert.equal(holders.length, 1, "the first body is pending");
+    // The second call of the user does not fit: refused at once, no queue,
+    // without the key leaving (rate_limited, as the cap test above).
+    await assert.rejects(pendingEgress("https://byok.test/embeddings"), (error: unknown) => {
+      assert.ok(error instanceof ByokCallError);
+      assert.equal(error.cause, "rate_limited", "the pending body counts the first call as in flight");
+      return true;
+    });
+    // EOF settles the first body (the consumer's read to the end): the
+    // slot frees, and the next call fits (no queue).
+    holders[0]!.enqueue(new TextEncoder().encode("{}"));
+    holders[0]!.close();
+    await first.text();
+    const free = await pendingEgress("https://byok.test/embeddings");
+    holders[1]!.enqueue(new TextEncoder().encode("{}"));
+    holders[1]!.close();
+    await free.text();
+
+    // The cancel settles it the same way: the wait is over.
+    const secondCall = await pendingEgress("https://byok.test/embeddings");
+    assert.equal(holders.length, 3, "the third body is pending");
+    assert.equal(byokAcquireSlot("owner-y"), false, "still held while pending");
+    await secondCall.body!.cancel();
+    const afterCancel = await pendingEgress("https://byok.test/embeddings");
+    holders[3]!.enqueue(new TextEncoder().encode("{}"));
+    holders[3]!.close();
+    await afterCancel.text();
   });
 
   test("the egress the tests inject (setByokEgressForTests) is the one the endpoints use", async () => {

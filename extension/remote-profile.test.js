@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { PRODUCTION_CLOUD_URL, STAGING_CLOUD_URL } from "./environment.js";
+import { LOCAL_CLOUD_URL, PRODUCTION_CLOUD_URL } from "./environment.js";
 import { remoteProfileKey, remoteProfileStorage } from "./remote-profile.js";
 
 function memoryStorage(initial = {}) {
@@ -26,20 +26,20 @@ describe("remote profile storage", () => {
   test("keeps identity, device session, and legal acceptance isolated by endpoint", async () => {
     const storage = memoryStorage();
     const production = remoteProfileStorage(storage, PRODUCTION_CLOUD_URL);
-    const staging = remoteProfileStorage(storage, STAGING_CLOUD_URL);
+    const local = remoteProfileStorage(storage, LOCAL_CLOUD_URL);
 
     await production.set({ deviceToken: "prod-device", installationId: "prod-installation", remoteLegalAcceptance: { termsVersion: "prod" } });
-    await staging.set({ deviceToken: "stg-device", installationId: "stg-installation", remoteLegalAcceptance: { termsVersion: "stg" } });
+    await local.set({ deviceToken: "local-device", installationId: "local-installation", remoteLegalAcceptance: { termsVersion: "local" } });
 
     assert.deepEqual(await production.get({ deviceToken: "", installationId: "", remoteLegalAcceptance: null }), {
       deviceToken: "prod-device",
       installationId: "prod-installation",
       remoteLegalAcceptance: { termsVersion: "prod" },
     });
-    assert.deepEqual(await staging.get({ deviceToken: "", installationId: "", remoteLegalAcceptance: null }), {
-      deviceToken: "stg-device",
-      installationId: "stg-installation",
-      remoteLegalAcceptance: { termsVersion: "stg" },
+    assert.deepEqual(await local.get({ deviceToken: "", installationId: "", remoteLegalAcceptance: null }), {
+      deviceToken: "local-device",
+      installationId: "local-installation",
+      remoteLegalAcceptance: { termsVersion: "local" },
     });
   });
 
@@ -52,8 +52,8 @@ describe("remote profile storage", () => {
     };
     const storage = memoryStorage(legacy);
 
-    const staging = remoteProfileStorage(storage, STAGING_CLOUD_URL);
-    assert.deepEqual(await staging.get({ installationId: "", remoteLegalAcceptance: null }), {
+    const local = remoteProfileStorage(storage, LOCAL_CLOUD_URL);
+    assert.deepEqual(await local.get({ installationId: "", remoteLegalAcceptance: null }), {
       installationId: "",
       remoteLegalAcceptance: null,
     });

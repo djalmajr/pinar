@@ -3,10 +3,10 @@ id: captura-primeiro-elemento
 name: Anotar um elemento e copiar o bundle
 reference: extension/content.js; extension/background.js; extension/format.js
 persona: usuario-extensao
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Extensão carregada e habilitada no Chrome
-  - Servidor local ou cloud de staging disponível
+  - Servidor local ou Cloud local disponível
 ---
 
 ## User goal

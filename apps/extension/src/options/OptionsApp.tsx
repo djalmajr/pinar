@@ -782,11 +782,11 @@ export function OptionsApp() {
                         <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
                           <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" disabled={settingsSaving || storageModeSaving} name="storageMode" type="radio" onChange={() => void selectStorageMode("cloud")} />
                           <span className="min-w-0 flex-1">
-                            <span className="block text-xs font-semibold">{environment === "staging" ? t.staging_title : t.remote_title}</span>
+                            <span className="block text-xs font-semibold">{environment === "local-cloud" ? t.local_cloud_title : t.remote_title}</span>
                             <span className={`mt-0.5 block text-xs text-muted-foreground${signedInCloud ? " truncate" : ""}`}>
                               {signedInCloud
                                 ? accountLabel
-                                : environment === "staging" ? t.staging_desc : t.remote_desc}
+                                : environment === "local-cloud" ? t.local_cloud_desc : t.remote_desc}
                             </span>
                             {trialForAccount?.state === "expired" ? (
                               <span className="mt-0.5 block text-xs text-muted-foreground">

@@ -3,7 +3,7 @@ id: captura-iframe
 name: Capturar contexto dentro de iframe
 reference: extension/content.js; extension/background.js; extension/session.js
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Página de fixture contém iframe same-origin anotável e iframe inacessível
   - Extensão carregada no Chrome

@@ -3,7 +3,7 @@ id: workspace-mover-reordenar-excluir-sessoes
 name: Organizar e remover sessões
 reference: apps/server/src/pages/HistoryDashboard.tsx; apps/server/src/server/cloud-api.ts
 persona: power-user
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Duas coleções E2E com três sessões
 ---

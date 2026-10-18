@@ -3,7 +3,7 @@ id: captura-recuperar-falha-copia
 name: Manter pins editáveis após falha de clipboard ou upload
 reference: extension/background.js; extension/content.js; extension/session.js
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Extensão carregada
   - Fixtures capazes de falhar offscreen clipboard e upload

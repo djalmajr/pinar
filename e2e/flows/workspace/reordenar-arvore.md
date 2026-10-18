@@ -3,7 +3,7 @@ id: workspace-reordenar-arvore
 name: Reordenar projetos e coleções
 reference: apps/server/src/components/HistorySidebar.tsx; apps/server/src/lib/collection-tree.ts; apps/server/src/server/cloud-api.ts
 persona: power-user
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Três projetos e quatro coleções E2E
 ---

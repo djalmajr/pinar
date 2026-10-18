@@ -3,8 +3,9 @@ id: assinatura-renovar-creditos
 name: Renovar e repor 200 créditos sem rollover
 reference: apps/server/src/server/cloud-api.ts; apps/server/src/lib/entitlements.ts
 persona: power-user
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige Stripe Test hospedado, e o único ambiente com ele (staging) foi desativado; o Cloud local usa credenciais Stripe inertes
   - Assinatura Pro Test ativa com Test Clock
   - Parte dos créditos mensais já consumida
 ---

@@ -3,8 +3,9 @@ id: auth-entrar-email-conta
 name: Entrar na conta paga com código por e-mail
 reference: apps/server/src/pages/SignIn.tsx; apps/server/src/server/cloud-api.ts; apps/server/src/components/AppShell.tsx
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige entrega real de e-mail, e o Cloud local não envia e-mail (o único ambiente que enviava, o staging, foi desativado)
   - Conta paga E2E existente
   - Gmail autorizado somente para leitura
   - Cookies de sessão do Pinar ausentes

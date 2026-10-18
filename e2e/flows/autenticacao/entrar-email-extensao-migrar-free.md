@@ -5,7 +5,8 @@ reference: apps/extension/src/options/OptionsApp.tsx; extension/background.js; a
 persona: usuario-pago
 entry: "chrome-extension://<extension-id>/dist/options.html"
 preconditions:
-  - Extensão configurada para staging como instalação Free
+  - Indisponível desde 2026-10-18: exige entrega real de e-mail, e o Cloud local não envia e-mail (o único ambiente que enviava, o staging, foi desativado)
+  - Extensão unpacked apontando para o Cloud local como instalação Free
   - Projeto, coleção, sessão e créditos Free criados pela fixture
   - Conta paga E2E existente
 ---

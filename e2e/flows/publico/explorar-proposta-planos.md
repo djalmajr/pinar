@@ -3,9 +3,9 @@ id: publico-explorar-proposta-planos
 name: Explorar proposta, planos e cinco ofertas
 reference: apps/server/src/pages/Landing.tsx; apps/server/src/pages/Pricing.tsx; apps/server/src/lib/pricing.ts
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
-  - Staging acessível no ponto de entrada
+  - Cloud local (`bun run dev:cloud`) acessível no ponto de entrada
   - Nenhum Checkout deve ser confirmado neste fluxo
 ---
 

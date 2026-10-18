@@ -3,8 +3,9 @@ id: assinatura-evento-duplicado-fora-ordem
 name: Preservar o estado mais novo após reenvio
 reference: apps/server/src/server/cloud-api.ts; apps/server/src/server/stripe-subscription-state.ts
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige Stripe Test hospedado, e o único ambiente com ele (staging) foi desativado; o Cloud local usa credenciais Stripe inertes
   - Conta Pro Test com eventos Stripe controláveis
 ---
 

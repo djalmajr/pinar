@@ -3,7 +3,7 @@ id: workspace-patrocinio-somente-free
 name: Exibir patrocínio para Free e ocultar para qualquer plano pago
 reference: apps/server/src/components/ServerFooter.tsx; apps/server/src/lib/auth-session.ts
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Contas de teste Free e Pro anual disponíveis
 ---

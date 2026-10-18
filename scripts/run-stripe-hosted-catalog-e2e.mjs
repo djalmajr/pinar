@@ -1,43 +1,7 @@
-import { spawnSync } from "node:child_process";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { loadLocalEnv } from "./load-local-env.mjs";
-
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-loadLocalEnv(join(ROOT, ".env.local"));
-
-const baseUrl = process.env.PINAR_E2E_BASE_URL || "https://stg.pinar.dev";
-const consumeTestCharges = process.argv.includes("--consume-test-charges");
-const target = new URL(baseUrl);
-
-if (target.protocol !== "https:" || target.hostname !== "stg.pinar.dev") {
-  throw new Error("Stripe-hosted catalog E2E is restricted to https://stg.pinar.dev");
-}
-if (!consumeTestCharges) {
-  throw new Error("Pass --consume-test-charges to acknowledge Stripe Test Checkout charges against staging");
-}
-if (!process.env.CF_ACCESS_CLIENT_ID || !process.env.CF_ACCESS_CLIENT_SECRET) {
-  throw new Error("CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are required for the protected staging environment");
-}
-
-const runId = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const email = process.env.PINAR_STRIPE_CATALOG_EMAIL || `pinar-catalog-e2e+${runId}@example.com`;
-const playwrightCli = join(ROOT, "node_modules", "@playwright", "test", "cli.js");
-const result = spawnSync(process.execPath, [
-  playwrightCli,
-  "test",
-  "tests/e2e/monetizacao/stripe-hosted-catalog.e2e.test.ts",
-  "--project=firefox",
-], {
-  cwd: ROOT,
-  env: {
-    ...process.env,
-    PINAR_E2E_BASE_URL: baseUrl,
-    PINAR_STRIPE_CATALOG_EMAIL: email,
-    PINAR_STRIPE_HOSTED_CATALOG_E2E: "1",
-  },
-  stdio: "inherit",
-});
-
-if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+// The Stripe-hosted catalog E2E (tests/e2e/monetizacao/stripe-hosted-catalog.e2e.test.ts)
+// ran only against staging (https://stg.pinar.dev), which was retired on
+// 2026-10-18. No other deployed Stripe Test environment exists, so this runner
+// refuses up front; the git history keeps the previous runner for when one does.
+throw new Error(
+  "Stripe-hosted catalog E2E is unavailable: its only target, staging (https://stg.pinar.dev), was retired on 2026-10-18 and no other deployed Stripe Test environment exists",
+);

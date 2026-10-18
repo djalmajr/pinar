@@ -3,9 +3,9 @@ id: publico-instalar-e-apoiar
 name: Encontrar instaladores e canais de patrocínio
 reference: README.md; apps/server/src/pages/Landing.tsx; apps/server/src/components/ServerFooter.tsx; apps/server/src/routes/install[.]sh.ts; apps/server/src/routes/install[.]ps1.ts
 persona: novice
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
-  - Staging acessível no ponto de entrada
+  - Cloud local (`bun run dev:cloud`) acessível no ponto de entrada
   - Visitante ou usuário Free
 ---
 

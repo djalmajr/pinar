@@ -3,7 +3,7 @@ id: captura-clipboard-viewer-markdown
 name: Copiar texto, HTML, imagem e viewer coerentes
 reference: extension/format.js; extension/offscreen.js; extension/background.js
 persona: usuario-extensao
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Extensão configurada para incluir viewer e conteúdo do viewer
 ---

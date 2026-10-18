@@ -3,7 +3,7 @@ id: workspace-estado-vazio
 name: Entender o primeiro estado vazio
 reference: apps/server/src/pages/HistoryDashboard.tsx; apps/server/src/components/HistorySidebar.tsx
 persona: novice
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Instalação Free autenticada sem sessões
 ---

@@ -3,7 +3,7 @@ id: ia-resumir-sessao
 name: Gerar resumo e debitar um crédito
 reference: apps/server/src/pages/WebViewer.tsx; apps/server/src/server/cloud-api.ts
 persona: usuario-pago
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Conta E2E autenticada com créditos
   - Sessão própria com comentários conhecidos

@@ -3,7 +3,7 @@ id: workspace-projeto-crud
 name: Criar, renomear, compartilhar e excluir projeto
 reference: apps/server/src/pages/HistoryDashboard.tsx; apps/server/src/components/HistorySidebar.tsx; apps/server/src/server/cloud-api.ts
 persona: usuario-extensao
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Workspace autenticado
 ---

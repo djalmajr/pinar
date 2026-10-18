@@ -3,9 +3,9 @@ id: auth-entrar-codigo-extensao
 name: Entrar como instalação Free com código temporário
 reference: apps/server/src/pages/SignIn.tsx; apps/server/src/server/cloud-api.ts; apps/extension/src/options/OptionsApp.tsx
 persona: usuario-free
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
-  - Instalação Free registrada pela extensão contra staging
+  - Instalação Free registrada pela extensão contra o Cloud local
   - Cookies de sessão web do Pinar ausentes
 ---
 

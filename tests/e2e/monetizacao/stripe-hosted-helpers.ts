@@ -1,5 +1,8 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 
+// Staging was retired on 2026-10-18. The specs that use these helpers run only
+// through scripts/run-stripe-hosted-*-e2e.mjs, which refuse until another
+// deployed Stripe Test environment exists.
 export const STAGING_ORIGIN = "https://stg.pinar.dev";
 
 export function stagingAccessHeaders() {

@@ -3,7 +3,7 @@ id: ia-falha-reembolso
 name: Reembolsar crédito quando a inferência falha
 reference: apps/server/src/server/cloud-api.ts; apps/server/src/pages/WebViewer.tsx
 persona: skeptical
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Conta E2E autenticada com crédito
   - Binding AI configurável para falhar na fixture

@@ -3,7 +3,7 @@ id: captura-multiplos-pins-editar-excluir
 name: Editar, excluir e ordenar múltiplos pins
 reference: extension/content.js; extension/pin-colors.js; extension/session.js
 persona: power-user
-entry: "https://stg.pinar.dev/"
+entry: "http://127.0.0.1:3000/"
 preconditions:
   - Extensão carregada no Chrome
 ---

@@ -330,7 +330,8 @@ export function ByokSettingsPanel({
               className="min-w-0 flex-1"
               disabled={writeBusy || keyShown}
               placeholder={keyShown ? maskedKey : "sk-…"}
-              type="password"
+              // The saved key is only its masked tail, so it renders as text.
+              type={keyShown ? "text" : "password"}
               value={keyShown ? maskedKey : keyDraft}
               onChange={(event) => onKeyDraftChange(event.target.value)}
             />

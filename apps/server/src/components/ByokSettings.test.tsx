@@ -257,7 +257,8 @@ describe("ByokSettingsPanel states (headless)", () => {
 
   test("saved: the masked key with its change button and the remove button", () => {
     const markup = renderPanel();
-    expect(markup).toContain("••••1234");
+    // The masked tail is a text input, so the last four characters show.
+    expect(markup).toMatch(/<input[^>]*type="text"[^>]*value="••••1234"/);
     expect(markup).toContain("byok.changeKey");
     expect(markup).toContain("byok.remove");
     expect(markup).toContain("settings.aiTestConnection");

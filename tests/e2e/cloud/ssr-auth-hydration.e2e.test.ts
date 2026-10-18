@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { signInCloudPro } from "../helpers/cloud-signin";
 
 // The SSR HTML already carries the auth state (header CTA + support card);
 // hydration must not change either afterwards. The probe installed through
@@ -67,11 +68,8 @@ async function readAuthProbe(page: Page): Promise<AuthProbe> {
 }
 
 test("hydration: the header CTA and the support card do not change after load", async ({ browser, page }) => {
-  // Pro account from the seeded cloud e2e fixture (fresh state per run).
-  const signIn = await page.request.post("/api/auth/email-codes/verify", {
-    data: { code: "826826", email: "pro.cloud-local@pinar.test", returnTo: "/" },
-  });
-  expect(signIn.ok()).toBe(true);
+  // Pro account from the seeded cloud e2e fixture (real session cookie).
+  await signInCloudPro(page, { returnTo: "/" });
 
   // The probe resets per document (fresh window per navigation), so it is
   // installed once for every goto in this context.

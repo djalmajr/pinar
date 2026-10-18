@@ -1,6 +1,17 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
+
+// The dev server compiles modules on demand, so the SSR HTML can render
+// before React attaches its event handlers (a native submit would then reload
+// the page). Wait until the email input is hydrated before driving the form.
+async function gotoSignInHydrated(page: Page) {
+  await page.goto("/sign-in");
+  await page.waitForFunction(() => {
+    const input = document.querySelector('input[placeholder="you@example.com"]');
+    return input !== null && Object.keys(input).some((key) => key.startsWith("__reactProps"));
+  }, null, { timeout: 20_000 });
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.clear());
@@ -39,87 +50,54 @@ test.beforeEach(async ({ page }) => {
 
 // Mutation captured: separating the icon from the title, restoring the
 // previous accent color or making it larger than the title breaks this contract.
-test("Extension and Account headings keep their compact icons aligned with the title", async ({ page }) => {
+// The web sign-in is email-only since the extension-code tab was retired;
+// the account heading is the only one left to keep this alignment contract.
+test("the account sign-in heading keeps its compact icon aligned with the title", async ({ page }) => {
   await page.goto("/sign-in");
 
-  for (const heading of [
-    { tab: "Extension", testId: "extension-sign-in-heading", title: "Continue with the extension" },
-    { tab: "Account", testId: "account-sign-in-heading", title: "Sign in to your account" },
-  ]) {
-    await page.getByRole("tab", { name: heading.tab }).click();
-    const row = page.getByTestId(heading.testId);
-    const icon = row.locator("svg");
-    const title = row.getByRole("heading", { name: heading.title });
-    await expect(row).toBeVisible();
-    await expect(icon).toBeVisible();
+  const row = page.getByTestId("account-sign-in-heading");
+  const icon = row.locator("svg");
+  const title = row.getByRole("heading", { name: "Sign in to your account" });
+  await expect(row).toBeVisible();
+  await expect(icon).toBeVisible();
+  await expect(title).toBeVisible();
 
-    const metrics = await row.evaluate((element) => {
-      const iconElement = element.querySelector("svg");
-      const titleElement = element.querySelector("h3");
-      if (!iconElement || !titleElement) throw new Error("Heading icon or title is missing");
-      const iconBox = iconElement.getBoundingClientRect();
-      const titleBox = titleElement.getBoundingClientRect();
-      return {
-        colorMatches: getComputedStyle(iconElement).color === getComputedStyle(titleElement).color,
-        iconHeight: iconBox.height,
-        sameLine: Math.abs((iconBox.top + iconBox.bottom) / 2 - (titleBox.top + titleBox.bottom) / 2) < 1,
-        titleFontSize: Number.parseFloat(getComputedStyle(titleElement).fontSize),
-      };
-    });
-
-    expect(metrics.colorMatches).toBe(true);
-    expect(metrics.sameLine).toBe(true);
-    expect(metrics.iconHeight).toBe(metrics.titleFontSize);
-  }
-});
-
-test("extension code rejects malformed, unknown, expired and reused values while allowing recovery", async ({ page }) => {
-  const uses = new Map<string, number>();
-  await page.route("**/api/auth/extension-codes/exchange", async (route) => {
-    const { code } = route.request().postDataJSON() as { code: string };
-    uses.set(code, (uses.get(code) || 0) + 1);
-    if (code === "ABCD1234" && uses.get(code) === 1) {
-      await route.fulfill({ json: { redirectTo: "/app" } });
-      return;
-    }
-    if (code === "NEXT1234") {
-      await route.fulfill({ json: { redirectTo: "/app" } });
-      return;
-    }
-    await route.fulfill({ json: { error: "Invalid or expired code" }, status: 400 });
+  const metrics = await row.evaluate((element) => {
+    const iconElement = element.querySelector("svg");
+    const titleElement = element.querySelector("h3");
+    if (!iconElement || !titleElement) throw new Error("Heading icon or title is missing");
+    const iconBox = iconElement.getBoundingClientRect();
+    const titleBox = titleElement.getBoundingClientRect();
+    return {
+      colorMatches: getComputedStyle(iconElement).color === getComputedStyle(titleElement).color,
+      iconHeight: iconBox.height,
+      sameLine: Math.abs((iconBox.top + iconBox.bottom) / 2 - (titleBox.top + titleBox.bottom) / 2) < 1,
+      titleFontSize: Number.parseFloat(getComputedStyle(titleElement).fontSize),
+    };
   });
 
-  await page.goto("/sign-in");
-  await expect(page.getByRole("tab", { name: "Extension", selected: true })).toBeVisible();
-  const extensionCode = page.getByPlaceholder("8-character code");
-  const openApp = page.getByRole("button", { name: "Open app" });
+  expect(metrics.colorMatches).toBe(true);
+  expect(metrics.sameLine).toBe(true);
+  expect(metrics.iconHeight).toBe(metrics.titleFontSize);
+});
 
-  await extensionCode.fill("ABC");
-  await expect(openApp).toBeDisabled();
-  await extensionCode.fill("NONE1234");
-  await openApp.click();
-  await expect(page.getByRole("alert")).toHaveText("Invalid or expired code");
+// The web extension-code sign-in was retired with the email-first accounts:
+// the cloud runtime answers 410 on the old endpoints, and the sign-in page
+// no longer offers tabs or the 8-character code field.
+test("the retired extension-code endpoints answer 410 and the sign-in page is email-only", async ({ page, request }) => {
+  const exchange = await request.post("/api/auth/extension-codes/exchange", { data: { code: "ABCD1234" } });
+  expect(exchange.status()).toBe(410);
+  expect(await exchange.json()).toEqual({ error: "Sign in with an email code" });
 
-  await page.getByRole("tab", { name: "Account" }).click();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Extension" }).click();
-
-  await extensionCode.fill("EXPR1234");
-  await openApp.click();
-  await expect(page.getByRole("alert")).toHaveText("Invalid or expired code");
-
-  await extensionCode.fill("ABCD1234");
-  await openApp.click();
-  await expect(page).toHaveURL(/\/app$/);
+  const create = await request.post("/api/auth/extension-codes", { data: {} });
+  expect(create.status()).toBe(410);
+  expect(await create.json()).toEqual({ error: "Sign in with an email code" });
 
   await page.goto("/sign-in");
-  await page.getByPlaceholder("8-character code").fill("ABCD1234");
-  await page.getByRole("button", { name: "Open app" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Invalid or expired code");
-
-  await page.getByPlaceholder("8-character code").fill("NEXT1234");
-  await page.getByRole("button", { name: "Open app" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByPlaceholder("8-character code")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open app" })).toHaveCount(0);
+  await expect(page.getByTestId("account-sign-in-heading")).toBeVisible();
 });
 
 test("email OTP keeps responses non-enumerating, limits retries and resets recovery state", async ({ page }) => {
@@ -145,13 +123,12 @@ test("email OTP keeps responses non-enumerating, limits retries and resets recov
     await route.fulfill({ json: { error: "The code is invalid or expired." }, status: 400 });
   });
 
-  await page.goto("/sign-in");
-  await page.getByRole("tab", { name: "Account" }).click();
+  await gotoSignInHydrated(page);
 
   const email = page.getByPlaceholder("you@example.com");
   await email.fill("unknown@example.com");
   await page.getByRole("button", { name: "Send code" }).click();
-  await expect(page.getByText("If this email belongs to an eligible account, a code is on its way.")).toBeVisible();
+  await expect(page.getByText("If this email address can receive a code, it is on its way.")).toBeVisible();
   await page.getByRole("button", { name: "Use another email" }).click();
 
   await email.fill("paid@example.com");
@@ -170,7 +147,9 @@ test("email OTP keeps responses non-enumerating, limits retries and resets recov
   await expect(page.getByRole("alert")).toHaveCount(0);
   await email.fill("rate-limited@example.com");
   await page.getByRole("button", { name: "Send code" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Too many requests");
+  // A rate-limited request keeps the generic failure message (never the raw
+  // server error) and the form stays on the request step.
+  await expect(page.getByRole("alert")).toHaveText("Unable to request a code.");
 
   await email.fill("expired@example.com");
   await page.getByRole("button", { name: "Send code" }).click();
@@ -183,8 +162,13 @@ test("email OTP keeps responses non-enumerating, limits retries and resets recov
   await email.fill("paid@example.com");
   await page.getByRole("button", { name: "Send code" }).click();
   await page.getByPlaceholder("000000").fill("654321");
+  // The mocked verify sets no session cookie, so the real SSR guard bounces
+  // /app back to sign-in; what this proves is that the page follows the
+  // `redirectTo` of an accepted code with a navigation to /app.
+  const followedRedirect = page.waitForRequest((request) => request.isNavigationRequest()
+    && new URL(request.url()).pathname === "/app");
   await page.getByRole("button", { name: "Verify and enter" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await followedRedirect;
 });
 
 test("first remote account activation accepts the current policies with OTP verification", async ({ page }) => {
@@ -196,14 +180,14 @@ test("first remote account activation accepts the current policies with OTP veri
     await route.fulfill({ json: { redirectTo: "/pricing?activated=1" } });
   });
 
-  await page.goto("/sign-in");
-  await page.getByRole("tab", { name: "Account" }).click();
+  await gotoSignInHydrated(page);
   await page.getByPlaceholder("you@example.com").fill("founder@example.com");
   await page.getByRole("button", { name: "Send code" }).click();
   await expect(page.getByText("By continuing, you accept the")).toBeVisible();
   await expect(page.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
-  await expect(page.getByText("Version 2026-09-14.")).toBeVisible();
+  // The sign-in notice no longer prints the version line.
+  await expect(page.getByText(/^Version \d{4}-\d{2}-\d{2}\.$/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Accept and enter" })).toHaveCount(0);
   await page.getByPlaceholder("000000").fill("654321");
   await page.getByRole("button", { name: "Verify and enter" }).click();
@@ -211,11 +195,11 @@ test("first remote account activation accepts the current policies with OTP veri
 
   expect(verifyBodies).toHaveLength(1);
   expect(verifyBodies[0].legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-09-14",
+    acceptableUseVersion: "2026-10-17",
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-09-14",
-    termsVersion: "2026-09-14",
+    privacyVersion: "2026-10-17",
+    termsVersion: "2026-10-17",
   });
 });
 
@@ -243,15 +227,7 @@ test("email delivery failures keep the request step and never show the raw serve
     });
   });
 
-  await page.goto("/sign-in");
-
-  // The dev server compiles modules on demand, so the SSR HTML can render
-  // before React attaches its event handlers. Wait until the email input is
-  // hydrated (React props present) before driving the form.
-  await page.waitForFunction(() => {
-    const input = document.querySelector('input[placeholder="you@example.com"]');
-    return input !== null && Object.keys(input).some((key) => key.startsWith("__reactProps"));
-  }, null, { timeout: 20_000 });
+  await gotoSignInHydrated(page);
 
   const email = page.getByPlaceholder("you@example.com");
   const sendCode = page.getByRole("button", { name: "Send code" });

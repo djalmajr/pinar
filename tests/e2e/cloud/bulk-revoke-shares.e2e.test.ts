@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { signInCloudPro } from "../helpers/cloud-signin";
 import { openWorkspaceSidebar } from "../helpers/ui";
 
 const createdAt = "2026-09-25T00:00:00.000Z";
@@ -67,14 +68,7 @@ test("bulk revocation only targets direct session links and keeps confirmation o
     await route.fulfill({ json: { ok: true } });
   });
 
-  const signIn = await page.request.post("/api/auth/email-codes/verify", {
-    data: {
-      code: "826826",
-      email: "pro.cloud-local@pinar.test",
-      returnTo: "/app",
-    },
-  });
-  expect(signIn.ok()).toBe(true);
+  await signInCloudPro(page);
   const projectTreeLoaded = page.waitForResponse((response) => response.url().endsWith("/api/project-tree") && response.ok());
   await page.goto("/app");
   await projectTreeLoaded;

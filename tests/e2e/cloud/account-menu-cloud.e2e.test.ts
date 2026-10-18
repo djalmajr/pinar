@@ -1,22 +1,28 @@
 import { expect, type Page, test } from "@playwright/test";
+import { signInCloudPro } from "../helpers/cloud-signin";
 
+// The first click right after the page load can land before hydration and
+// be swallowed, so the trigger is clicked until the menu actually opens.
 async function openAccountMenu(page: Page) {
   const accountMenu = page.locator('[data-sidebar="footer"]')
     .getByRole("button", { exact: true, name: "Account menu" });
   await expect(accountMenu).toBeVisible();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (attempt > 0) await page.keyboard.press("Escape");
+    await accountMenu.click();
+    const opened = await page
+      .getByRole("menu")
+      .waitFor({ timeout: 2500 })
+      .then(() => true)
+      .catch(() => false);
+    if (opened) return;
+  }
   await accountMenu.click();
 }
 
 // Mutation captured: replacing the cloud API with the local-only adapter redirects this flow away from the paid workspace.
 test("isolated Cloudflare runtime renders Pro entitlements and manages shared sessions", async ({ page }) => {
-  const signIn = await page.request.post("/api/auth/email-codes/verify", {
-    data: {
-      code: "826826",
-      email: "pro.cloud-local@pinar.test",
-      returnTo: "/app",
-    },
-  });
-  expect(signIn.ok()).toBe(true);
+  await signInCloudPro(page);
   await page.goto("/app");
   await expect(page).toHaveURL(/\/app$/);
 

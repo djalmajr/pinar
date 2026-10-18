@@ -146,14 +146,13 @@ export function buildCloudLocalSeedSql(fixture) {
   const projectId = `prj_cloud_local_${fixture.plan}`;
   const collectionId = `col_cloud_local_${fixture.plan}`;
   const sessionId = `session_cloud_local_${fixture.plan}`;
-  const emailCodeExpiresAt = new Date(Date.parse(fixture.now) + 24 * 60 * 60 * 1000).toISOString();
   const grants = [
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_initial`)}, 'account', ${sqlString(fixture.userId)}, 'pro_initial', ${sqlString(`pro_initial:${fixture.userId}`)}, ${fixture.credits}, 20, ${sqlString(fixture.initialCreditExpiry)}, ${sqlString(fixture.now)});`,
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_expiring`)}, 'account', ${sqlString(fixture.userId)}, 'purchase', ${sqlString(`cloud-local:${fixture.plan}:expiring`)}, 20, 0, ${sqlString(fixture.creditExpiry)}, ${sqlString(fixture.now)});`,
     ];
   return [
     `INSERT INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at, ai_credit_refill_at) VALUES (${sqlString(fixture.userId)}, ${sqlString(fixture.email)}, ${sqlString(fixture.plan)}, 1, 'active', ${sqlString(fixture.now)}, ${sqlString(fixture.now)}, ${fixture.nextRefillAt ? sqlString(fixture.nextRefillAt) : "NULL"}) ON CONFLICT(id) DO UPDATE SET email=excluded.email, plan=excluded.plan, ever_paid=1, billing_status='active', updated_at=excluded.updated_at, ai_credit_refill_at=excluded.ai_credit_refill_at;`,
-    `INSERT INTO email_challenges (id, email, user_id, code_hash, attempts, expires_at, used_at, created_at) VALUES ('emc_cloud_local_pro', ${sqlString(fixture.email)}, ${sqlString(fixture.userId)}, ${sqlString(fixture.emailCodeHash)}, 0, ${sqlString(emailCodeExpiresAt)}, NULL, ${sqlString(fixture.now)}) ON CONFLICT(id) DO UPDATE SET code_hash=excluded.code_hash, attempts=0, expires_at=excluded.expires_at, used_at=NULL, created_at=excluded.created_at;`,
+    proEmailChallengeUpsertSql(fixture),
     `INSERT OR IGNORE INTO legal_acceptances (id, owner_type, owner_id, terms_version, privacy_version, acceptable_use_version, locale, source, evidence_id, accepted_at, created_at) VALUES ('lga_cloud_local_pro', 'account', ${sqlString(fixture.userId)}, ${sqlString(CURRENT_LEGAL_VERSION)}, ${sqlString(CURRENT_LEGAL_VERSION)}, ${sqlString(CURRENT_LEGAL_VERSION)}, 'en', 'account', ${sqlString(`account:${fixture.userId}:${CURRENT_LEGAL_VERSION}`)}, ${sqlString(fixture.now)}, ${sqlString(fixture.now)});`,
     `DELETE FROM ai_credit_grants WHERE owner_type = 'account' AND owner_id = ${sqlString(fixture.userId)} AND source_id LIKE 'cloud-local:%';`,
     `DELETE FROM ai_credit_grants WHERE owner_type = 'account' AND owner_id = ${sqlString(fixture.userId)} AND source_id = ${sqlString(`pro_initial:${fixture.userId}`)};`,
@@ -165,6 +164,42 @@ export function buildCloudLocalSeedSql(fixture) {
     `INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size, collection_id, position, retention_expires_at) VALUES (${sqlString(sessionId)}, 'https://example.test/cloud-local', 'Cloud runtime fixture', '', '', 0, '[]', ${sqlString(fixture.now)}, ${sqlString(fixture.userId)}, ${sqlString(fixture.plan)}, ${permanent}, ${sessionBytes}, ${sqlString(collectionId)}, 0, NULL);`,
     `INSERT INTO extension_codes (code_hash, owner_type, owner_id, expires_at, used_at, created_at) VALUES (${sqlString(fixture.extensionCodeHash)}, 'account', ${sqlString(fixture.userId)}, ${sqlString(new Date(Date.parse(fixture.now) + 24 * 60 * 60 * 1000).toISOString())}, NULL, ${sqlString(fixture.now)}) ON CONFLICT(code_hash) DO UPDATE SET owner_type='account', owner_id=excluded.owner_id, expires_at=excluded.expires_at, used_at=NULL, created_at=excluded.created_at;`,
   ].join("\n");
+}
+
+// The Pro fixture's one-shot email challenge as a standalone statement. The
+// same statement the seed applies; re-applying it against the running
+// server's persisted state is the e2e "reset" (used_at NULL, attempts 0,
+// expiry in the future), so a full run never depends on which test claims
+// the code first.
+export function proEmailChallengeUpsertSql(fixture) {
+  const emailCodeExpiresAt = new Date(Date.parse(fixture.now) + 24 * 60 * 60 * 1000).toISOString();
+  return `INSERT INTO email_challenges (id, email, user_id, code_hash, attempts, expires_at, used_at, created_at) VALUES ('emc_cloud_local_pro', ${sqlString(fixture.email)}, ${sqlString(fixture.userId)}, ${sqlString(fixture.emailCodeHash)}, 0, ${sqlString(emailCodeExpiresAt)}, NULL, ${sqlString(fixture.now)}) ON CONFLICT(id) DO UPDATE SET code_hash=excluded.code_hash, attempts=0, expires_at=excluded.expires_at, used_at=NULL, created_at=excluded.created_at;`;
+}
+
+export function buildCloudLocalProEmailChallengeResetSql(now = new Date()) {
+  return proEmailChallengeUpsertSql(buildCloudLocalFixture("pro", LOCAL_DEV_SECRETS.AUTH_PEPPER, now));
+}
+
+// A fresh free-account sign-in for the e2e suite: a known challenge for an
+// email with no account yet (the verify endpoint creates the Free account
+// on success). Same reset semantics as the Pro challenge above.
+export const CloudLocalFreeAccountEmail = {
+  code: "268268",
+  email: "free.cloud-local@pinar.test",
+};
+
+export function buildCloudLocalFreeAccountEmailChallengeSql(now = new Date()) {
+  const nowIso = now.toISOString();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  return `INSERT INTO email_challenges (id, email, user_id, code_hash, attempts, expires_at, used_at, created_at) VALUES ('emc_cloud_local_free_account', ${sqlString(CloudLocalFreeAccountEmail.email)}, NULL, ${sqlString(emailCodeHash(LOCAL_DEV_SECRETS.AUTH_PEPPER, CloudLocalFreeAccountEmail.email, CloudLocalFreeAccountEmail.code))}, 0, ${sqlString(expiresAt)}, NULL, ${sqlString(nowIso)}) ON CONFLICT(id) DO UPDATE SET code_hash=excluded.code_hash, attempts=0, expires_at=excluded.expires_at, used_at=NULL, created_at=excluded.created_at;`;
+}
+
+// The email-code endpoints allow 10 requests (5 per email) and 10 verifies per
+// email in 15 minutes; a full e2e run signs the same fixture in more often than
+// that, so the e2e reset also clears these counters (it never touches the
+// server's code).
+export function buildCloudLocalAuthRateLimitResetSql() {
+  return "DELETE FROM auth_rate_limits WHERE action IN ('email-code', 'email-code-verify');";
 }
 
 function runWrangler(args, statePath) {

@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { signInCloudFreeAccount, signInCloudPro } from "../helpers/cloud-signin";
 
 const session = {
   createdAt: "2026-08-18T01:30:00.000Z",
@@ -26,170 +27,78 @@ const session = {
   shotUrl: "/shots/ai-viewer-e2e.svg",
 };
 
-test.beforeEach(async ({ page }) => {
-  await page.route("**/api/auth/session", (route) => route.fulfill({
-    json: {
-      session: {
-        email: "pro@example.test",
-        kind: "account",
-        plan: "pro",
-        userId: "usr_ai_e2e",
-      },
-    },
-  }));
+// The viewer's AI summary, pin diagnosis and component export were retired
+// (the cloud API answers 404 for them: "does not expose retired AI generation
+// endpoints" in cloud-api.test.ts). This file keeps the contract that matters
+// to every audience: no plan, signed-in or not, is offered the retired
+// affordances, and the endpoints stay gone.
+//
+// The page's auth state comes from the SSR-resolved session (a real cookie):
+// the client never revalidates /api/auth/session once the SSR resolved it,
+// so the fixtures sign in through the shared cloud helper instead of
+// mocking the endpoint.
+async function mockViewerFixtures(page: Page) {
   await page.route("**/api/sessions/ai-viewer-e2e", (route) => route.fulfill({ json: { session } }));
   await page.route("**/shots/ai-viewer-e2e.svg", (route) => route.fulfill({
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><text x="20" y="40">AI fixture</text></svg>',
     contentType: "image/svg+xml",
   }));
-});
+}
 
-test("an element pin exposes diagnosis and component generation in its viewer dialog", async ({ page }) => {
+// Positive control: the viewer rendered the capture (its first pin opens the
+// pin dialog with the comment), so an absent affordance is not a blank page.
+async function openFirstPin(page: Page) {
   await page.goto("/v/ai-viewer-e2e");
   await page.getByTitle("Open pin 1").click();
-
   const dialog = page.getByRole("dialog", { name: "Pin 1" });
-  await expect(dialog.getByRole("button", { name: "Diagnose" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Save as component" })).toBeVisible();
-  await expect(dialog.getByRole("tab", { name: "Structure" })).toBeVisible();
+  await expect(dialog.getByText("Clarify the annual price.")).toBeVisible();
+  return dialog;
+}
+
+test.beforeEach(async ({ page }) => {
+  await signInCloudPro(page);
+  await mockViewerFixtures(page);
 });
 
-test("a successful summary reflects comments, charges once and reopens from memory", async ({ page }) => {
-  const bodies: Array<{ requestId: string; sessionId: string }> = [];
-  await page.route("**/api/ai/session-summary", async (route) => {
-    bodies.push(route.request().postDataJSON() as { requestId: string; sessionId: string });
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    await route.fulfill({
-      json: {
-        aiCredits: { balance: 199 },
-        result: {
-          highlights: ["Clarify annual pricing", "Prioritize the main action"],
-          summary: "The review asks for clearer pricing and a more prominent primary action.",
-        },
-      },
-    });
-  });
-
-  await page.goto("/v/ai-viewer-e2e");
-  await page.getByRole("button", { name: "AI summary" }).click();
-  const dialog = page.getByRole("dialog", { name: "Annotation summary" });
-  await expect(dialog.getByText("Pinar analyzes only the page title, URL, and pin comments.", { exact: true })).toBeVisible();
-  const creditHint = dialog.getByRole("button", { name: "Uses 1 Pinar Cloud AI credit." });
-  await expect(creditHint).toBeVisible();
-  await creditHint.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("Uses 1 Pinar Cloud AI credit.");
-  await expect(dialog.getByText("Summarizing…", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("The review asks for clearer pricing and a more prominent primary action.")).toBeVisible();
-  await expect(dialog.getByText("Clarify annual pricing", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Prioritize the main action", { exact: true })).toBeVisible();
-  expect(bodies).toHaveLength(1);
-  expect(bodies[0].sessionId).toBe("ai-viewer-e2e");
-  expect(bodies[0].requestId).toMatch(/^ai_[a-z0-9]+$/);
-
-  await dialog.getByRole("button", { name: "Close" }).click();
-  await page.getByRole("button", { name: "AI summary" }).click();
-  await expect(dialog.getByText("The review asks for clearer pricing and a more prominent primary action.")).toBeVisible();
-  expect(bodies).toHaveLength(1);
+test("a Pro pin dialog no longer offers diagnosis or component export", async ({ page }) => {
+  const dialog = await openFirstPin(page);
+  await expect(dialog.getByRole("button", { name: "Diagnose" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Save as component" })).toHaveCount(0);
 });
 
-test("anonymous and Free visitors do not see AI summary", async ({ page }) => {
-  await page.route("**/api/auth/session", (route) => route.fulfill({ json: { session: null } }));
-  await page.goto("/v/ai-viewer-e2e");
-  await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
-
-  await page.route("**/api/auth/session", (route) => route.fulfill({
-    json: {
-      session: {
-        installationId: "ins_ai_free",
-        kind: "installation",
-        plan: "free",
-      },
-    },
-  }));
-  await page.goto("/v/ai-viewer-e2e");
+test("the Pro viewer offers no AI summary", async ({ page }) => {
+  await openFirstPin(page);
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
 });
 
-test("creditless paid accounts get a plans recovery path", async ({ page }) => {
-  await page.route("**/api/ai/session-summary", async (route) => {
-    await route.fulfill({ json: { code: "insufficient_ai_credits", error: "Insufficient credits" }, status: 402 });
-  });
-
-  await page.goto("/v/ai-viewer-e2e");
-  await page.getByRole("button", { name: "AI summary" }).click();
-  const dialog = page.getByRole("dialog", { name: "Annotation summary" });
-  await expect(dialog.getByText("You do not have enough Pinar Cloud AI credits.", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("link", { name: "View plans" })).toHaveAttribute("href", "/pricing");
-  await expect(dialog.getByRole("heading", { name: "Highlights" })).toHaveCount(0);
+test("the retired AI generation endpoints answer 404 to a signed-in Pro account", async ({ page }) => {
+  for (const path of ["/api/ai/session-summary", "/api/ai/pin-diagnosis", "/api/ai/component-export", "/api/ai/design-system"]) {
+    const response = await page.request.post(path, { data: { sessionId: "ai-viewer-e2e" } });
+    expect(response.status(), `POST ${path}`).toBe(404);
+  }
+  const designSystem = await page.request.get("/api/collections/retired_collection/design-system");
+  expect(designSystem.status()).toBe(404);
 });
 
-test("provider failure and pending refund retry safely without duplicate request ids", async ({ page }) => {
-  const requestIds: string[] = [];
-  let attempt = 0;
-  await page.route("**/api/ai/session-summary", async (route) => {
-    requestIds.push((route.request().postDataJSON() as { requestId: string }).requestId);
-    attempt += 1;
-    if (attempt === 1) {
-      await route.fulfill({ json: { code: "ai_provider_error" }, status: 502 });
-      return;
-    }
-    if (attempt === 2) {
-      await route.fulfill({ json: { code: "ai_refund_pending" }, status: 503 });
-      return;
-    }
-    await route.fulfill({
-      json: {
-        aiCredits: { balance: 4 },
-        result: { highlights: [], summary: "Recovered summary" },
-      },
-    });
-  });
+test("anonymous and Free visitors do not see AI summary", async ({ browser, page }) => {
+  // Anonymous: a fresh context without any session cookie; the SSR resolves
+  // the signed-out state.
+  const anonymous = await browser.newContext();
+  try {
+    const anonPage = await anonymous.newPage();
+    await mockViewerFixtures(anonPage);
+    await anonPage.goto("/v/ai-viewer-e2e");
+    await expect(anonPage.getByTitle("Open pin 1")).toBeVisible();
+    await expect(anonPage.getByRole("button", { name: "AI summary" })).toHaveCount(0);
+  } finally {
+    await anonymous.close();
+  }
 
+  // Free account: a real cookie from the fresh free-account sign-in (the
+  // previous Pro cookie is replaced by the verify response).
+  await signInCloudFreeAccount(page);
   await page.goto("/v/ai-viewer-e2e");
-  await page.getByRole("button", { name: "AI summary" }).click();
-  const dialog = page.getByRole("dialog", { name: "Annotation summary" });
-  await expect(dialog.getByText("AI is temporarily unavailable. Try again.", { exact: true })).toBeVisible();
-  await dialog.getByRole("button", { name: "Try again" }).click();
-  await expect(dialog.getByText("The AI request failed and the Pinar Cloud credit refund is still processing. Retry safely in a few minutes.", { exact: true })).toBeVisible();
-  await dialog.getByRole("button", { name: "Try again" }).click();
-  await expect(dialog.getByText("Recovered summary", { exact: true })).toBeVisible();
-
-  expect(requestIds).toHaveLength(3);
-  expect(requestIds[0]).not.toBe(requestIds[1]);
-  expect(requestIds[1]).toBe(requestIds[2]);
-});
-
-test("in-flight and rate-limited requests stay single-flight and recover with a new id", async ({ page }) => {
-  const requestIds: string[] = [];
-  let attempt = 0;
-  await page.route("**/api/ai/session-summary", async (route) => {
-    requestIds.push((route.request().postDataJSON() as { requestId: string }).requestId);
-    attempt += 1;
-    if (attempt === 1) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      await route.fulfill({ json: { code: "ai_rate_limited" }, status: 429 });
-      return;
-    }
-    await route.fulfill({
-      json: {
-        aiCredits: { balance: 8 },
-        result: { highlights: ["Recovered"], summary: "Accepted after the rate-limit window" },
-      },
-    });
-  });
-
-  await page.goto("/v/ai-viewer-e2e");
-  const trigger = page.getByRole("button", { name: "AI summary" });
-  const click = trigger.click();
-  const dialog = page.getByRole("dialog", { name: "Annotation summary" });
-  await expect(dialog.getByText("Summarizing…", { exact: true })).toBeVisible();
-  await page.waitForTimeout(80);
-  expect(requestIds).toHaveLength(1);
-  await click;
-
-  await expect(dialog.getByText("Too many requests. Wait a minute and try again.", { exact: true })).toBeVisible();
-  await dialog.getByRole("button", { name: "Try again" }).click();
-  await expect(dialog.getByText("Accepted after the rate-limit window", { exact: true })).toBeVisible();
-  expect(requestIds).toHaveLength(2);
-  expect(requestIds[0]).not.toBe(requestIds[1]);
+  await expect(page.getByTitle("Open pin 1")).toBeVisible();
+  await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
 });

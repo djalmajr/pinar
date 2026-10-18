@@ -538,16 +538,7 @@ describe("help content", () => {
     for (const content of await loadEveryHelpLocale()) {
       const keys = content.articles.map((article) => article.screenshot.key);
       assert.equal(keys.length, 29, content.language);
-      // own-ai-endpoint reuses the assistant cover: the S5 docs ship no new
-      // screenshot, so 29 articles share 28 cover files.
-      assert.equal(new Set(keys).size, 28, content.language);
-      assert.deepEqual(
-        content.articles
-          .filter((article) => article.screenshot.key === "assistant")
-          .map((article) => article.id),
-        ["assistant", "own-ai-endpoint"],
-        content.language,
-      );
+      assert.equal(new Set(keys).size, 29, content.language);
     }
   });
 
@@ -599,7 +590,7 @@ describe("help content", () => {
       "local-security-and-recovery": "workspace-security",
       "nested-collections": "workspace-nested",
       "organize-projects": "capture-workspace",
-      "own-ai-endpoint": "assistant",
+      "own-ai-endpoint": "own-ai-endpoint",
       "pins-and-comments": "capture-pins",
       "plans-and-billing": "pricing",
       "privacy-masks": "capture-masks",
@@ -921,19 +912,27 @@ describe("help content", () => {
     // The BYOK settings and the own-ai-endpoint guide quote the embedding
     // capability and model labels exactly as the UI shows them ("Embeddings",
     // "Modelo de embedding", "嵌入", …): the scan strips those exact labels,
-    // per language, not the word in general.
-    const embeddingUiLabels: Record<string, RegExp[]> = {
-      de: [/Embedding-Modell/g, /Embeddings/g],
-      en: [/Embedding model/g, /Embeddings/g],
-      es: [/Modelo de embedding/g, /Embeddings/g],
-      fr: [/Modèle d’embedding/g, /Embeddings/g],
-      ja: [/embedding モデル/g, /embedding/g],
-      pt: [/Modelo de embedding/g, /Embeddings/g],
-      zh: [/嵌入模型/g, /嵌入/g],
+    // per language, not the word in general. The boundaries keep the strip
+    // from eating a longer word that only starts with the label ("Embedding
+    // models"): the lookarounds test ASCII word characters only, so they
+    // still hold in zh and ja, where words are not space-separated.
+    const embeddingUiLabels: Record<string, string[]> = {
+      de: ["Embedding-Modell", "Embeddings"],
+      en: ["Embedding model", "Embeddings"],
+      es: ["Modelo de embedding", "Embeddings"],
+      fr: ["Modèle d’embedding", "Embeddings"],
+      ja: ["embedding モデル", "embedding"],
+      pt: ["Modelo de embedding", "Embeddings"],
+      zh: ["嵌入模型", "嵌入"],
     };
+    const asWholeLabel = (label: string) =>
+      new RegExp(
+        `(?<![A-Za-z0-9])${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9])`,
+        "g",
+      );
     const withoutUiLabels = (text: string, language: string) =>
       protocolPhrases
-        .concat(embeddingUiLabels[language] ?? [])
+        .concat((embeddingUiLabels[language] ?? []).map(asWholeLabel))
         .reduce((rest, phrase) => rest.replace(phrase, " "), text);
     const leaks = (text: string, language = "en") =>
       internalTerms.filter((pattern) =>
@@ -959,6 +958,7 @@ describe("help content", () => {
       "qwen3 on this computer",
       "GPT-4o",
       "an openai-compatible endpoint",
+      "Embedding models",
     ]) {
       assert.equal(leaks(sample).length, 1, sample);
     }
@@ -969,18 +969,28 @@ describe("help content", () => {
     ]) {
       assert.deepEqual(leaks(allowed), [], allowed);
     }
-    // The embedding UI labels pass the scan in their own language only.
-    // (Explicit strings: RegExp.prototype.source escapes non-ASCII in JSC.)
-    const embeddingLabelSamples: Record<string, string[]> = {
-      de: ["Embedding-Modell", "Embeddings"],
-      en: ["Embedding model", "Embeddings"],
-      es: ["Modelo de embedding", "Embeddings"],
-      fr: ["Modèle d’embedding", "Embeddings"],
-      ja: ["embedding モデル", "embedding"],
-      pt: ["Modelo de embedding", "Embeddings"],
-      zh: ["嵌入模型", "嵌入"],
+    // The embedding UI labels pass the scan in their own language only,
+    // alone and embedded in the surrounding script (zh and ja have no
+    // word spaces, so the boundaries must not rely on them).
+    const embeddedLabelSamples: Record<string, string[]> = {
+      de: ["das Embedding-Modell", "Embeddings"],
+      en: ["the Embedding model", "Embeddings"],
+      es: ["el Modelo de embedding", "Embeddings"],
+      fr: ["le Modèle d’embedding", "Embeddings"],
+      ja: ["embedding モデルを指定します", "embedding"],
+      pt: ["o Modelo de embedding", "Embeddings"],
+      zh: ["使用嵌入模型进行索引", "嵌入"],
     };
-    for (const [language, samples] of Object.entries(embeddingLabelSamples)) {
+    for (const [language, samples] of Object.entries(embeddingUiLabels)) {
+      for (const sample of samples) {
+        assert.equal(
+          leaks(sample, language).length,
+          0,
+          `${language}:${sample}`,
+        );
+      }
+    }
+    for (const [language, samples] of Object.entries(embeddedLabelSamples)) {
       for (const sample of samples) {
         assert.equal(
           leaks(sample, language).length,

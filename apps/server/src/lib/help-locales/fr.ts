@@ -227,6 +227,10 @@ const locale = {
       alt: "Workspace Pinar avec le panneau de l’assistant ouvert à côté des cartes de session, montrant une question, la réponse et une carte de proposition avec Confirmer et Refuser.",
       caption: "L’assistant répond dans un panneau latéral et propose chaque changement sur une carte : rien ne bouge dans le workspace avant votre confirmation.",
     },
+    "own-ai-endpoint": {
+      alt: "Workspace Pinar Cloud avec la boîte de paramètres ouverte sur la section Assistant IA, montrant le bloc Votre propre endpoint : les états des capacités avec la cause, l’URL de l’endpoint, la clé API masquée et les champs de modèle.",
+      caption: "Le test de connexion vérifie quatre capacités, et chacune montre si la demande passe par votre endpoint ou par les crédits Pinar Cloud.",
+    },
   },
   articles: {
     "install-pinar": {
@@ -1109,7 +1113,7 @@ const locale = {
             "Chaque message envoyé à l’assistant dans Pinar Cloud utilise 3 crédits, et une réponse qui échoue les rend. Confirmer ou annuler une proposition n’utilise aucun crédit. Dans l’application locale, l’assistant utilise l’IA que vous avez configurée et aucun crédit Pinar.",
             "Dans Pinar Cloud, générer les étapes rédigées de reproduction utilise 1 crédit IA par génération, et une génération qui échoue le rend.",
             "Avec le choix automatique de la collection activé, chaque capture dont l’IA choisit la collection utilise 1 crédit, même quand le choix est la « Boîte de réception » ; un choix en échec ou expiré le rend, et sans solde l’IA n’est pas appelée et la capture va dans la « Boîte de réception ».",
-            "Avec votre propre endpoint, les capacités qui passent le test de connexion sont servies par cet endpoint, sans crédits Pinar Cloud, et celles qui ne passent pas continuent d’en utiliser ; [Utiliser votre propre endpoint d’IA dans Pinar Cloud](/help/cloud/own-ai-endpoint) explique le test et ce que chaque fonction utilise.",
+            "Avec votre propre endpoint, une fonction est servie par lui, sans crédits Pinar Cloud, quand sa capacité a passé le test de connexion ; [Utiliser votre propre endpoint d’IA dans Pinar Cloud](/help/cloud/own-ai-endpoint) explique le test et ce que chaque fonction utilise, avec l’exception de la recherche dans vos pins d’une réponse servie par votre endpoint, qui n’utilise pas les crédits des fournisseurs de Pinar.",
           ],
         },
         {
@@ -1142,13 +1146,13 @@ const locale = {
           heading: "Ce que c’est",
           paragraphs: [
             "Votre propre endpoint est un avantage Pinar Cloud qui demande le Pro. Le fournisseur d’IA est choisi et contracté par vous, ses termes s’appliquent à ce traitement, et Pinar ne fait que transférer vos demandes vers lui. Contrairement à l’application locale, où l’IA que vous configurez ne passe pas par Pinar, ici la demande passe par Pinar Cloud en chemin vers votre endpoint.",
-            "Il se trouve dans Paramètres → « Assistant IA », dans le bloc « Votre propre endpoint ». Les capacités qui passent le test de connexion sont servies par cet endpoint, sans crédits Pinar Cloud ; celles qui ne passent pas continuent d’utiliser les fournisseurs de Pinar, avec crédits, comme aujourd’hui.",
+            "Il se trouve dans Paramètres → « Assistant IA », dans le bloc « Votre propre endpoint ». Une fonction utilise votre endpoint, sans crédits Pinar Cloud, quand sa capacité a passé le test de connexion ; une fonction dont la capacité n’a pas passé continue d’utiliser les fournisseurs de Pinar, avec crédits, comme aujourd’hui, avec une exception : la recherche dans vos pins d’une réponse servie par votre endpoint ne va jamais aux fournisseurs de Pinar. La section « Ce qui utilise votre endpoint et ce qui continue d’utiliser des crédits » explique la destination de chaque fonction.",
           ],
         },
         {
           heading: "Enregistrer l’endpoint",
           paragraphs: [
-            "Dans Paramètres → « Assistant IA », ouvrez le bloc « Votre propre endpoint ». Saisissez l’« Endpoint » — l’URL de base compatible OpenAI, généralement terminée par /v1 — et la « Clé API ». Les trois champs de modèle — « Modèle de chat », « Modèle d’embedding » et « Modèle de transcription » — sont facultatifs : laissez l’un vide et cette capacité continue d’utiliser les fournisseurs de Pinar.",
+            "Dans Paramètres → « Assistant IA », ouvrez le bloc « Votre propre endpoint ». Saisissez l’« Endpoint » — l’URL de base compatible OpenAI, généralement terminée par /v1 — et la « Clé API ». Les trois champs de modèle — « Modèle de chat », « Modèle d’embedding » et « Modèle de transcription » — sont facultatifs : avec l’un vide, les fonctions qui en dépendent suivent ce que la section « Ce qui utilise votre endpoint et ce qui continue d’utiliser des crédits » explique.",
             "L’URL de base doit être en HTTPS, sans utilisateur ni mot de passe dans l’URL et sans adresse privée ou locale ; le reste est refusé avant l’enregistrement.",
           ],
         },
@@ -1162,13 +1166,13 @@ const locale = {
         {
           heading: "Ce qui utilise votre endpoint et ce qui continue d’utiliser des crédits",
           paragraphs: [
-            "Une capacité utilise votre endpoint seulement après avoir passé le test ; le reste continue d’utiliser les fournisseurs de Pinar, avec crédits, comme aujourd’hui.",
+            "Chaque fonction est servie par votre endpoint, sans crédits Pinar Cloud, quand sa capacité a passé le test. Une fonction dont la capacité n’a pas passé continue d’utiliser les fournisseurs de Pinar, avec crédits, comme aujourd’hui, avec une exception : dans la recherche dans vos pins d’une réponse servie par votre endpoint, la recherche utilise la vision et les Embeddings de l’endpoint quand ils passent, ou le texte seul quand ils ne passent pas, et rien ne va aux fournisseurs de Pinar.",
           ],
           bullets: [
-            "L’assistant : ses réponses vont au chat avec outils de l’endpoint. Dans ce tour, la recherche dans vos pins utilise la vision et les Embeddings de l’endpoint quand ils passent ; sans eux, la recherche est par texte seulement, et rien ne va aux fournisseurs de Pinar.",
-            "La voix sur un pin : la transcription décide. Avec la transcription sur l’endpoint, la structuration du texte va au chat de l’endpoint quand il passe ; quand il ne passe pas, elle va aux fournisseurs de Pinar dans Pinar Cloud et utilise 1 crédit.",
-            "Les étapes rédigées de reproduction : elles vont au chat de l’endpoint.",
-            "Le choix automatique de la collection : il utilise les Embeddings de l’endpoint. Quand l’endpoint échoue, la capture reste à la destination par défaut, sans crédits Pinar Cloud.",
+            "L’assistant : avec le chat avec outils approuvé, la réponse va à l’endpoint ; sans lui, elle va par les fournisseurs de Pinar, avec crédits. Dans la recherche dans vos pins d’une réponse de l’endpoint, la recherche utilise la vision et les Embeddings de l’endpoint quand ils passent ; sans eux, la recherche est par texte seulement, et rien ne va aux fournisseurs de Pinar.",
+            "La voix sur un pin : la transcription décide. Avec la transcription approuvée, l’enregistrement va à l’endpoint, et la structuration du texte va au chat de l’endpoint quand il est approuvé ; sans lui, elle va aux fournisseurs de Pinar dans Pinar Cloud, avec 1 crédit. Sans la transcription approuvée, la voix garde le chemin d’aujourd’hui, avec crédits.",
+            "Les étapes rédigées de reproduction : avec le chat approuvé, elles vont à l’endpoint ; sans lui, elles gardent le chemin d’aujourd’hui, avec crédits.",
+            "Le choix automatique de la collection : avec les Embeddings approuvés, il utilise l’endpoint ; sans eux, il garde le chemin d’aujourd’hui, avec crédits. Quand l’endpoint échoue sur une demande, la capture reste à la destination par défaut, sans crédits Pinar Cloud.",
           ],
         },
         {

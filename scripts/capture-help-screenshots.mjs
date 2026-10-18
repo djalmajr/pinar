@@ -41,6 +41,9 @@ const UI_MESSAGE_LOADERS = {
 const SCREENSHOT_TARGETS = {
   // Its own Pinar with demo data and a fake model: see startAssistantDemo.
   assistant: { assistantDemo: true, path: "/app" },
+  // Its own local Cloud: see startByokCloud (the panel only exists in the
+  // cloud runtime).
+  "own-ai-endpoint": { byokCloud: true, path: "/app" },
   "capture-copied": { path: "/screenshot-fixtures/capture-overlay?mode=copied" },
   "capture-copy-failed": {
     path: "/screenshot-fixtures/capture-overlay?mode=copy-failed",
@@ -372,6 +375,204 @@ async function showAssistantDemo(page, demo, language, ui) {
   });
 }
 
+// The BYOK settings panel only exists in the cloud runtime, so this cover
+// gets its own local Cloud the way the e2e does: dev:cloud on a free port
+// with a temporary state path. The Pro fixture signs in once (the fixture
+// email code is one-shot per boot), and every language reuses the session
+// cookie. /api/byok* is answered with page.route, so no real key and no
+// external endpoint is ever reached.
+const BYOK_DEMO_VIEW = {
+  baseUrl: "https://provider.example.test/v1",
+  capabilities: {
+    chat: { error: null, ok: true, testedAt: "2026-10-18T00:00:05.000Z" },
+    embeddings: {
+      dims: null,
+      error: "model_not_found",
+      ok: false,
+      testedAt: "2026-10-18T00:00:06.000Z",
+    },
+    tools: { error: null, ok: true, testedAt: "2026-10-18T00:00:05.000Z" },
+    transcription: { error: null, ok: null, testedAt: null },
+    vision: { error: null, ok: true, testedAt: "2026-10-18T00:00:07.000Z" },
+  },
+  configured: true,
+  keyLast4: "abcd",
+  models: { chat: "gpt-e2e", embedding: null, transcription: null },
+  updatedAt: "2026-10-18T00:00:07.000Z",
+};
+const BYOK_DEMO_UNCONFIGURED = {
+  baseUrl: null,
+  capabilities: {
+    chat: { error: null, ok: null, testedAt: null },
+    embeddings: { dims: null, error: null, ok: null, testedAt: null },
+    tools: { error: null, ok: null, testedAt: null },
+    transcription: { error: null, ok: null, testedAt: null },
+    vision: { error: null, ok: null, testedAt: null },
+  },
+  configured: false,
+  keyLast4: null,
+  models: { chat: null, embedding: null, transcription: null },
+  updatedAt: null,
+};
+
+async function startByokCloud() {
+  const statePath = await mkdtemp(join(tmpdir(), "pinar-help-byok-"));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  let server = null;
+  let output = "";
+  const stop = async () => {
+    if (server && server.exitCode === null) {
+      const exited = new Promise((resolveExit) => server.once("exit", resolveExit));
+      const signal = (name) => {
+        try {
+          process.kill(-server.pid, name);
+        } catch {
+          try {
+            server.kill(name);
+          } catch {
+            // Already gone.
+          }
+        }
+      };
+      signal("SIGTERM");
+      await Promise.race([
+        exited,
+        new Promise((resolveWait) => setTimeout(resolveWait, 10_000)),
+      ]);
+      if (server.exitCode === null) {
+        signal("SIGKILL");
+        await exited;
+      }
+    }
+    await rm(statePath, { force: true, recursive: true });
+  };
+  try {
+    server = spawn(
+      "bun",
+      ["run", "dev:cloud", "--", "--port", String(port), "--state-path", statePath],
+      {
+        cwd: resolve(fileURLToPath(new URL("..", import.meta.url))),
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    server.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    server.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    process.stdout.write(`byok cloud: pid ${server.pid} on ${baseUrl}, state ${statePath}\n`);
+    for (let attempt = 0; ; attempt += 1) {
+      if (server.exitCode !== null) {
+        throw new Error(`The byok cloud exited before answering:\n${output}`);
+      }
+      try {
+        const health = await (await fetch(`${baseUrl}/api/health`)).json();
+        if (health?.service === "pinar") break;
+      } catch {
+        // Not listening yet.
+      }
+      if (attempt >= 360) {
+        throw new Error(`The byok cloud did not answer on ${baseUrl}:\n${output}`);
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+    }
+    // One Pro sign-in: the fixture email code is one-shot per boot, so the
+    // session cookie is reused by the seven languages. Two attempts, then
+    // the cover is left as it was and the error is reported with the output.
+    let cookie = null;
+    for (let attempt = 0; attempt < 2 && cookie === null; attempt += 1) {
+      if (attempt > 0) process.stdout.write("byok cloud: retrying the Pro sign-in\n");
+      const response = await fetch(`${baseUrl}/api/auth/email-codes/verify`, {
+        headers: { "content-type": "application/json" },
+        method: "POST",
+        body: JSON.stringify({
+          code: "826826",
+          email: "pro.cloud-local@pinar.test",
+          returnTo: "/app",
+        }),
+      });
+      const setCookies = response.headers.getSetCookie?.() ?? [];
+      const session = setCookies.find((value) => value.startsWith("pinar_session="));
+      if (response.ok && session) {
+        cookie = session.slice("pinar_session=".length).split(";")[0];
+      } else {
+        process.stdout.write(
+          `byok cloud: sign-in attempt ${attempt + 1} answered ${response.status}\n`,
+        );
+      }
+    }
+    if (cookie === null) {
+      throw new Error(`The byok cloud Pro sign-in never set the session cookie:\n${output}`);
+    }
+    return { baseUrl, cookie, stop };
+  } catch (error) {
+    await stop();
+    throw error;
+  }
+}
+
+// The AI settings section with the BYOK panel: the mixed capability view
+// (chat with tools and vision on the endpoint, embeddings on the credits
+// with a cause, transcription untested), the example URL and the masked key.
+async function showByokSettings(page, cloud, language, ui) {
+  page.route("**/api/byok", (route) => {
+    if (route.request().method() === "PUT" || route.request().method() === "DELETE") {
+      return route.fulfill({ json: BYOK_DEMO_UNCONFIGURED });
+    }
+    return route.fulfill({ json: BYOK_DEMO_VIEW });
+  });
+  page.route("**/api/byok/test", (route) =>
+    route.fulfill({ json: BYOK_DEMO_VIEW }),
+  );
+  await page.context().addCookies([
+    { domain: "127.0.0.1", name: "pinar_session", path: "/", value: cloud.cookie },
+  ]);
+  await page.goto(`${cloud.baseUrl}/app`, { waitUntil: "networkidle" });
+  await waitForRenderedLocale(page, language);
+  const trigger = page
+    .locator('[data-sidebar="footer"]')
+    .getByRole("button", { exact: true, name: ui["app.accountMenu"] });
+  await trigger.waitFor({ timeout: 30_000 });
+  // The first click right after the page load can land before hydration and
+  // be swallowed, so the trigger is clicked until the menu actually opens.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (attempt > 0) await page.keyboard.press("Escape");
+    await trigger.click();
+    const opened = await page
+      .locator('[role="menuitem"]')
+      .first()
+      .waitFor({ timeout: 2500 })
+      .then(() => true)
+      .catch(() => false);
+    if (opened) break;
+  }
+  await page.getByRole("menuitem", { exact: true, name: ui["settings.title"] }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.waitFor({ timeout: 15_000 });
+  await dialog.getByRole("button", { exact: true, name: ui["settings.ai"] }).click();
+  await dialog.getByText(ui["byok.heading"], { exact: true }).waitFor({ timeout: 15_000 });
+  await page
+    .waitForFunction(
+      (url) =>
+        [...document.querySelectorAll("input")].some(
+          (input) => input.value === url,
+        ),
+      BYOK_DEMO_VIEW.baseUrl,
+      { timeout: 15_000 },
+    )
+    .catch(() => {
+      // The endpoint field may render its value differently; the heading
+      // and the fonts are enough for the cover.
+    });
+  await page.mouse.move(0, 0);
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+}
+
 async function launchHelpScreenshotBrowser() {
   if (process.env.PINAR_HELP_SCREENSHOT_CHANNEL) {
     return chromium.launch({
@@ -388,9 +589,11 @@ async function launchHelpScreenshotBrowser() {
   }
 }
 
-// Only the targets on the local Pinar need it: the assistant cover brings
-// its own.
-const baseUrl = SCREENSHOTS.some((screenshot) => !screenshot.assistantDemo)
+// Only the targets on the local Pinar need it: the assistant cover and the
+// own-endpoint cover bring their own servers.
+const baseUrl = SCREENSHOTS.some(
+  (screenshot) => !screenshot.assistantDemo && !screenshot.byokCloud,
+)
   ? await discoverBaseUrl()
   : null;
 await mkdir(STAGING_ROOT, { recursive: true });
@@ -398,9 +601,13 @@ await mkdir(STAGING_ROOT, { recursive: true });
 try {
   const browser = await launchHelpScreenshotBrowser();
   let assistantDemo = null;
+  let byokCloud = null;
   try {
     if (SCREENSHOTS.some((screenshot) => screenshot.assistantDemo)) {
       assistantDemo = await startAssistantDemo(browser);
+    }
+    if (SCREENSHOTS.some((screenshot) => screenshot.byokCloud)) {
+      byokCloud = await startByokCloud();
     }
     for (const language of SUPPORTED_LANGUAGES) {
       const context = await browser.newContext({ colorScheme: "light" });
@@ -552,6 +759,20 @@ try {
         });
         if (screenshot.assistantDemo) {
           await showAssistantDemo(page, assistantDemo, language, ui);
+          const directory = new URL(`${language}/`, STAGING_ROOT);
+          await mkdir(directory, { recursive: true });
+          await page.screenshot({
+            animations: "disabled",
+            caret: "hide",
+            path: fileURLToPath(new URL(`${screenshot.key}.webp`, directory)),
+            quality: 88,
+            type: "webp",
+          });
+          process.stdout.write(`${language}/${screenshot.key}.webp\n`);
+          continue;
+        }
+        if (screenshot.byokCloud) {
+          await showByokSettings(page, byokCloud, language, ui);
           const directory = new URL(`${language}/`, STAGING_ROOT);
           await mkdir(directory, { recursive: true });
           await page.screenshot({
@@ -747,6 +968,7 @@ try {
     }
   } finally {
     await assistantDemo?.stop();
+    await byokCloud?.stop();
     await browser.close();
   }
 

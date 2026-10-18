@@ -227,6 +227,10 @@ const locale = {
       alt: "Pinar-Arbeitsbereich mit geöffnetem Assistentenbereich neben den Sitzungskarten, mit einer Frage, der Antwort und einer Vorschlagskarte mit Bestätigen und Ablehnen.",
       caption: "Der Assistent antwortet in einem Seitenbereich und schlägt jede Änderung auf einer Karte vor, sodass sich im Arbeitsbereich nichts ändert, bevor du bestätigst.",
     },
+    "own-ai-endpoint": {
+      alt: "Pinar-Cloud-Arbeitsbereich mit geöffnetem Einstellungsdialog auf dem Abschnitt KI-Assistent, mit dem Block Dein eigener Endpoint: die Fähigkeitenzustände mit Ursache, die Endpoint-URL, der maskierte API-Schlüssel und die Modellfelder.",
+      caption: "Der Verbindungstest prüft vier Fähigkeiten, und jede zeigt, ob die Anfrage über deinen Endpoint oder über Pinar-Cloud-Credits läuft.",
+    },
   },
   articles: {
     "install-pinar": {
@@ -1109,7 +1113,7 @@ const locale = {
             "Jede Nachricht an den Assistenten in Pinar Cloud verbraucht 3 Credits, und eine fehlgeschlagene Antwort gibt sie zurück. Einen Vorschlag zu bestätigen oder rückgängig zu machen kostet keine Credits. In der lokalen App nutzt der Assistent die KI, die du eingerichtet hast, und keine Pinar-Credits.",
             "In Pinar Cloud verbraucht das Erzeugen der ausformulierten Reproduktionsschritte 1 KI-Credit pro Generation, und eine fehlgeschlagene Generation erstattet ihn.",
             "Bei eingeschalteter automatischer Sammlungswahl verbraucht jede Aufnahme, für die die KI die Sammlung wählt, 1 Credit – auch wenn die Wahl der „Posteingang“ ist; eine fehlgeschlagene oder abgelaufene Wahl erstattet ihn, und ohne Guthaben wird die KI nicht aufgerufen und die Aufnahme landet im „Posteingang“.",
-            "Mit deinem eigenen Endpoint werden die Fähigkeiten, die den Verbindungstest bestanden haben, von diesem Endpoint beantwortet, ohne Pinar-Cloud-Credits, und die anderen nutzen weiter Credits; [Nutze deinen eigenen KI-Endpoint in Pinar Cloud](/help/cloud/own-ai-endpoint) erklärt den Test und was jede Funktion nutzt.",
+            "Mit deinem eigenen Endpoint wird eine Funktion von ihm beantwortet, ohne Pinar-Cloud-Credits, wenn ihre Fähigkeit den Verbindungstest bestanden hat; [Nutze deinen eigenen KI-Endpoint in Pinar Cloud](/help/cloud/own-ai-endpoint) erklärt den Test und was jede Funktion nutzt, mit der Ausnahme der Pin-Suche einer Antwort, die dein Endpoint beantwortet, die keine Credits der Anbieter von Pinar nutzt.",
           ],
         },
         {
@@ -1142,13 +1146,13 @@ const locale = {
           heading: "Was es ist",
           paragraphs: [
             "Dein eigener Endpoint ist ein Vorteil von Pinar Cloud, der Pro braucht. Den KI-Anbieter wählst und beauftragst du selbst, seine Bedingungen gelten für diese Verarbeitung, und Pinar leitet deine Anfragen nur an ihn weiter. Im Gegensatz zur lokalen App, in der deine KI nicht über Pinar läuft, laufen die Anfragen hier über Pinar Cloud auf dem Weg zu deinem Endpoint.",
-            "Er befindet sich in Einstellungen → KI-Assistent, im Block „Dein eigener Endpoint“. Die Fähigkeiten, die den Verbindungstest bestehen, beantwortet dieser Endpoint ohne Pinar-Cloud-Credits; die anderen nutzen weiter die Anbieter von Pinar, mit Credits, wie heute.",
+            "Er befindet sich in Einstellungen → KI-Assistent, im Block „Dein eigener Endpoint“. Eine Funktion nutzt deinen Endpoint, ohne Pinar-Cloud-Credits, wenn ihre Fähigkeit den Verbindungstest bestanden hat; eine Funktion, deren Fähigkeit nicht bestanden hat, nutzt weiter die Anbieter von Pinar, mit Credits, wie heute, mit einer Ausnahme: Die Pin-Suche einer Antwort, die dein Endpoint beantwortet, geht nie an die Anbieter von Pinar. Die Sektion „Was deinen Endpoint nutzt und was weiter Credits nutzt“ erklärt das Ziel jeder Funktion.",
           ],
         },
         {
           heading: "Den Endpoint registrieren",
           paragraphs: [
-            "In Einstellungen → KI-Assistent öffnest du den Block „Dein eigener Endpoint“. Gib den „Endpoint“ ein – die OpenAI-kompatible Basis-URL, normalerweise mit /v1 am Ende – und den „API-Schlüssel“. Die drei Modellfelder – „Chat-Modell“, „Embedding-Modell“ und „Transkriptionsmodell“ – sind optional: Lass eines leer, und diese Fähigkeit nutzt weiter die Anbieter von Pinar.",
+            "In Einstellungen → KI-Assistent öffnest du den Block „Dein eigener Endpoint“. Gib den „Endpoint“ ein – die OpenAI-kompatible Basis-URL, normalerweise mit /v1 am Ende – und den „API-Schlüssel“. Die drei Modellfelder – „Chat-Modell“, „Embedding-Modell“ und „Transkriptionsmodell“ – sind optional: Wenn eines leer ist, folgen die Funktionen, die von ihm abhängen, der Sektion „Was deinen Endpoint nutzt und was weiter Credits nutzt“.",
             "Die Basis-URL muss HTTPS sein, ohne Benutzername oder Passwort in der URL und ohne private oder lokale Adresse; alles andere wird vor dem Speichern abgelehnt.",
           ],
         },
@@ -1162,13 +1166,13 @@ const locale = {
         {
           heading: "Was deinen Endpoint nutzt und was weiter Credits nutzt",
           paragraphs: [
-            "Eine Fähigkeit nutzt deinen Endpoint erst, nachdem sie den Test bestanden hat; der Rest nutzt weiter die Anbieter von Pinar, mit Credits, wie heute.",
+            "Jede Funktion wird von deinem Endpoint beantwortet, ohne Pinar-Cloud-Credits, wenn ihre Fähigkeit den Test bestanden hat. Eine Funktion, deren Fähigkeit nicht bestanden hat, nutzt weiter die Anbieter von Pinar, mit Credits, wie heute, mit einer Ausnahme: Bei der Pin-Suche einer Antwort, die dein Endpoint beantwortet, nutzt die Suche die Vision und Embeddings deines Endpoints, wenn sie bestanden haben, oder nur den Text, wenn nicht, und nichts geht an die Anbieter von Pinar.",
           ],
           bullets: [
-            "Der Assistent: Seine Antworten gehen an den Chat mit Tools deines Endpoints. In diesem Zug nutzt die Pin-Suche die Vision und Embeddings deines Endpoints, wenn sie bestanden haben; ohne sie ist die Suche nur textbasiert, und nichts geht an die Anbieter von Pinar.",
-            "Sprache an einem Pin: Die Transkription entscheidet. Mit der Transkription auf deinem Endpoint geht die Strukturierung des Texts an den Chat deines Endpoints, wenn er bestanden hat; wenn nicht, geht sie an die Anbieter von Pinar in Pinar Cloud und verbraucht 1 Credit.",
-            "Die schriftlichen Reproduktionsschritte: Sie gehen an den Chat deines Endpoints.",
-            "Die automatische Sammlungswahl: Sie nutzt Embeddings deines Endpoints. Wenn der Endpoint fehlschlägt, bleibt die Aufnahme im Standardziel, ohne Pinar-Cloud-Credits.",
+            "Der Assistent: Mit bestandenem Chat mit Tools geht die Antwort an deinen Endpoint; ohne ihn über die Anbieter von Pinar, mit Credits. Bei der Pin-Suche einer Antwort deines Endpoints nutzt die Suche die Vision und Embeddings deines Endpoints, wenn sie bestanden haben; ohne sie ist die Suche nur textbasiert, und nichts geht an die Anbieter von Pinar.",
+            "Sprache an einem Pin: Die Transkription entscheidet. Mit bestandener Transkription geht die Aufnahme an deinen Endpoint, und die Strukturierung des Texts geht an den Chat deines Endpoints, wenn er bestanden hat; ohne ihn über die Anbieter von Pinar in Pinar Cloud, mit 1 Credit. Ohne bestandene Transkription behält die Sprache den Weg von heute, mit Credits.",
+            "Die schriftlichen Reproduktionsschritte: Mit bestandenem Chat gehen sie an deinen Endpoint; ohne ihn über den Weg von heute, mit Credits.",
+            "Die automatische Sammlungswahl: Mit bestandenen Embeddings nutzt sie deinen Endpoint; ohne diese über den Weg von heute, mit Credits. Wenn der Endpoint bei einer Anfrage fehlschlägt, bleibt die Aufnahme im Standardziel, ohne Pinar-Cloud-Credits.",
           ],
         },
         {

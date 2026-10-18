@@ -286,6 +286,11 @@ export const helpScreenshotDefinitions = [
     height: 900,
     width: 1280,
   },
+  {
+    key: "own-ai-endpoint",
+    height: 900,
+    width: 1280,
+  },
 ] as const;
 
 export const helpArticleDefinitions = [
@@ -603,12 +608,10 @@ export const helpArticleDefinitions = [
     ],
   },
   {
-    // The cover reuses the assistant screenshot: the S5 docs ship no new
-    // screenshot, and the schema still requires a cover per article.
     id: "own-ai-endpoint",
     category: "cloud",
     readMinutes: 4,
-    screenshotKey: "assistant",
+    screenshotKey: "own-ai-endpoint",
     sourceRefs: [
       "apps/server/src/components/ByokSettings.tsx",
       "apps/server/src/server/byok/api.ts",

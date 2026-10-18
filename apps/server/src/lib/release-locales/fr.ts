@@ -639,7 +639,7 @@ const locale = {
     changes: {
       "own-ai-endpoint": {
         description:
-          "Dans Pinar Cloud, les comptes Pro peuvent enregistrer leur propre endpoint dans Paramètres → Assistant IA : une URL de base HTTPS, une clé API et des modèles optionnels de chat, Embeddings et transcription. Les capacités qui passent le test de connexion sont servies par cet endpoint, sans crédits Pinar Cloud ; celles qui ne passent pas continuent d’utiliser les fournisseurs de Pinar, avec crédits. Quand l’endpoint échoue, l’assistant et les étapes rédigées de reproduction montrent la cause avec « Réessayer » et « Utiliser les crédits Pinar », et l’extension propose de renvoyer le même enregistrement vocal avec crédits.",
+          "Dans Pinar Cloud, les comptes Pro peuvent enregistrer leur propre endpoint dans Paramètres → Assistant IA : une URL de base HTTPS, une clé API et des modèles optionnels de chat, Embeddings et transcription. Une fonction est servie par cet endpoint, sans crédits Pinar Cloud, quand sa capacité passe le test de connexion ; une fonction dont la capacité n’a pas passé continue d’utiliser les fournisseurs de Pinar, avec crédits, avec l’exception de la recherche dans vos pins d’une réponse servie par cet endpoint, qui utilise la vision et les Embeddings de l’endpoint quand ils passent, ou le texte seul quand ils ne passent pas. Quand l’endpoint échoue, l’assistant et les étapes rédigées de reproduction montrent la cause avec « Réessayer » et « Utiliser les crédits Pinar », et l’extension propose de renvoyer le même enregistrement vocal avec crédits.",
         title: "Votre propre endpoint dans Pinar Cloud (Pro)",
       },
     },

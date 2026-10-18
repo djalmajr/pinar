@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { signInCloudPro } from "../helpers/cloud-signin";
 import { installClipboardHarness, readClipboardHarness } from "../helpers/ui";
 
 const createdAt = "2026-09-25T00:00:00.000Z";
@@ -61,13 +62,12 @@ test("project Share copies directly and collection access uses the segmented dia
     await route.fulfill({ status: 204 });
   });
 
-  const signIn = await page.request.post("/api/auth/email-codes/verify", {
-    data: { code: "826826", email: "pro.cloud-local@pinar.test", returnTo: "/app" },
-  });
-  expect(signIn.ok()).toBe(true);
+  await signInCloudPro(page);
   await page.goto("/app");
   await page.getByRole("button", { name: "Workspace: Project actions" }).click();
   await page.getByRole("menuitem", { name: "Share" }).click();
+  // The copy follows the publish round trip, so the clipboard fills async.
+  await expect.poll(() => readClipboardHarness(page)).not.toBe("");
   const projectUrl = new URL(await readClipboardHarness(page));
   expect(projectUrl.pathname).toBe("/p/prj_share_menu");
   expect(projectUrl.searchParams.get("token")).toBe("token-prj_share_menu");
@@ -105,7 +105,7 @@ test("project Share copies directly and collection access uses the segmented dia
   expect(collectionUrl.pathname).toBe("/c/col_share_menu");
   expect(collectionUrl.searchParams.get("token")).toBe("token-col_share_menu");
   await dialog.getByRole("button", { name: "Copy link" }).click();
-  expect(await readClipboardHarness(page)).toBe(collectionUrl.toString());
+  await expect.poll(() => readClipboardHarness(page)).toBe(collectionUrl.toString());
   expect(published).toEqual([
     { resourceId: "prj_share_menu", resourceType: "project" },
     { resourceId: "col_share_menu", resourceType: "collection" },

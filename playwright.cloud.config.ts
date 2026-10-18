@@ -3,6 +3,11 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = 17_384;
 const baseURL = `http://127.0.0.1:${PORT}`;
 
+// Relative to apps/server, where cloud-local.mjs resolves it. The e2e
+// helpers import this single source of truth to reach the run's persisted
+// state (tests/e2e/helpers/cloud-signin.ts).
+export const CLOUD_E2E_STATE_PATH = ".wrangler/state/cloud-e2e-run";
+
 export default defineConfig({
   expect: { timeout: 10_000 },
   fullyParallel: false,
@@ -25,7 +30,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `bun run dev:cloud -- --port ${PORT} --state-path .wrangler/state/cloud-e2e`,
+    command: `bun run dev:cloud -- --port ${PORT} --state-path ${CLOUD_E2E_STATE_PATH}`,
     reuseExistingServer: false,
     stderr: "pipe",
     stdout: "pipe",

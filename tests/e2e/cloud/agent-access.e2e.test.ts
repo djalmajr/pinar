@@ -1,13 +1,26 @@
 import { expect, type Page, test } from "@playwright/test";
+import { signInCloudPro } from "../helpers/cloud-signin";
 
 // The once-shown secret lives in this file's DOM: never retain failure
 // artifacts (trace/screenshot/video) for it. Global config stays untouched.
 test.use({ screenshot: "off", trace: "off", video: "off" });
 
 async function openAgentAccess(page: Page) {
-  await page.locator('[data-sidebar="footer"]')
-    .getByRole("button", { exact: true, name: "Account menu" })
-    .click();
+  // The first click right after the page load can land before hydration and
+  // be swallowed, so the trigger is clicked until the menu actually opens.
+  const trigger = page.locator('[data-sidebar="footer"]')
+    .getByRole("button", { exact: true, name: "Account menu" });
+  await trigger.waitFor();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (attempt > 0) await page.keyboard.press("Escape");
+    await trigger.click();
+    const opened = await page
+      .getByRole("menu")
+      .waitFor({ timeout: 2500 })
+      .then(() => true)
+      .catch(() => false);
+    if (opened) break;
+  }
   await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
@@ -25,14 +38,7 @@ async function openAgentAccess(page: Page) {
 const SYNTHETIC_SECRET = `pak_${"synthetic-once-only".padEnd(43, "0")}`;
 
 test("Cloud Pro agent key is created read-only, shown once, then revoked", async ({ page }) => {
-  const signIn = await page.request.post("/api/auth/email-codes/verify", {
-    data: {
-      code: "826826",
-      email: "pro.cloud-local@pinar.test",
-      returnTo: "/app",
-    },
-  });
-  expect(signIn.ok()).toBe(true);
+  await signInCloudPro(page);
   await page.goto("/app");
   await expect(page).toHaveURL(/\/app$/);
 

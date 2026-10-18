@@ -1,12 +1,13 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { signInCloudPro } from "../helpers/cloud-signin";
 
 // F5/S4: the BYOK endpoint subpanel of the Cloud AI settings section. Every
 // /api/byok* answer is mocked with page.route, so no real key ever reaches
 // the server or a failure artifact, and the real local database is never
 // written.
 //
-// The Cloud Pro fixture email code is claimed once per local server boot, so
-// the whole walkthrough happens in a single signed-in test:
+// The Cloud Pro fixture is signed in through the shared helper (which
+// re-arms its one-shot email challenge), so the file is order-independent:
 // save + connection test, then remove, then the 503 unavailable state.
 
 const UNTESTED = { error: null, ok: null, testedAt: null };
@@ -59,17 +60,10 @@ const MIXED = {
   updatedAt: "2026-10-18T00:00:07.000Z",
 };
 
-// Signs in the Cloud Pro fixture. The email code is one-shot per server
-// boot, so this runs exactly once in the file.
+// Signs in the Cloud Pro fixture. The email code is one-shot per verify,
+// so the helper re-arms the seeded challenge right before each sign-in.
 async function signInPro(page: Page) {
-  const signIn = await page.request.post("/api/auth/email-codes/verify", {
-    data: {
-      code: "826826",
-      email: "pro.cloud-local@pinar.test",
-      returnTo: "/app",
-    },
-  });
-  expect(signIn.ok()).toBe(true);
+  await signInCloudPro(page);
   await page.goto("/app");
   await expect(page).toHaveURL(/\/app$/);
 }

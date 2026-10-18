@@ -161,7 +161,7 @@ export function byokStreamCutCause(error: unknown): ByokCause {
  * before the cancel. A read failure throws to the caller, which classifies
  * the call from what it already knows (the status, the guard's header).
  */
-export async function byokReadBody(response: Response, maxBytes: number): Promise<string> {
+export async function byokReadBody(response: Response, maxBytes: number, signal?: AbortSignal): Promise<string> {
   const body = response.body;
   if (body === null) return "";
   const reader = body.getReader();
@@ -169,19 +169,27 @@ export async function byokReadBody(response: Response, maxBytes: number): Promis
   let length = 0;
   try {
     while (length < maxBytes) {
-      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      const { done, value } = await byokAbortRace(reader.read(), signal);
       if (done || !value) break;
       const keep = Math.min(value.byteLength, maxBytes - length);
       chunks.push(keep === value.byteLength ? value : value.subarray(0, keep));
       length += keep;
     }
   } finally {
-    reader.releaseLock();
-  }
-  try {
-    await body.cancel();
-  } catch {
-    // A body that already errored or closed: nothing to cancel.
+    try {
+      reader.releaseLock();
+    } catch {
+      // Already released.
+    }
+    // Not awaited: a source whose cancel never settles must not hold the
+    // caller (and a BYOK slot with it) past its deadline. Its rejection is
+    // handled.
+    try {
+      body.cancel().catch(() => {});
+    } catch {
+      // A body that already errored or closed: nothing to cancel.
+    }
   }
   const bytes = new Uint8Array(length);
   let offset = 0;
@@ -190,6 +198,36 @@ export async function byokReadBody(response: Response, maxBytes: number): Promis
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(bytes);
+}
+
+/**
+ * `promise` raced against the signal's abort: the abort rejects with the
+ * signal's reason (the deadline's, the caller's) even while the read is
+ * still in flight, and the promise's own outcome is always handled, so
+ * neither side is left unprocessed. Without a signal the promise stands
+ * alone.
+ */
+export function byokAbortRace<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      const reason = signal.reason;
+      reject(reason instanceof Error ? reason : new Error("the call's signal aborted the read"));
+    };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 /**

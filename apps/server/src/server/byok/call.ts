@@ -51,12 +51,13 @@ async function byokCallEgress(egress: ByokEgress, url: string, init: RequestInit
   let response: Response;
   let bodyText: string;
   try {
+    const signal = AbortSignal.timeout(timeoutMs);
     response = await egress(url, {
       ...init,
       redirect: "error",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     });
-    bodyText = await byokReadBody(response, BYOK_CALL_BODY_LIMIT);
+    bodyText = await byokReadBody(response, BYOK_CALL_BODY_LIMIT, signal);
   } catch (error) {
     if (error instanceof ByokCallError) throw error;
     throw new ByokCallError(byokEgressErrorCause(error));

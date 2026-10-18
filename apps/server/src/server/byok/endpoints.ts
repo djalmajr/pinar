@@ -35,7 +35,7 @@ import type { VisionEndpoint } from "../assistant/retrieval/vision";
 import { planIncludesAi } from "../../lib/entitlements";
 import type { CloudEnv, Principal } from "../cloud-api";
 import { capabilitiesOf } from "./api";
-import { ByokCallError, byokEgressErrorCause, byokReadBody, byokResponseCause } from "./cause";
+import { ByokCallError, byokAbortRace, byokEgressErrorCause, byokReadBody, byokResponseCause } from "./cause";
 import { byokCrypto } from "./crypto";
 import type { ByokEgress } from "./fetch";
 import { byokEgressFor } from "./fetch";
@@ -76,11 +76,13 @@ export function byokSlotEgress(egress: ByokEgress, ownerId: string): ByokEgress 
   return async (url, init) => {
     if (!byokAcquireSlot(ownerId)) throw new ByokCallError({ cause: "rate_limited", retryAfterSeconds: null });
     try {
-      const response = await egress(url, init);
+      // Raced with the call's signal: an egress that ignores it cannot hold
+      // the slot past the deadline.
+      const response = await byokAbortRace(egress(url, init), init?.signal ?? undefined);
       if (!response.ok) {
         let bodyText: string | undefined;
         try {
-          bodyText = await byokReadBody(response, BYOK_CALL_ERROR_BODY_LIMIT);
+          bodyText = await byokReadBody(response, BYOK_CALL_ERROR_BODY_LIMIT, init?.signal ?? undefined);
         } catch {
           // A body that fails to be read: the status and the guard's header
           // still decide the cause.
@@ -138,7 +140,7 @@ async function byokResponseBodyRead(response: Response, maxBytes: number, signal
     while (!signal?.aborted) {
       let step;
       try {
-        step = await abortSignalRace(reader.read(), signal);
+        step = await byokAbortRace(reader.read(), signal);
       } catch (error) {
         // The read was cut: the call's signal ending it (the deadline, the
         // caller's abort) is the timeout's case; anything else is a cut of
@@ -178,34 +180,6 @@ async function byokResponseBodyRead(response: Response, maxBytes: number, signal
       // A body that already errored or closed: nothing to cancel.
     }
   }
-}
-
-// `promise` raced against the signal's abort: the abort rejects with the
-// signal's reason (the deadline's, the caller's) even while the read is
-// still in flight — the promise's own outcome is always handled, so
-// neither side is left unprocessed. Without a signal (or the loop's
-// `signal.aborted` check before the read) the promise stands alone.
-function abortSignalRace<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (signal === undefined) return promise;
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      cleanup();
-      const reason = signal.reason;
-      reject(reason instanceof Error ? reason : new Error("the call's signal aborted the read"));
-    };
-    const cleanup = () => signal.removeEventListener("abort", onAbort);
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        cleanup();
-        resolve(value);
-      },
-      (error) => {
-        cleanup();
-        reject(error);
-      },
-    );
-  });
 }
 
 /** The retrieval endpoints of the row: the captions and the embeddings; null without a route. */

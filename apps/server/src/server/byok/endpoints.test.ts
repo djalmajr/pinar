@@ -468,6 +468,48 @@ describe("byokSlotEgress (F5/S3c)", () => {
     assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
   });
 
+  test("an error body that never closes, or whose cancel never settles, does not hold the slot past the deadline", async () => {
+    let cancels = 0;
+    const neverClosing = byokSlotEgress(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("{\"error\":"));
+      },
+    }), { headers: { "retry-after": "7" }, status: 429 }), "owner-error-body");
+    const neverCancelling = byokSlotEgress(async () => new Response(new ReadableStream<Uint8Array>({
+      cancel() {
+        cancels++;
+        return new Promise<void>(() => {});
+      },
+      start(controller) {
+        controller.enqueue(new Uint8Array(300 * 1024)); // past the 256 KiB error-body cap
+      },
+    }), { status: 429 }), "owner-error-body");
+    for (const call of [neverClosing, neverCancelling]) {
+      await assert.rejects(call("https://byok.test/v1/embeddings", { signal: AbortSignal.timeout(20) }), (error: unknown) => {
+        assert.ok(error instanceof ByokCallError);
+        assert.equal(error.cause, "rate_limited", "the status still decides the cause");
+        return true;
+      });
+    }
+    assert.equal(cancels, 1, "the capped error body cancelled its source");
+    const after = byokSlotEgress(async () => new Response("done", { status: 200 }), "owner-error-body");
+    assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
+    assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
+  });
+
+  test("an egress that ignores the call's signal does not hold the slot past the deadline", async () => {
+    const deaf = byokSlotEgress(async () => new Promise<Response>(() => {}), "owner-deaf");
+    for (let i = 0; i < 2; i++) {
+      await assert.rejects(deaf("https://byok.test/v1/embeddings", { signal: AbortSignal.timeout(20) }), (error: unknown) => {
+        assert.ok(error instanceof ByokCallError);
+        assert.equal(error.cause, "timeout");
+        return true;
+      });
+    }
+    const after = byokSlotEgress(async () => new Response("done", { status: 200 }), "owner-deaf");
+    assert.equal((await after("https://byok.test/v1/embeddings")).status, 200);
+  });
+
   test("a bodyless 2xx (204, 205, a null body) stays bodyless, and its parse refuses it", async () => {
     for (const status of [200, 204, 205]) {
       const egress = byokSlotEgress(async () => new Response(null, { status }), "owner-bodyless");

@@ -106,12 +106,13 @@ async function callEgress(
   let response: Response;
   let bodyText: string;
   try {
+    const signal = AbortSignal.timeout(timeoutMs);
     response = await egress(url, {
       ...init,
       redirect: "error",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     });
-    bodyText = await byokReadBody(response, BODY_LIMIT_BYTES);
+    bodyText = await byokReadBody(response, BODY_LIMIT_BYTES, signal);
   } catch (error) {
     return { cause: byokEgressErrorCause(error).cause };
   }

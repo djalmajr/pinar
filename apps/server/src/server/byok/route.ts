@@ -291,7 +291,7 @@ export function byokTurnFetch(egress: ByokEgress): typeof fetch {
       }
       let bodyText: string | undefined;
       try {
-        bodyText = await byokReadBody(response, BYOK_TURN_ERROR_BODY_LIMIT);
+        bodyText = await byokReadBody(response, BYOK_TURN_ERROR_BODY_LIMIT, init?.signal ?? undefined);
       } catch {
         // A body that fails to be read (EDG-38 names it): the status and
         // the guard's header still decide the cause.

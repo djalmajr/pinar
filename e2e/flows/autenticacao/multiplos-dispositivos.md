@@ -5,6 +5,7 @@ reference: extension/background.js; extension/identity.js; apps/server/src/serve
 persona: power-user
 entry: "chrome-extension://<extension-id>/dist/options.html"
 preconditions:
+  - Indisponível desde 2026-10-18: exige entrega real de e-mail, e o Cloud local não envia e-mail (o único ambiente que enviava, o staging, foi desativado)
   - Conta paga E2E existente
   - Duas identidades de instalação isoladas
 ---

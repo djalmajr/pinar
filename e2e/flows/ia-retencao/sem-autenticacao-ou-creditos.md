@@ -5,6 +5,7 @@ reference: apps/server/src/pages/WebViewer.tsx; apps/server/src/server/cloud-api
 persona: skeptical
 entry: "<link não listado /v/ criado pela fixture>"
 preconditions:
+  - Parcial desde 2026-10-18: o passo 6 exige Stripe Test hospedado, e o Cloud local usa credenciais Stripe inertes; os demais passos rodam no Cloud local
   - Sessão pública compartilhada
   - Conta E2E sem créditos
 ---

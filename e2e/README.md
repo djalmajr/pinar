@@ -26,14 +26,14 @@ O staging (`https://stg.pinar.dev/`, worker `pinar-stg`) foi desativado em 2026-
 - Web público, conta, billing e cloud: o Cloud local, `bun run dev:cloud` em `http://127.0.0.1:3000/`. O login da conta Pro do fixture é o link que o comando imprime.
 - Extensão: a build unpacked do repositório, que aponta para o Cloud local.
 - Link compartilhado: URL não listada criada pela própria execução.
-- Stripe: o Cloud local usa credenciais Stripe inertes e não envia e-mail. Os fluxos de `monetizacao/` que exigem Checkout, Portal, assinatura ou webhooks do Stripe Test ficam indisponíveis até existir um ambiente Stripe Test implantado; a pré-condição de cada um diz isso. Produção e Stripe live continuam fora do escopo.
+- Stripe e e-mail: o Cloud local usa credenciais Stripe inertes e não envia e-mail. Os fluxos (ou passos) que exigem Checkout, Portal, assinatura ou webhooks do Stripe Test, ou a leitura de um e-mail enviado pelo Pinar, ficam indisponíveis até existir um ambiente implantado com Stripe Test e e-mail; a primeira pré-condição de cada um diz o que fica de fora. O link de login do fixture entra por código de extensão semeado e não substitui um fluxo de OTP por e-mail. Produção e Stripe live continuam fora do escopo.
 
 ## Regras
 
 - Nunca digitar uma rota interna para contornar a navegação do produto.
 - Cada finding determinístico recebe o menor E2E capaz de reproduzi-lo.
 - O E2E precisa provar estado visível e efeito persistido, não apenas cliques.
-- E-mail pode ser lido para obter OTP; a caixa postal permanece somente leitura.
+- Num ambiente que envie e-mail, o e-mail pode ser lido para obter OTP; a caixa postal permanece somente leitura.
 - Dados de teste usam prefixo `e2e_` e são removidos ao fechar a rodada.
 - Kashes, Skedly, produção e Stripe live ficam fora do escopo.
 

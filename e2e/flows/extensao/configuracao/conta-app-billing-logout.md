@@ -5,6 +5,7 @@ reference: apps/extension/src/options/OptionsApp.tsx; extension/background.js
 persona: usuario-pago
 entry: "chrome-extension://<extension-id>/dist/options.html"
 preconditions:
+  - Parcial desde 2026-10-18: os passos 3 e 8 exigem o portal do Stripe Test e a entrega real de e-mail, que o Cloud local não tem; os demais passos rodam no Cloud local
   - Extensão autenticada em conta Pro Test
 ---
 

@@ -5,6 +5,7 @@ reference: apps/server/src/pages/SignIn.tsx; apps/server/src/server/cloud-api.ts
 persona: skeptical
 entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige entrega real de e-mail, e o Cloud local não envia e-mail (o único ambiente que enviava, o staging, foi desativado)
   - Conta paga E2E existente
   - Relógio/fixtures capazes de produzir desafios expirados
 ---

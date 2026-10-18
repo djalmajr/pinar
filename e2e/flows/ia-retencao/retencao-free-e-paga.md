@@ -5,6 +5,7 @@ reference: apps/server/src/server/cloud-api.ts; apps/server/src/lib/entitlements
 persona: usuario-pago
 entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Parcial desde 2026-10-18: os passos 5 a 7 exigem uma assinatura e eventos do Stripe Test hospedado, e o Cloud local usa credenciais Stripe inertes; os demais passos rodam no Cloud local
   - Sessões E2E equivalentes em instalação Free e conta Pro
   - Relógio controlável além de sete e noventa dias
 ---

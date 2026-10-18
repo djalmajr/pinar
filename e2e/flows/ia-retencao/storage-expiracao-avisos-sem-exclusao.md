@@ -5,6 +5,7 @@ reference: apps/server/src/server/cloud-api.ts; apps/server/src/lib/entitlements
 persona: usuario-pago
 entry: "http://127.0.0.1:3000/"
 preconditions:
+  - Indisponível desde 2026-10-18: exige entrega real de e-mail e Stripe Test hospedado; o Cloud local não envia e-mail e usa credenciais Stripe inertes (o staging, que tinha os dois, foi desativado)
   - Conta E2E com pack de storage e uso acima da quota base
   - Relógio controlável até a expiração
   - E-mail E2E legível

@@ -85,7 +85,7 @@ const NOOP_RELEASE = () => {};
 
 /**
  * Acquire the owner's per-user BYOK concurrency slot (F5/S3c): exported so
- * the index's and the destination's per-call egress (byokCallEgress in
+ * the index's and the destination's per-call egress (byokSlotEgress in
  * byok/endpoints.ts) hold one slot per egress call, never the whole
  * multi-call index. Above BYOK_MAX_CONCURRENT_CALLS the call fails with
  * rate_limited, without a queue, and the caller degrades (the turn's index
@@ -254,9 +254,13 @@ export async function byokAssistantRouteExists(env: CloudEnv, principal: Princip
 // 403/404 markers of the common table, never more.
 const BYOK_TURN_ERROR_BODY_LIMIT = 256 * 1024;
 
-function byokEgressAsFetch(egress: ByokEgress): typeof fetch {
-  // The SDK calls fetch with the URL string; the Request/URL forms are kept
-  // for the typeof fetch contract.
+/**
+ * The egress as the endpoint's fetch: the SDK calls fetch with the URL
+ * string; the Request/URL forms are kept for the typeof fetch contract.
+ * The single adapter (the turn's model fetch and the S3c retrieval
+ * endpoints' egress both use it).
+ */
+export function byokEgressAsFetch(egress: ByokEgress): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     return egress(url, init);

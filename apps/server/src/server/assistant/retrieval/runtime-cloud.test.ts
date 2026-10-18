@@ -1197,7 +1197,7 @@ describe("The BYOK text search's budget and the turn's abort (R2)", () => {
         new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("not settled after the budget")), 800)),
       ]);
       assert.ok(performance.now() - begin < 1_000, "at the budget, not after the read");
-      assert.deepEqual(hits, [], "the held read never contributed");
+      assert.deepEqual(hits, { hits: [], semantic: false }, "the held read never contributed");
       assert.equal(commentsReads, 0, "no comments read before the release");
       release();
       await sleep(30);
@@ -1436,7 +1436,7 @@ describe("the BYOK pin search (F5/S3c)", () => {
 
   test("a BYOK failure in the indexing and the query: the search settles text-only, the gateway is never called, and the session stays stale", async () => {
     const { ByokEgressUnavailableError } = await import("../../byok/fetch");
-    const { byokCallEgress } = await import("../../byok/endpoints");
+    const { byokSlotEgress } = await import("../../byok/endpoints");
     const cases: Array<{ findPin: boolean; hang?: (path: string) => boolean; label: string; fail: (path: string) => Response | Error | null }> = [
       { fail: () => new Response("unauthorized", { status: 401 }), findPin: true, label: "401" },
       { fail: () => new Response("slow down", { status: 429, headers: { "retry-after": "30" } }), findPin: true, label: "429" },
@@ -1446,9 +1446,9 @@ describe("the BYOK pin search (F5/S3c)", () => {
     for (const item of cases) {
       resetCloudMemoryStateForTests();
       const byok = fakeByok({ fail: item.fail, ...(item.hang ? { hang: item.hang } : {}) });
-      // The production wiring: the endpoint's egress is the byokCallEgress
+      // The production wiring: the endpoint's egress is the byokSlotEgress
       // (the per-user slot and the caused failures) of the user's key.
-      const egress = byokCallEgress(byok.fetch, "usr_pro");
+      const egress = byokSlotEgress(byok.fetch, "usr_pro");
       const service = createByokPinSearch({
         budgetMs: 500,
         byok: {
@@ -1499,16 +1499,16 @@ describe("the BYOK pin search (F5/S3c)", () => {
 
   test("above the per-user cap the search settles text-only (rate_limited, no queue)", async () => {
     // The two slots are held by the turn and another in-flight call of
-    // the user: the index' per-call slot (the byokCallEgress inside the
+    // the user: the index' per-call slot (the byokSlotEgress inside the
     // endpoint's egress) is refused and the search degrades to the
     // text-only one, without a queue and without the gateway.
     const { byokAcquireSlot, byokSlotRelease, resetByokConcurrencyForTests } = await import("../../byok/route");
-    const { byokCallEgress } = await import("../../byok/endpoints");
+    const { byokSlotEgress } = await import("../../byok/endpoints");
     resetByokConcurrencyForTests();
     assert.equal(byokAcquireSlot("usr_pro"), true, "the turn's slot (byokAssistantRoute)");
     assert.equal(byokAcquireSlot("usr_pro"), true, "another in-flight call of the user");
     const byok = fakeByok();
-    const sloted = byokCallEgress(byok.fetch, "usr_pro");
+    const sloted = byokSlotEgress(byok.fetch, "usr_pro");
     const service = createByokPinSearch({
       byok: {
         embedding: { ...BYOK_EMBEDDING, fetch: sloted },

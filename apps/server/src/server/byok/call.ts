@@ -13,11 +13,10 @@
 // is invalid_response, like S2's probes.
 
 import {
+  ByokCallError,
   byokEgressErrorCause,
   byokReadBody,
   byokResponseCause,
-  type ByokCause,
-  type ByokCauseCode,
 } from "./cause";
 import type { ByokEgress } from "./fetch";
 
@@ -33,22 +32,12 @@ export interface ByokCallTarget {
   model: string;
 }
 
-/**
- * The BYOK call failed (contract §1): the classified cause and the 429's
- * Retry-After in seconds when there is one, with a fixed message. The
- * provider's body, the URL and the key never cross this class, so it can
- * be thrown, carried by the response or logged without leaking.
- */
-export class ByokCallError extends Error {
-  readonly cause: ByokCauseCode;
-  readonly retryAfterSeconds: number | null;
-  constructor(byokCause: ByokCause) {
-    super("byok call failed");
-    this.name = "ByokCallError";
-    this.cause = byokCause.cause;
-    this.retryAfterSeconds = byokCause.retryAfterSeconds;
-  }
-}
+// The single ByokCallError (byok/cause.ts, next to the cause table): the
+// S3c retrieval and the S3b voice/reproduction share it, so the
+// byokErrorResponse's instanceof (cloud-api.ts) maps every BYOK failure.
+// Re-exported here for the S3b consumers' imports (ai/voice-pin.ts, the
+// written reproduction).
+export { ByokCallError };
 
 /**
  * The egress call, classified: a throw (the refusal, the deadline, the

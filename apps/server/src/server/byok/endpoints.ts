@@ -8,7 +8,7 @@
 // ok capability or without its model. The key is decrypted only here, on
 // the server, and never goes to a log or an error (a ciphertext the master
 // key cannot read answers null, silently — the same five no-route cases as
-// the turn). Both endpoints carry byokCallEgress: the egress (byokFetch,
+// the turn). Both endpoints carry byokSlotEgress: the egress (byokFetch,
 // the refusal until S6, or the fake the tests inject) wrapped with the
 // per-user concurrency slot held PER EGRESS CALL — a multi-call index or a
 // batched embedding hold one slot at a time, never the whole pass — and
@@ -29,22 +29,12 @@ import { ByokCallError, byokEgressErrorCause, byokReadBody, byokResponseCause } 
 import { byokCrypto } from "./crypto";
 import type { ByokEgress } from "./fetch";
 import { byokEgressFor } from "./fetch";
-import { byokAcquireSlot, byokSlotRelease } from "./route";
+import { byokAcquireSlot, byokEgressAsFetch, byokSlotRelease } from "./route";
 import { byokRow } from "./store";
 
 // The body of a non-2xx answer, capped like the turn's and S2's: enough
 // for the 403/404 markers of the common table, never more.
 const BYOK_CALL_ERROR_BODY_LIMIT = 256 * 1024;
-
-// The egress as the endpoint's fetch (assistant/retrieval): the SDK and the
-// endpoint helpers call fetch with the URL string, and the Request/URL forms
-// are kept for the typeof fetch contract (byok/route.ts, the same shape).
-function byokEgressAsFetch(egress: ByokEgress): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    return egress(url, init);
-  }) as typeof fetch;
-}
 
 /**
  * The BYOK egress with the per-call concurrency slot and the common cause
@@ -54,9 +44,12 @@ function byokEgressAsFetch(egress: ByokEgress): typeof fetch {
  * holds the slot of the next one. A non-2xx is read (capped) for the 403/
  * 404 markers and refused as the caused ByokCallError; a thrown egress
  * failure (the refusal, the deadline, the network) is the same cause table.
- * A 2xx passes through untouched (the caller reads the body).
+ * A 2xx passes through untouched (the caller reads the body). The name
+ * keeps it apart from byok/call.ts's one-shot byokCallEgress (the S3b
+ * voice/reproduction call): this one wraps an egress with the slot and the
+ * cause, that one performs a single call and returns the body text.
  */
-export function byokCallEgress(egress: ByokEgress, ownerId: string): ByokEgress {
+export function byokSlotEgress(egress: ByokEgress, ownerId: string): ByokEgress {
   return async (url, init) => {
     if (!byokAcquireSlot(ownerId)) throw new ByokCallError({ cause: "rate_limited", retryAfterSeconds: null });
     const release = byokSlotRelease(ownerId);
@@ -117,7 +110,7 @@ export async function byokRetrievalEndpoints(env: CloudEnv, principal: Principal
     // not logged (a driver or a tag may echo the key).
     return null;
   }
-  const egress = byokCallEgress(byokEgressFor(env), principal.id);
+  const egress = byokSlotEgress(byokEgressFor(env), principal.id);
   const callFetch = byokEgressAsFetch(egress);
   const vision: VisionEndpoint | null =
     visionUsable

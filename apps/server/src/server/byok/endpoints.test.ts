@@ -1,5 +1,5 @@
 // F5/S3c: the retrieval endpoints of the user's BYOK row (byok/endpoints.ts).
-// byokCallEgress holds one per-user concurrency slot per egress call (the
+// byokSlotEgress holds one per-user concurrency slot per egress call (the
 // slot is released in the finally, even on failure; above the cap the call
 // is refused with rate_limited, no queue) and classifies every failure into
 // the common cause table as a caused ByokCallError (the provider's body,
@@ -20,7 +20,7 @@ import { ByokCallError } from "./cause";
 import { byokCrypto } from "./crypto";
 import { setByokEgressForTests } from "./fetch";
 import { byokAcquireSlot, resetByokConcurrencyForTests } from "./route";
-import { byokCallEgress, byokRetrievalEndpoints } from "./endpoints";
+import { byokSlotEgress, byokRetrievalEndpoints } from "./endpoints";
 
 const NOW = "2026-10-01T12:00:00.000Z";
 const LATER = "2026-12-01T12:00:00.000Z";
@@ -146,12 +146,12 @@ afterEach(() => {
   resetByokConcurrencyForTests();
 });
 
-// ---------- byokCallEgress ----------
+// ---------- byokSlotEgress ----------
 
-describe("byokCallEgress (F5/S3c)", () => {
+describe("byokSlotEgress (F5/S3c)", () => {
   test("a 2xx passes through untouched (the caller reads the body)", async () => {
     const body = JSON.stringify({ data: [{ embedding: [0.5], index: 0 }] });
-    const egress = byokCallEgress(async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }), "owner-x");
+    const egress = byokSlotEgress(async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }), "owner-x");
     const response = await egress("https://byok.test/embeddings", { method: "POST", body: "{}" });
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "application/json");
@@ -169,7 +169,7 @@ describe("byokCallEgress (F5/S3c)", () => {
       [new Response(body, { status: 429, headers: { "retry-after": "30" } }), "rate_limited"],
     ];
     for (const [response, expected] of cases) {
-      const egress = byokCallEgress(async () => response, "owner-x");
+      const egress = byokSlotEgress(async () => response, "owner-x");
       await assert.rejects(
         egress("https://byok.test/embeddings"),
         (error: unknown) => {
@@ -187,7 +187,7 @@ describe("byokCallEgress (F5/S3c)", () => {
   });
 
   test("the 429 carries the retry-after without waiting it", async () => {
-    const egress = byokCallEgress(async () => new Response("slow", { status: 429, headers: { "retry-after": "90" } }), "owner-x");
+    const egress = byokSlotEgress(async () => new Response("slow", { status: 429, headers: { "retry-after": "90" } }), "owner-x");
     await assert.rejects(
       egress("https://byok.test/embeddings"),
       (error: unknown) => {
@@ -201,7 +201,7 @@ describe("byokCallEgress (F5/S3c)", () => {
 
   test("a thrown egress failure is the same cause table", async () => {
     // A network failure is endpoint_unreachable.
-    const egress = byokCallEgress(async () => {
+    const egress = byokSlotEgress(async () => {
       throw new Error("network down");
     }, "owner-x");
     await assert.rejects(
@@ -213,7 +213,7 @@ describe("byokCallEgress (F5/S3c)", () => {
       },
     );
     // A deadline is a timeout.
-    const timedOut = byokCallEgress(async () => {
+    const timedOut = byokSlotEgress(async () => {
       throw new DOMException("The operation was aborted", "AbortError");
     }, "owner-x");
     await assert.rejects(
@@ -226,7 +226,7 @@ describe("byokCallEgress (F5/S3c)", () => {
     );
     // The refusal until S6 (byok/fetch.ts) is refused in the cause table too.
     const { ByokEgressUnavailableError } = await import("./fetch");
-    const refused = byokCallEgress(async () => {
+    const refused = byokSlotEgress(async () => {
       throw new ByokEgressUnavailableError();
     }, "owner-x");
     await assert.rejects(
@@ -244,7 +244,7 @@ describe("byokCallEgress (F5/S3c)", () => {
     const gate = new Promise<void>((resolve) => {
       releaseGate = resolve;
     });
-    const slow = byokCallEgress(async () => {
+    const slow = byokSlotEgress(async () => {
       await gate;
       return new Response("late", { status: 200 });
     }, "owner-x");
@@ -253,7 +253,7 @@ describe("byokCallEgress (F5/S3c)", () => {
     assert.equal(byokAcquireSlot("owner-x"), true, "the turn's slot");
     const inFlight = slow("https://byok.test/embeddings"); // takes the second slot synchronously
     await assert.rejects(
-      byokCallEgress(async () => new Response("third", { status: 200 }), "owner-x")("https://byok.test/embeddings"),
+      byokSlotEgress(async () => new Response("third", { status: 200 }), "owner-x")("https://byok.test/embeddings"),
       (error: unknown) => {
         assert.ok(error instanceof ByokCallError);
         assert.equal(error.cause, "rate_limited", "above the cap the call is refused, no queue");
@@ -265,13 +265,13 @@ describe("byokCallEgress (F5/S3c)", () => {
     assert.equal(first.status, 200);
     // The in-flight call's slot was released in the finally: a new call
     // fits now.
-    const after = await byokCallEgress(async () => new Response("after", { status: 200 }), "owner-x")("https://byok.test/embeddings");
+    const after = await byokSlotEgress(async () => new Response("after", { status: 200 }), "owner-x")("https://byok.test/embeddings");
     assert.equal(after.status, 200);
   });
 
   test("the slot is released in the finally, on success and on failure", async () => {
-    const egress = byokCallEgress(async () => new Response("ok", { status: 200 }), "owner-x");
-    const failing = byokCallEgress(async () => new Response("no", { status: 500 }), "owner-x");
+    const egress = byokSlotEgress(async () => new Response("ok", { status: 200 }), "owner-x");
+    const failing = byokSlotEgress(async () => new Response("no", { status: 500 }), "owner-x");
     await egress("https://byok.test/embeddings"); // success: the slot frees
     await assert.rejects(failing("https://byok.test/embeddings"), ByokCallError); // failure: the slot frees too
     assert.equal(byokAcquireSlot("owner-x"), true, "no slot leaked by either call");

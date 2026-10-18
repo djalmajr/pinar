@@ -633,6 +633,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "own-ai-endpoint": {
+        description:
+          "Pinar Cloud では、Pro アカウントが設定 → AI アシスタントで自分のエンドポイントを登録できます。HTTPS のベース URL、API キー、チャット / embedding / 文字起こしの任意のモデルです。接続テストに合格した機能はそのエンドポイントで Pinar Cloud クレジットを消費せず処理され、不合格の機能は従来どおり Pinar のプロバイダーでクレジットを消費します。エンドポイントが失敗したとき、アシスタントと書面の再現手順は原因と「もう一度試す」「Pinar クレジットを使う」を表示し、拡張機能では同じ音声記録をクレジットで再送信できます。",
+        title: "Pinar Cloud での自分自身のエンドポイント（Pro）",
+      },
+    },
+    summary:
+      "Pinar Cloud の Pro アカウントは自分のエンドポイントを登録でき、アシスタント、再現、音声の AI エラーは原因と選択肢を表示します。",
+    title: "Pinar Cloud での自分自身のエンドポイント",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

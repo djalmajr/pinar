@@ -832,7 +832,7 @@ const locale = {
         {
           heading: "In Pinar Cloud: Pro and credits",
           paragraphs: [
-            "In Pinar Cloud, the assistant is part of Pro. Each message you send uses 3 AI credits, and a reply that fails gives them back. Confirming or undoing a proposal uses no credits.",
+            "In Pinar Cloud, the assistant is part of Pro. Each message you send uses 3 AI credits, and a reply that fails gives them back. Confirming or undoing a proposal uses no credits. When a message answered by your own endpoint fails, the panel shows the cause and two buttons: “Try again” and “Use Pinar credits”; the second sends only that message through Pinar's providers, with credits.",
             "These are the same credits that voice transcription uses, and credit packs can only be bought with Pro. [Pinar Cloud AI credits for voice and the assistant](/help/cloud/ai-credits) explains balances and refunds.",
           ],
         },
@@ -1105,6 +1105,7 @@ const locale = {
             "Each message you send to the assistant in Pinar Cloud uses 3 credits, and a reply that fails gives them back. Confirming or undoing a proposal uses no credits. In the local app, the assistant uses the AI you set up and no Pinar credits.",
             "In Pinar Cloud, generating the written reproduction steps uses 1 AI credit per generation, and a generation that fails gives it back.",
             "With the automatic collection choice on, each capture whose collection the AI chooses uses 1 credit, including when the choice is the “Inbox”; a failed or expired choice gives it back, and without a credit balance the AI is not called and the capture goes to the “Inbox”.",
+            "With your own endpoint, the capabilities that passed the connection test are answered by that endpoint, without Pinar Cloud credits, and the ones that did not pass keep using them; [Use your own AI endpoint in Pinar Cloud](/help/cloud/own-ai-endpoint) explains the test and what each feature uses.",
           ],
         },
         {
@@ -1125,6 +1126,57 @@ const locale = {
             "If an assistant reply fails, its credits come back; send the message again when you are ready.",
             "If the workspace shows zero credits, check the remaining balance before buying another 500-credit pack.",
             "If you send too many AI requests within a minute, the request is refused temporarily; wait a minute and try again.",
+          ],
+        },
+      ],
+    },
+    "own-ai-endpoint": {
+      title: "Use your own AI endpoint in Pinar Cloud",
+      summary: "Register your own endpoint in Pinar Cloud Pro, test its capabilities, and see which features it answers without credits.",
+      sections: [
+        {
+          heading: "What it is",
+          paragraphs: [
+            "Your own endpoint is a Pinar Cloud benefit that needs Pro. The AI provider is chosen and contracted by you, its terms apply to that processing, and Pinar only forwards your requests to it. Unlike the local app, where the AI you set up never passes through Pinar, the requests here go through Pinar Cloud on the way to your endpoint.",
+            "It lives in Settings → “AI Assistant”, in the “Your own endpoint” block. The capabilities that pass the connection test are answered by that endpoint, without Pinar Cloud credits; the ones that do not pass keep using Pinar's providers, with credits, as they do today.",
+          ],
+        },
+        {
+          heading: "Register the endpoint",
+          paragraphs: [
+            "In Settings → “AI Assistant”, open the “Your own endpoint” block. Provide the “Endpoint” — the OpenAI-compatible base URL, usually ending in /v1 — and the “API key”. The three model fields — “Chat model”, “Embedding model”, and “Transcription model” — are optional: leave one empty and that capability keeps using Pinar's providers.",
+            "The base URL must be HTTPS, without a user or a password in the URL and without a private or local address; anything else is refused before it is saved.",
+          ],
+        },
+        {
+          heading: "The connection test and the capabilities",
+          paragraphs: [
+            "Saving the endpoint runs the test right after the save, and the “Test connection” button runs it on the saved endpoint. The test checks four capabilities: “Chat with tools”, “Vision”, “Embeddings”, and “Transcription”.",
+            "Each capability shows one of three states: “Your endpoint”, when it passed; “Pinar credits”, when it did not pass, with a short cause; or “Not tested”. There is a limit on how many tests you can run in a row; when you reach it, wait a moment and try again.",
+          ],
+        },
+        {
+          heading: "What uses your endpoint and what keeps using credits",
+          paragraphs: [
+            "A capability uses your endpoint only after it passed the test; everything else keeps using Pinar's providers, with credits, as it does today.",
+          ],
+          bullets: [
+            "The assistant: its answers go to the endpoint's chat with tools. In that turn, the pin search uses the endpoint's vision and Embeddings when they passed; without them, the search is by text only, and nothing goes to Pinar's providers.",
+            "Voice on a pin: the transcription decides. With transcription on the endpoint, the structuring of the text goes to the endpoint's chat when it passed; when it did not pass, it goes to Pinar's providers in Pinar Cloud and uses 1 credit.",
+            "The written reproduction steps: they go to the endpoint's chat.",
+            "The automatic collection choice: it uses the endpoint's Embeddings. When the endpoint fails, the capture stays in the default destination, without Pinar Cloud credits.",
+          ],
+        },
+        {
+          heading: "When the endpoint fails a request",
+          paragraphs: [
+            "The assistant and the written reproduction steps show the cause and two buttons: “Try again” and “Use Pinar credits”; the second sends only that request through Pinar's providers, with credits. In the extension, a failed voice transcription shows the cause and offers to resend the same recording with credits.",
+          ],
+        },
+        {
+          heading: "The key and your privacy",
+          paragraphs: [
+            "The API key is encrypted in Pinar Cloud, and the settings show only its last four characters; it is decrypted in memory only at the moment of each call, is never written to a log, and it is removed when you remove the endpoint or delete the account. [Where your data lives](/help/privacy/where-data-lives) has the details.",
           ],
         },
       ],

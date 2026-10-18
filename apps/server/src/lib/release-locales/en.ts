@@ -650,6 +650,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "own-ai-endpoint": {
+        description:
+          "In Pinar Cloud, Pro accounts can register their own endpoint in Settings → AI Assistant: an HTTPS base URL, an API key, and optional models for chat, Embeddings, and transcription. The capabilities that pass the connection test are answered by that endpoint, without Pinar Cloud credits; everything that did not pass keeps using Pinar's providers, with credits. When the endpoint fails, the assistant and the written reproduction steps show the cause with “Try again” and “Use Pinar credits”, and the extension offers to resend the same voice recording with credits.",
+        title: "Your own endpoint in Pinar Cloud (Pro)",
+      },
+    },
+    summary:
+      "Pro accounts in Pinar Cloud can register their own endpoint, and the AI errors of the assistant, the reproduction, and the voice now show the cause with a choice.",
+    title: "Your own endpoint in Pinar Cloud",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

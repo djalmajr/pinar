@@ -635,6 +635,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "own-ai-endpoint": {
+        description:
+          "In Pinar Cloud können Pro-Konten einen eigenen Endpoint in Einstellungen → KI-Assistent registrieren: eine HTTPS-Basis-URL, einen API-Schlüssel und optionale Modelle für Chat, Embeddings und Transkription. Die Fähigkeiten, die den Verbindungstest bestehen, beantwortet dieser Endpoint ohne Pinar-Cloud-Credits; der Rest nutzt weiter die Anbieter von Pinar, mit Credits. Wenn der Endpoint fehlschlägt, zeigen der Assistent und die schriftlichen Reproduktionsschritte die Ursache mit „Erneut versuchen“ und „Pinar-Credits verwenden“, und die Erweiterung bietet an, dieselbe Sprachaufnahme mit Credits erneut zu senden.",
+        title: "Dein eigener Endpoint in Pinar Cloud (Pro)",
+      },
+    },
+    summary:
+      "Pro-Konten in Pinar Cloud können einen eigenen Endpoint registrieren, und die KI-Fehler von Assistent, Reproduktion und Sprache zeigen jetzt die Ursache mit einer Wahl.",
+    title: "Dein eigener Endpoint in Pinar Cloud",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

@@ -835,7 +835,7 @@ const locale = {
         {
           heading: "In Pinar Cloud: Pro und Credits",
           paragraphs: [
-            "In Pinar Cloud gehört der Assistent zu Pro. Jede Nachricht, die du sendest, verbraucht 3 KI-Credits, und eine fehlgeschlagene Antwort gibt sie zurück. Einen Vorschlag zu bestätigen oder rückgängig zu machen kostet keine Credits.",
+            "In Pinar Cloud gehört der Assistent zu Pro. Jede Nachricht, die du sendest, verbraucht 3 KI-Credits, und eine fehlgeschlagene Antwort gibt sie zurück. Einen Vorschlag zu bestätigen oder rückgängig zu machen kostet keine Credits. Wenn eine Nachricht, die dein eigener Endpoint beantwortet, fehlschlägt, zeigt der Bereich die Ursache und zwei Buttons: „Erneut versuchen“ und „Pinar-Credits verwenden“; der zweite schickt nur diese Nachricht über die Anbieter von Pinar, mit Credits.",
             "Es sind dieselben Credits wie bei der Sprachtranskription, und Credit-Pakete können nur mit Pro gekauft werden. [Pinar-Cloud-KI-Credits für Sprache und Assistent](/help/cloud/ai-credits) erklärt Guthaben und Erstattungen.",
           ],
         },
@@ -1109,6 +1109,7 @@ const locale = {
             "Jede Nachricht an den Assistenten in Pinar Cloud verbraucht 3 Credits, und eine fehlgeschlagene Antwort gibt sie zurück. Einen Vorschlag zu bestätigen oder rückgängig zu machen kostet keine Credits. In der lokalen App nutzt der Assistent die KI, die du eingerichtet hast, und keine Pinar-Credits.",
             "In Pinar Cloud verbraucht das Erzeugen der ausformulierten Reproduktionsschritte 1 KI-Credit pro Generation, und eine fehlgeschlagene Generation erstattet ihn.",
             "Bei eingeschalteter automatischer Sammlungswahl verbraucht jede Aufnahme, für die die KI die Sammlung wählt, 1 Credit – auch wenn die Wahl der „Posteingang“ ist; eine fehlgeschlagene oder abgelaufene Wahl erstattet ihn, und ohne Guthaben wird die KI nicht aufgerufen und die Aufnahme landet im „Posteingang“.",
+            "Mit deinem eigenen Endpoint werden die Fähigkeiten, die den Verbindungstest bestanden haben, von diesem Endpoint beantwortet, ohne Pinar-Cloud-Credits, und die anderen nutzen weiter Credits; [Nutze deinen eigenen KI-Endpoint in Pinar Cloud](/help/cloud/own-ai-endpoint) erklärt den Test und was jede Funktion nutzt.",
           ],
         },
         {
@@ -1129,6 +1130,57 @@ const locale = {
             "Schlägt eine Antwort des Assistenten fehl, kommen ihre Credits zurück; sende die Nachricht erneut, wenn du so weit bist.",
             "Zeigt der Workspace null Credits, prüfe das Restguthaben, bevor du ein weiteres 500-Credit-Paket kaufst.",
             "Schickst du innerhalb einer Minute zu viele KI-Anfragen, wird die Anfrage vorübergehend abgewiesen; warte eine Minute und versuche es erneut.",
+          ],
+        },
+      ],
+    },
+    "own-ai-endpoint": {
+      title: "Nutze deinen eigenen KI-Endpoint in Pinar Cloud",
+      summary: "Registriere deinen eigenen Endpoint in Pinar Cloud Pro, teste seine Fähigkeiten und sieh, welche Funktionen er ohne Credits beantwortet.",
+      sections: [
+        {
+          heading: "Was es ist",
+          paragraphs: [
+            "Dein eigener Endpoint ist ein Vorteil von Pinar Cloud, der Pro braucht. Den KI-Anbieter wählst und beauftragst du selbst, seine Bedingungen gelten für diese Verarbeitung, und Pinar leitet deine Anfragen nur an ihn weiter. Im Gegensatz zur lokalen App, in der deine KI nicht über Pinar läuft, laufen die Anfragen hier über Pinar Cloud auf dem Weg zu deinem Endpoint.",
+            "Er befindet sich in Einstellungen → KI-Assistent, im Block „Dein eigener Endpoint“. Die Fähigkeiten, die den Verbindungstest bestehen, beantwortet dieser Endpoint ohne Pinar-Cloud-Credits; die anderen nutzen weiter die Anbieter von Pinar, mit Credits, wie heute.",
+          ],
+        },
+        {
+          heading: "Den Endpoint registrieren",
+          paragraphs: [
+            "In Einstellungen → KI-Assistent öffnest du den Block „Dein eigener Endpoint“. Gib den „Endpoint“ ein – die OpenAI-kompatible Basis-URL, normalerweise mit /v1 am Ende – und den „API-Schlüssel“. Die drei Modellfelder – „Chat-Modell“, „Embedding-Modell“ und „Transkriptionsmodell“ – sind optional: Lass eines leer, und diese Fähigkeit nutzt weiter die Anbieter von Pinar.",
+            "Die Basis-URL muss HTTPS sein, ohne Benutzername oder Passwort in der URL und ohne private oder lokale Adresse; alles andere wird vor dem Speichern abgelehnt.",
+          ],
+        },
+        {
+          heading: "Der Verbindungstest und die Fähigkeiten",
+          paragraphs: [
+            "Beim Speichern des Endpoints läuft der Test gleich danach, und der Button „Verbindung testen“ führt ihn auf dem gespeicherten Endpoint aus. Der Test prüft vier Fähigkeiten: „Chat mit Tools“, „Vision“, „Embeddings“ und „Transkription“.",
+            "Jede Fähigkeit zeigt einen von drei Zuständen: „Dein Endpoint“, wenn sie bestanden hat; „Pinar-Credits“, wenn sie nicht bestanden hat, mit kurzer Ursache; oder „Nicht getestet“. Es gibt ein Limit für Tests in Folge; wenn du es erreichst, warte einen Moment und versuche es erneut.",
+          ],
+        },
+        {
+          heading: "Was deinen Endpoint nutzt und was weiter Credits nutzt",
+          paragraphs: [
+            "Eine Fähigkeit nutzt deinen Endpoint erst, nachdem sie den Test bestanden hat; der Rest nutzt weiter die Anbieter von Pinar, mit Credits, wie heute.",
+          ],
+          bullets: [
+            "Der Assistent: Seine Antworten gehen an den Chat mit Tools deines Endpoints. In diesem Zug nutzt die Pin-Suche die Vision und Embeddings deines Endpoints, wenn sie bestanden haben; ohne sie ist die Suche nur textbasiert, und nichts geht an die Anbieter von Pinar.",
+            "Sprache an einem Pin: Die Transkription entscheidet. Mit der Transkription auf deinem Endpoint geht die Strukturierung des Texts an den Chat deines Endpoints, wenn er bestanden hat; wenn nicht, geht sie an die Anbieter von Pinar in Pinar Cloud und verbraucht 1 Credit.",
+            "Die schriftlichen Reproduktionsschritte: Sie gehen an den Chat deines Endpoints.",
+            "Die automatische Sammlungswahl: Sie nutzt Embeddings deines Endpoints. Wenn der Endpoint fehlschlägt, bleibt die Aufnahme im Standardziel, ohne Pinar-Cloud-Credits.",
+          ],
+        },
+        {
+          heading: "Wenn der Endpoint bei einer Anfrage fehlschlägt",
+          paragraphs: [
+            "Der Assistent und die schriftlichen Reproduktionsschritte zeigen die Ursache und zwei Buttons: „Erneut versuchen“ und „Pinar-Credits verwenden“; der zweite schickt nur diese Anfrage über die Anbieter von Pinar, mit Credits. In der Erweiterung zeigt eine fehlgeschlagene Sprachtranskription die Ursache und bietet an, dieselbe Aufnahme mit Credits erneut zu senden.",
+          ],
+        },
+        {
+          heading: "Der Schlüssel und deine Privatsphäre",
+          paragraphs: [
+            "Der API-Schlüssel ist in Pinar Cloud verschlüsselt, und der Bildschirm zeigt nur seine letzten vier Zeichen; er wird nur im Speicher zum Zeitpunkt jedes Aufrufs entschlüsselt, kommt nie in ein Protokoll und wird entfernt, wenn du den Endpoint oder dein Konto löschst. [Wo deine Daten liegen](/help/privacy/where-data-lives) hat die Details.",
           ],
         },
       ],

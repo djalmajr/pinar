@@ -632,6 +632,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "own-ai-endpoint": {
+        description:
+          "在 Pinar Cloud 中，Pro 账户可以在「设置 → AI 助手」中注册自己的端点：HTTPS 基础 URL、API 密钥，以及用于聊天、嵌入和转写的可选模型。通过连接测试的能力由该端点处理，不消耗 Pinar Cloud 积分；未通过的能力继续使用 Pinar 的提供商，消耗积分。端点失败时，助手和书面复现步骤会显示原因，并提供「重试」和「使用 Pinar 积分」；扩展会提供以积分重新发送同一段语音录音。",
+        title: "Pinar Cloud 中的自有端点（Pro）",
+      },
+    },
+    summary:
+      "Pinar Cloud 的 Pro 账户可以注册自己的端点，助手、复现和语音的 AI 错误现在会显示原因并提供选择。",
+    title: "Pinar Cloud 中的自有端点",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

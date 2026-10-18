@@ -603,6 +603,21 @@ export const helpArticleDefinitions = [
     ],
   },
   {
+    // The cover reuses the assistant screenshot: the S5 docs ship no new
+    // screenshot, and the schema still requires a cover per article.
+    id: "own-ai-endpoint",
+    category: "cloud",
+    readMinutes: 4,
+    screenshotKey: "assistant",
+    sourceRefs: [
+      "apps/server/src/components/ByokSettings.tsx",
+      "apps/server/src/server/byok/api.ts",
+      "apps/server/src/server/byok/detect.ts",
+      "apps/server/src/server/byok/route.ts",
+      "apps/server/src/lib/entitlements.ts",
+    ],
+  },
+  {
     id: "storage-and-retention",
     category: "cloud",
     readMinutes: 6,

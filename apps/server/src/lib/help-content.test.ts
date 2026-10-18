@@ -18,7 +18,7 @@ import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 const expectedArticleCounts = {
   agents: 6,
   captures: 6,
-  cloud: 5,
+  cloud: 6,
   "getting-started": 4,
   privacy: 4,
   workspace: 3,
@@ -54,11 +54,11 @@ describe("help content", () => {
     assert.equal(loadHelpContent("fr"), frenchContent);
     assert.equal((await frenchContent).language, "fr");
   });
-  test("ships the designed six-category, 28-article catalog in every locale", async () => {
+  test("ships the designed six-category, 29-article catalog in every locale", async () => {
     const contents = await loadEveryHelpLocale();
     for (const content of contents) {
       assert.equal(content.categories.length, 6, content.language);
-      assert.equal(content.articles.length, 28, content.language);
+      assert.equal(content.articles.length, 29, content.language);
       for (const category of content.categories) {
         assert.equal(
           articlesInCategory(content, category.id).length,
@@ -537,8 +537,17 @@ describe("help content", () => {
   test("gives every article its own cover file", async () => {
     for (const content of await loadEveryHelpLocale()) {
       const keys = content.articles.map((article) => article.screenshot.key);
-      assert.equal(keys.length, 28, content.language);
+      assert.equal(keys.length, 29, content.language);
+      // own-ai-endpoint reuses the assistant cover: the S5 docs ship no new
+      // screenshot, so 29 articles share 28 cover files.
       assert.equal(new Set(keys).size, 28, content.language);
+      assert.deepEqual(
+        content.articles
+          .filter((article) => article.screenshot.key === "assistant")
+          .map((article) => article.id),
+        ["assistant", "own-ai-endpoint"],
+        content.language,
+      );
     }
   });
 
@@ -590,6 +599,7 @@ describe("help content", () => {
       "local-security-and-recovery": "workspace-security",
       "nested-collections": "workspace-nested",
       "organize-projects": "capture-workspace",
+      "own-ai-endpoint": "assistant",
       "pins-and-comments": "capture-pins",
       "plans-and-billing": "pricing",
       "privacy-masks": "capture-masks",
@@ -904,14 +914,31 @@ describe("help content", () => {
       /compatível com a OpenAI/g,
       /compatible con OpenAI/g,
       /compatible OpenAI/g,
-      /OpenAI-kompatiblen/g,
+      /OpenAI-kompatible(?:r|n)?/g,
       /OpenAI 互換/g,
       /OpenAI 兼容/g,
     ];
-    const withoutProtocolPhrases = (text: string) =>
-      protocolPhrases.reduce((rest, phrase) => rest.replace(phrase, " "), text);
-    const leaks = (text: string) =>
-      internalTerms.filter((pattern) => pattern.test(withoutProtocolPhrases(text)));
+    // The BYOK settings and the own-ai-endpoint guide quote the embedding
+    // capability and model labels exactly as the UI shows them ("Embeddings",
+    // "Modelo de embedding", "嵌入", …): the scan strips those exact labels,
+    // per language, not the word in general.
+    const embeddingUiLabels: Record<string, RegExp[]> = {
+      de: [/Embedding-Modell/g, /Embeddings/g],
+      en: [/Embedding model/g, /Embeddings/g],
+      es: [/Modelo de embedding/g, /Embeddings/g],
+      fr: [/Modèle d’embedding/g, /Embeddings/g],
+      ja: [/embedding モデル/g, /embedding/g],
+      pt: [/Modelo de embedding/g, /Embeddings/g],
+      zh: [/嵌入模型/g, /嵌入/g],
+    };
+    const withoutUiLabels = (text: string, language: string) =>
+      protocolPhrases
+        .concat(embeddingUiLabels[language] ?? [])
+        .reduce((rest, phrase) => rest.replace(phrase, " "), text);
+    const leaks = (text: string, language = "en") =>
+      internalTerms.filter((pattern) =>
+        pattern.test(withoutUiLabels(text, language)),
+      );
 
     // The list catches each banned term and lets the allowed wording through.
     for (const sample of [
@@ -942,13 +969,33 @@ describe("help content", () => {
     ]) {
       assert.deepEqual(leaks(allowed), [], allowed);
     }
+    // The embedding UI labels pass the scan in their own language only.
+    // (Explicit strings: RegExp.prototype.source escapes non-ASCII in JSC.)
+    const embeddingLabelSamples: Record<string, string[]> = {
+      de: ["Embedding-Modell", "Embeddings"],
+      en: ["Embedding model", "Embeddings"],
+      es: ["Modelo de embedding", "Embeddings"],
+      fr: ["Modèle d’embedding", "Embeddings"],
+      ja: ["embedding モデル", "embedding"],
+      pt: ["Modelo de embedding", "Embeddings"],
+      zh: ["嵌入模型", "嵌入"],
+    };
+    for (const [language, samples] of Object.entries(embeddingLabelSamples)) {
+      for (const sample of samples) {
+        assert.equal(
+          leaks(sample, language).length,
+          0,
+          `${language}:${sample}`,
+        );
+      }
+    }
 
     const releases = await Promise.all(
       SUPPORTED_LANGUAGES.map((language) => loadReleaseContent(language)),
     );
     for (const content of await loadEveryHelpLocale()) {
       const texts: string[] = [];
-      for (const id of ["assistant", "ai-features", "ai-credits"]) {
+      for (const id of ["assistant", "ai-features", "ai-credits", "own-ai-endpoint"]) {
         const article = content.articles.find((candidate) => candidate.id === id);
         assert.ok(article, `${content.language}:${id}`);
         texts.push(...articleTexts(article));
@@ -970,9 +1017,21 @@ describe("help content", () => {
           .filter((change) => change.id !== "legal-update")
           .flatMap((change) => [change.title, change.description]),
       );
+      // The unreleased block, when present, is published copy too and keeps
+      // the same internal-term discipline.
+      if (release.upcoming) {
+        texts.push(
+          release.upcoming.title,
+          release.upcoming.summary,
+          ...release.upcoming.changes.flatMap((change) => [
+            change.title,
+            change.description,
+          ]),
+        );
+      }
       for (const text of texts) {
         assert.deepEqual(
-          leaks(text),
+          leaks(text, content.language),
           [],
           `${content.language} shows an internal term: ${text.slice(0, 160)}`,
         );

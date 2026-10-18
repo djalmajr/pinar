@@ -2575,6 +2575,12 @@
   // credits" retry share it (F5/S4b) — the retry resends the same recording
   // with useCredits, without asking the microphone again.
   async function runVoiceTranscription({ audioDataUrl, durationSeconds, useCredits = false, requestGeneration, submitAfterTranscription = false }) {
+    // F5/S4b round 3: this may resume after a cancel happened during the
+    // previous conversion (the FileReader read) — a stale generation must not
+    // send and must not touch state at all: its busy state was already
+    // released by the cancel, and the new generation's state is not ours to
+    // set or release.
+    if (requestGeneration !== voiceRequestGeneration || !state.draft) return;
     voiceProcessing = true;
     pendingCreditRetry = null;
     setVoiceStatus();

@@ -124,6 +124,7 @@ function harness(contentSource = source) {
         text: ui.input.value,
       }),
       seedRecorder: () => { const recorder = new MediaRecorder(); voiceRecorder = recorder; voiceStartedAt = 1000; return recorder; },
+      getRecorder: () => voiceRecorder,
       startVoiceRecording,
       finishVoiceRecording,
       discardVoiceRecording,
@@ -241,6 +242,71 @@ describe("voice BYOK overlay lifecycle (F5/S4b review)", () => {
       assert.equal(h.api.snapshot().pending, null);
       assert.equal(h.api.snapshot().processing, false);
     }
+  });
+
+  test("cancel during encoding: no send, composer free, new recording accepted", async () => {
+    // Round-3 regression (review-s4-20261018T035214, scenario
+    // cancel-encoding-characterization, assertions corrected): the FileReader
+    // read is pending, the user cancels, and the read resolves after.
+    const h = harness();
+    h.setAnswer(async () => success);
+    const recorder = h.api.seedRecorder();
+    const finish = h.api.finishVoiceRecording(recorder, null, [new Blob(["A"])], 0);
+    assert.equal(h.api.snapshot().processing, true);
+    h.api.resetVoiceUi();
+    assert.equal(h.api.snapshot().processing, false);
+    assert.equal(h.api.snapshot().generation, 1);
+    h.readers[0].finish();
+    await finish;
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.ui.input.value, "");
+    assert.equal(h.api.snapshot().processing, false);
+    assert.equal(h.api.snapshot().recording, undefined);
+    await h.api.startVoiceRecording();
+    assert.equal(h.api.snapshot().recording, "recording");
+  });
+
+  test("cancel during the credits retry: result discarded, composer free, new recording accepted", async () => {
+    const h = harness();
+    await h.api.runVoiceTranscription({ audioDataUrl: "A", durationSeconds: 4, requestGeneration: 0 });
+    const wait = deferred();
+    h.setAnswer(() => wait.promise);
+    const retry = h.api.retryVoiceWithCredits();
+    assert.equal(h.api.snapshot().processing, true);
+    h.api.resetVoiceUi();
+    assert.equal(h.api.snapshot().processing, false);
+    wait.resolve(success);
+    await retry;
+    assert.equal(h.ui.input.value, "");
+    assert.equal(h.copies.length, 0);
+    assert.equal(h.api.snapshot().processing, false);
+    assert.equal(h.api.snapshot().pending, null);
+    await h.api.startVoiceRecording();
+    assert.equal(h.api.snapshot().recording, "recording");
+  });
+
+  test("a stale finally never releases the new generation's busy state", async () => {
+    // While the new generation encodes its own audio, the old retry's
+    // response resolves: it must be discarded without touching the new
+    // generation's busy state.
+    const h = harness();
+    await h.api.runVoiceTranscription({ audioDataUrl: "A", durationSeconds: 4, requestGeneration: 0 });
+    const wait = deferred();
+    h.setAnswer(() => wait.promise);
+    const retry = h.api.retryVoiceWithCredits();
+    h.api.resetVoiceUi();
+    await h.api.startVoiceRecording();
+    const generation = h.api.snapshot().generation;
+    const finish = h.api.finishVoiceRecording(h.api.getRecorder(), null, [new Blob(["A"])], generation);
+    assert.equal(h.api.snapshot().processing, true);
+    wait.resolve(success);
+    await retry;
+    assert.equal(h.api.snapshot().processing, true);
+    assert.equal(h.ui.input.value, "");
+    h.readers.at(-1).finish();
+    await finish;
+    assert.equal(h.api.snapshot().processing, false);
+    assert.match(h.ui.input.value, /New voice/);
   });
 
   test("every BYOK cause and a hostile retryAfter renders through the BYOK textContent status", async () => {

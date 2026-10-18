@@ -753,7 +753,8 @@ describe("searchPins", () => {
     const { d, fake } = await indexed();
     // Query [contrast=1, bias=1]. Documents: s1#1 and s2#2 ("Contraste")
     // [1,0,0,0,1] → 1; s1#2 adds checkout → 2/√6; s2#1 (price) → 1/2.
-    const all = await searchPins(d, { limit: 50, query: "contrast" });
+    const { hits: all, semantic } = await searchPins(d, { limit: 50, query: "contrast" });
+    assert.equal(semantic, true, "the embedded query's cosine ranking is the semantic one");
     assert.equal(fake.calls.embeddings.at(-1)!.prompt_name, "query");
     assert.deepEqual(fake.calls.embeddings.at(-1)!.input, ["contrast"]);
     assert.deepEqual(
@@ -775,16 +776,16 @@ describe("searchPins", () => {
       sessionTitle: "Title s1",
       url: "https://site.example/s1",
     });
-    const top = await searchPins(d, { limit: 3, query: "contrast" });
+    const { hits: top } = await searchPins(d, { limit: 3, query: "contrast" });
     assert.deepEqual(top, all.slice(0, 3));
-    assert.equal((await searchPins(d, { limit: 0, query: "contrast" })).length, 1, "limit is clamped to 1..50");
+    assert.equal((await searchPins(d, { limit: 0, query: "contrast" })).hits.length, 1, "limit is clamped to 1..50");
   });
 
   test("entries in the old format are ranked by their vector, not by text", async () => {
     const { d, data, fake } = await indexed();
     // The entries as written before the endpoint joined the identity.
     for (const entries of data.values()) for (const entry of entries) entry.model = "embeddinggemma-300m";
-    const all = await searchPins(d, { limit: 50, query: "contrast" });
+    const { hits: all } = await searchPins(d, { limit: 50, query: "contrast" });
     assert.equal(fake.calls.embeddings.at(-1)!.prompt_name, "query");
     // The same cosine order as the new-format entries: a textual fallback
     // would rank the two "contrast" documents first, without the 0.816 and
@@ -802,7 +803,7 @@ describe("searchPins", () => {
 
   test("asks the store only for listSessions ids and never returns other sessions", async () => {
     const { calls, d } = await indexed();
-    const hits = await searchPins(d, { limit: 50, query: "contrast" });
+    const { hits } = await searchPins(d, { limit: 50, query: "contrast" });
     assert.deepEqual(calls.entriesFor, [["s2", "s1"]]);
     assert.ok(hits.every((hit) => hit.sessionId !== "secret"));
   });
@@ -810,7 +811,7 @@ describe("searchPins", () => {
   test("drops sessions outside listSessions even when the store leaks them", async () => {
     const { d, data } = await indexed({ leaky: true });
     assert.ok(data.has("secret"));
-    const hits = await searchPins(d, { limit: 50, query: "contrast" });
+    const { hits } = await searchPins(d, { limit: 50, query: "contrast" });
     assert.ok(hits.length > 0);
     assert.deepEqual(
       hits.filter((hit) => hit.sessionId === "secret" || hit.sessionTitle === "Private"),
@@ -822,13 +823,14 @@ describe("searchPins", () => {
     const { d, data, fake } = await indexed({ embedding: null });
     assert.ok([...data.values()].flat().every((entry) => entry.vector === null));
     const embeddingsBefore = fake.calls.embeddings.length;
-    const hits = await searchPins(d, { limit: 10, query: "CONTRASTE botao" });
+    const { hits, semantic } = await searchPins(d, { limit: 10, query: "CONTRASTE botao" });
+    assert.equal(semantic, false, "the textual ranking says the semantic one did not run");
     assert.equal(fake.calls.embeddings.length, embeddingsBefore, "no embeddings call");
     assert.deepEqual(
       hits.map((hit) => [hit.sessionId, hit.number, hit.score]),
       [["s2", 2, 1]],
     );
-    const partial = await searchPins(d, { limit: 10, query: "contrast checkout" });
+    const { hits: partial } = await searchPins(d, { limit: 10, query: "contrast checkout" });
     assert.deepEqual(
       partial.map((hit) => [hit.sessionId, hit.number, hit.score]),
       [
@@ -836,12 +838,13 @@ describe("searchPins", () => {
         ["s1", 1, 0.5],
       ],
     );
-    assert.deepEqual(await searchPins(d, { limit: 10, query: "nothing-matches" }), []);
+    assert.deepEqual(await searchPins(d, { limit: 10, query: "nothing-matches" }), { hits: [], semantic: false });
   });
 
   test("falls back to the text ranking when embedding the query fails", async () => {
     const { d, fake } = await indexed();
-    const textOnly = await searchPins({ ...d, embedding: null }, { limit: 10, query: "contrast checkout" });
+    const { hits: textOnly, semantic: textSemantic } = await searchPins({ ...d, embedding: null }, { limit: 10, query: "contrast checkout" });
+    assert.equal(textSemantic, false);
     assert.deepEqual(
       textOnly.map((hit) => [hit.sessionId, hit.number, hit.score]),
       [
@@ -860,9 +863,12 @@ describe("searchPins", () => {
         queried += 1;
         return failure();
       }) as typeof fetch;
-      const hits = await searchPins({ ...d, fetch: failing }, { limit: 10, query: "contrast checkout" });
+      const result = await searchPins({ ...d, fetch: failing }, { limit: 10, query: "contrast checkout" });
       assert.equal(queried, 1, "the query embedding was attempted");
-      assert.deepEqual(hits, textOnly);
+      // The failed query's embedding settles the textual ranking: the hits
+      // are the text-only ones and the answer says the semantic did not run
+      // (the provider's body never crosses it).
+      assert.deepEqual(result, { hits: textOnly, semantic: false });
     }
   });
 
@@ -871,7 +877,7 @@ describe("searchPins", () => {
     data.get("s2")![0]!.model = "other-model";
     data.get("s2")![1]!.vector = null;
     visible.byId.get("s1")!.pinIds[1] = "p2-replaced";
-    const hits = await searchPins(d, { limit: 50, query: "contrast" });
+    const { hits } = await searchPins(d, { limit: 50, query: "contrast" });
     assert.deepEqual(
       hits.map((hit) => [hit.sessionId, hit.number]),
       [["s1", 1]],

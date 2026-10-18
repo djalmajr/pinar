@@ -61,17 +61,22 @@ export function embeddingIdentity(endpoint: EmbeddingEndpoint): string {
  *   model): it matches only the same model and URL. A URL change with the
  *   same model re-embeds these entries.
  * - Entries written before the endpoint joined the identity carry only the
- *   model: they match any endpoint of the same model, on read and reuse —
- *   an upgrade must not strand their vectors (the pre-v0.8.1 behavior),
- *   and a URL change with the same model re-embeds only the new-format
- *   entries. A model name never contains the NUL that separates the new
- *   format's model from its base URL, so the two shapes cannot be mixed up.
+ *   model: they match the deployment's endpoint of the same model, on read
+ *   and reuse — an upgrade must not strand their vectors (the pre-v0.8.1
+ *   behavior), and a URL change with the same model re-embeds only the
+ *   new-format entries. A model name never contains the NUL that separates
+ *   the new format's model from its base URL, so the two shapes cannot be
+ *   mixed up. F5/S3c: the user's BYOK endpoint is a different vector space
+ *   than the deployment that wrote the legacy entries, and vectors of
+ *   different identities never mix (contract §5) — the legacy rule does
+ *   not apply to it, while the deployment's endpoints keep it.
  *
  * Every consumer of the stored model uses this rule: the indexSession
  * reuse, laggingSessions, searchPins and the filing centroids.
  */
 export function identityMatches(entryModel: string, endpoint: EmbeddingEndpoint): boolean {
   if (entryModel === embeddingIdentity(endpoint)) return true;
+  if (endpoint.byok) return false;
   return !entryModel.includes("\u0000") && entryModel === endpoint.model;
 }
 
@@ -89,6 +94,12 @@ export interface PinIndexDeps {
   chat: VisionEndpoint | null; // null or no image input → no captions
   embedding: EmbeddingEndpoint | null; // null → text-only entries
   fetch?: typeof fetch;
+  // F5/S3c: the session's indexing failure, as the error crossed it (the
+  // BYOK turn observes the ByokCallError of the caption's or the
+  // embedding's schema — outside the fetch's marking — and degrades the
+  // turn as an egress failure degrades it). Unset for the deployment's
+  // runtimes, where a failed session simply stays stale.
+  onSessionError?: (error: unknown) => void;
   now: () => Date;
   source: PinSource;
   store: PinIndexStore;
@@ -108,10 +119,20 @@ export interface PinSearchHit {
 /**
  * A runtime's pin search: its lazy indexing, then searchPins (contract
  * §3.1). `signal` is the assistant turn's: once it aborts, the search starts
- * no new request.
+ * no new request. The answer's `semantic` says whether the ranking that ran
+ * was the vector one (the query embedded, the hits scored by cosine); a
+ * text-only ranking (no embedding endpoint, or the query's embedding
+ * failed) answers false, and the tool's result reports it (F5/S3c).
  */
 export interface PinSearchService {
-  search(input: { limit: number; query: string; signal?: AbortSignal }): Promise<PinSearchHit[]>;
+  search(input: { limit: number; query: string; signal?: AbortSignal }): Promise<PinSearchResult>;
+}
+
+/** The search's answer: the hits and whether the ranking that ran was semantic. */
+export interface PinSearchResult {
+  hits: PinSearchHit[];
+  /** false: the ranking that ran was the textual one (the query was not embedded). */
+  semantic: boolean;
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -192,13 +213,24 @@ export async function indexSession(
       try {
         const result = await captionSessionPins({
           endpoint: deps.chat,
-          fetch: deps.fetch,
+          // The endpoint's own egress wins (F5/S3c: the BYOK caption); the
+          // deployment's endpoints run on the deps' fetch as before.
+          fetch: deps.chat.fetch ?? deps.fetch,
           image: shot,
           pins: pins.map((pin) => ({ comment: pin.comment, number: pin.number })),
         });
         fresh = new Map(result.map((item) => [item.number, { caption: item.caption, ocr: item.ocr }]));
         captioned = result.length > 0;
-      } catch {
+      } catch (error) {
+        // F5/S3c: the user's caption is a BYOK operation: a failure of its
+        // egress, cause, per-user cap, or the 2xx's parse and schema is a
+        // failure of the session's indexing — nothing is written, the
+        // whole work stays pending for the next pass, and the error
+        // crosses to the caller's marking (the BYOK's control sees it).
+        // The deployment's endpoints keep today's soft fallback: the
+        // session indexes without a caption, the caption pending for the
+        // next pass.
+        if (deps.chat.byok === true) throw error;
         fresh = null;
       }
     }
@@ -228,7 +260,9 @@ export async function indexSession(
       return current ? [] : [index];
     });
     if (pending.length > 0) {
-      const result = await embedTexts({ endpoint: embedding, fetch: deps.fetch, kind: "document", texts: pending.map((index) => docs[index]!.text) });
+      // The endpoint's own egress wins (F5/S3c: the BYOK embedding); the
+      // deployment's endpoints run on the deps' fetch as before.
+      const result = await embedTexts({ endpoint: embedding, fetch: embedding.fetch ?? deps.fetch, kind: "document", texts: pending.map((index) => docs[index]!.text) });
       pending.forEach((index, position) => vectors.set(index, encodeVector(result[position]!)));
     }
     embedded = pending.length;
@@ -329,8 +363,11 @@ export async function indexStale(
     try {
       await indexSession(deps, sessionId, { notBefore: listedAt.get(sessionId) });
       indexed += 1;
-    } catch {
-      // The session stays stale and is retried by the next pass.
+    } catch (error) {
+      // The session stays stale and is retried by the next pass. F5/S3c:
+      // the failure crosses to the deps' observer (the BYOK turn's
+      // control) as the error reached it.
+      deps.onSessionError?.(error);
       remaining = true;
     }
   }
@@ -354,13 +391,13 @@ function textScore(queryTerms: Set<string>, docText: string): number {
   return found / queryTerms.size;
 }
 
-export async function searchPins(deps: PinIndexDeps, input: { limit: number; query: string }): Promise<PinSearchHit[]> {
+export async function searchPins(deps: PinIndexDeps, input: { limit: number; query: string }): Promise<PinSearchResult> {
   if (!Number.isFinite(input.limit)) throw new RangeError("invalid search limit");
   const limit = Math.min(PIN_SEARCH_MAX_LIMIT, Math.max(1, Math.trunc(input.limit)));
   const query = input.query.trim();
-  if (query === "") return [];
+  if (query === "") return { hits: [], semantic: false };
   const sessions = await accessibleSessions(deps.source);
-  if (sessions.length === 0) return [];
+  if (sessions.length === 0) return { hits: [], semantic: false };
   const order = new Map(sessions.map((session, index) => [session.id, index]));
   const entries = (await deps.store.entriesFor([...order.keys()])).filter((entry) => order.has(entry.sessionId));
 
@@ -370,7 +407,9 @@ export async function searchPins(deps: PinIndexDeps, input: { limit: number; que
   const embedding = deps.embedding;
   if (embedding) {
     try {
-      const vectors = await embedTexts({ endpoint: embedding, fetch: deps.fetch, kind: "query", texts: [query] });
+      // The endpoint's own egress wins (F5/S3c: the BYOK query embedding);
+      // the deployment's endpoints run on the deps' fetch as before.
+      const vectors = await embedTexts({ endpoint: embedding, fetch: embedding.fetch ?? deps.fetch, kind: "query", texts: [query] });
       queryVector = vectors[0] ?? null;
     } catch {
       queryVector = null;
@@ -384,7 +423,7 @@ export async function searchPins(deps: PinIndexDeps, input: { limit: number; que
       .map((entry) => ({ entry, score: cosine(vector, decodeVector(entry.vector!)) }));
   } else {
     const queryTerms = new Set(terms(query));
-    if (queryTerms.size === 0) return [];
+    if (queryTerms.size === 0) return { hits: [], semantic: false };
     scored = entries.map((entry) => ({ entry, score: textScore(queryTerms, entry.docText) })).filter((item) => item.score > 0);
   }
   scored.sort(
@@ -415,5 +454,5 @@ export async function searchPins(deps: PinIndexDeps, input: { limit: number; que
       url: session.page.url,
     });
   }
-  return hits;
+  return { hits, semantic: Boolean(embedding && queryVector) };
 }

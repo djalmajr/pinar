@@ -553,7 +553,10 @@ describe("assistant http handler", () => {
     const pinSearch = {
       async search(input: { limit: number; query: string }) {
         searches.push(input);
-        return [{ caption: null, comment: "Contraste baixo", number: 3, pinId: "p3", score: 0.9, sessionId: "s1", sessionTitle: "Checkout", url: "https://site.example/c" }];
+        return {
+          hits: [{ caption: null, comment: "Contraste baixo", number: 3, pinId: "p3", score: 0.9, sessionId: "s1", sessionTitle: "Checkout", url: "https://site.example/c" }],
+          semantic: true,
+        };
       },
     };
     const offered: string[][] = [];

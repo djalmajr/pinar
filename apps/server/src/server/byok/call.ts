@@ -13,11 +13,11 @@
 // is invalid_response, like S2's probes.
 
 import {
+  ByokCallError,
+  byokAbortRace,
   byokEgressErrorCause,
   byokReadBody,
   byokResponseCause,
-  type ByokCause,
-  type ByokCauseCode,
 } from "./cause";
 import type { ByokEgress } from "./fetch";
 
@@ -33,22 +33,12 @@ export interface ByokCallTarget {
   model: string;
 }
 
-/**
- * The BYOK call failed (contract §1): the classified cause and the 429's
- * Retry-After in seconds when there is one, with a fixed message. The
- * provider's body, the URL and the key never cross this class, so it can
- * be thrown, carried by the response or logged without leaking.
- */
-export class ByokCallError extends Error {
-  readonly cause: ByokCauseCode;
-  readonly retryAfterSeconds: number | null;
-  constructor(byokCause: ByokCause) {
-    super("byok call failed");
-    this.name = "ByokCallError";
-    this.cause = byokCause.cause;
-    this.retryAfterSeconds = byokCause.retryAfterSeconds;
-  }
-}
+// The single ByokCallError (byok/cause.ts, next to the cause table): the
+// S3c retrieval and the S3b voice/reproduction share it, so the
+// byokErrorResponse's instanceof (cloud-api.ts) maps every BYOK failure.
+// Re-exported here for the S3b consumers' imports (ai/voice-pin.ts, the
+// written reproduction).
+export { ByokCallError };
 
 /**
  * The egress call, classified: a throw (the refusal, the deadline, the
@@ -61,16 +51,19 @@ export class ByokCallError extends Error {
 async function byokCallEgress(egress: ByokEgress, url: string, init: RequestInit, timeoutMs: number): Promise<string> {
   let response: Response;
   let bodyText: string;
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
-    response = await egress(url, {
+    // Raced with the deadline: an egress that ignores the signal cannot
+    // hold the call past it.
+    response = await byokAbortRace(egress(url, {
       ...init,
       redirect: "error",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    bodyText = await byokReadBody(response, BYOK_CALL_BODY_LIMIT);
+      signal,
+    }), signal);
+    bodyText = await byokReadBody(response, BYOK_CALL_BODY_LIMIT, signal);
   } catch (error) {
     if (error instanceof ByokCallError) throw error;
-    throw new ByokCallError(byokEgressErrorCause(error));
+    throw new ByokCallError(byokEgressErrorCause(error, signal));
   }
   if (!response.ok) throw new ByokCallError(byokResponseCause(response, bodyText));
   return bodyText;

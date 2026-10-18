@@ -44,6 +44,7 @@ import type { CloudEnv, Principal } from "../cloud-api";
 import { capabilitiesOf } from "./api";
 import {
   ByokAssistantTurnError,
+  byokAbortRace,
   byokEgressErrorCause,
   byokReadBody,
   byokResponseCause,
@@ -83,14 +84,23 @@ export function resetByokConcurrencyForTests(): void {
 
 const NOOP_RELEASE = () => {};
 
-function byokTryAcquire(ownerId: string): boolean {
+/**
+ * Acquire the owner's per-user BYOK concurrency slot (F5/S3c): exported so
+ * the index's and the destination's per-call egress (byokSlotEgress in
+ * byok/endpoints.ts) hold one slot per egress call, never the whole
+ * multi-call index. Above BYOK_MAX_CONCURRENT_CALLS the call fails with
+ * rate_limited, without a queue, and the caller degrades (the turn's index
+ * goes text, the automatic destination the default).
+ */
+export function byokAcquireSlot(ownerId: string): boolean {
   const current = byokCallsInFlight.get(ownerId) ?? 0;
   if (current >= BYOK_MAX_CONCURRENT_CALLS) return false;
   byokCallsInFlight.set(ownerId, current + 1);
   return true;
 }
 
-function byokMakeRelease(ownerId: string): () => void {
+/** The release of a slot taken by byokAcquireSlot: idempotent. */
+export function byokSlotRelease(ownerId: string): () => void {
   let released = false;
   return () => {
     if (released) return;
@@ -147,8 +157,8 @@ export async function cloudByokRoute(
   if (options.acquire === false) return { ...route, release: NOOP_RELEASE };
   // The check and the mark are one synchronous step, so a concurrent call
   // always sees the first one's mark.
-  if (!byokTryAcquire(principal.id)) return { cause: "rate_limited" };
-  return { ...route, release: byokMakeRelease(principal.id) };
+  if (!byokAcquireSlot(principal.id)) return { cause: "rate_limited" };
+  return { ...route, release: byokSlotRelease(principal.id) };
 }
 
 export interface ByokAssistantRoute extends ByokRoute {
@@ -217,13 +227,13 @@ export async function byokAssistantRoute(env: CloudEnv, principal: Principal): P
   if (base === null) return null;
   // The check and the mark are one synchronous step, so a concurrent call
   // always sees the first one's mark.
-  if (!byokTryAcquire(principal.id)) return { cause: "rate_limited" };
+  if (!byokAcquireSlot(principal.id)) return { cause: "rate_limited" };
   return {
     apiKey: base.apiKey,
     baseUrl: base.baseUrl,
     egress: base.egress,
     model: base.chatModel,
-    release: byokMakeRelease(principal.id),
+    release: byokSlotRelease(principal.id),
     vision: base.visionOk,
   };
 }
@@ -245,9 +255,13 @@ export async function byokAssistantRouteExists(env: CloudEnv, principal: Princip
 // 403/404 markers of the common table, never more.
 const BYOK_TURN_ERROR_BODY_LIMIT = 256 * 1024;
 
-function byokEgressAsFetch(egress: ByokEgress): typeof fetch {
-  // The SDK calls fetch with the URL string; the Request/URL forms are kept
-  // for the typeof fetch contract.
+/**
+ * The egress as the endpoint's fetch: the SDK calls fetch with the URL
+ * string; the Request/URL forms are kept for the typeof fetch contract.
+ * The single adapter (the turn's model fetch and the S3c retrieval
+ * endpoints' egress both use it).
+ */
+export function byokEgressAsFetch(egress: ByokEgress): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     return egress(url, init);
@@ -267,7 +281,9 @@ export function byokTurnFetch(egress: ByokEgress): typeof fetch {
   const guarded = guardRedirects(byokEgressAsFetch(egress));
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     try {
-      const response = await guarded(input, init);
+      // Raced with the call's signal: an egress that ignores it cannot hold
+      // the turn, and its slot, past the deadline.
+      const response = await byokAbortRace(guarded(input, init), init?.signal ?? undefined);
       if (response.ok) {
         // The 2xx body guarded mid-stream (contract §4 "Streaming"): a cut
         // by the guard (size or time) or a dropped network surfaces as an
@@ -278,7 +294,7 @@ export function byokTurnFetch(egress: ByokEgress): typeof fetch {
       }
       let bodyText: string | undefined;
       try {
-        bodyText = await byokReadBody(response, BYOK_TURN_ERROR_BODY_LIMIT);
+        bodyText = await byokReadBody(response, BYOK_TURN_ERROR_BODY_LIMIT, init?.signal ?? undefined);
       } catch {
         // A body that fails to be read (EDG-38 names it): the status and
         // the guard's header still decide the cause.
@@ -286,7 +302,7 @@ export function byokTurnFetch(egress: ByokEgress): typeof fetch {
       throw new ByokAssistantTurnError(byokResponseCause(response, bodyText));
     } catch (error) {
       if (error instanceof ByokAssistantTurnError) throw error;
-      throw new ByokAssistantTurnError(byokEgressErrorCause(error));
+      throw new ByokAssistantTurnError(byokEgressErrorCause(error, init?.signal ?? undefined));
     }
   }) as typeof fetch;
 }

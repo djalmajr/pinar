@@ -18,6 +18,7 @@
 // Vectors are stored as Float32 little-endian bytes (encodeVector /
 // decodeVector) and ranked by cosine.
 
+import { ByokCallError } from "../../byok/cause";
 import { postEndpointJson } from "./endpoint";
 import {
   assistantIndexCostLog,
@@ -39,6 +40,21 @@ export interface EmbeddingEndpoint {
   baseUrl: string;
   gateway?: GatewayEmbeddingOptions; // set for the Vercel AI Gateway
   model: string;
+  /**
+   * F5/S3c: the endpoint is the user's BYOK one: the legacy plain-model
+   * entries (written before the endpoint joined the identity) belong to
+   * the deployment that wrote them, never to the user's vector space, so
+   * identityMatches refuses them here (contract §5: vectors of different
+   * identities never mix); the deployment's endpoints keep the upgrade
+   * rule, so a pre-v0.8.1 vector of their model is not stranded.
+   */
+  byok?: true;
+  /**
+   * F5/S3c: the endpoint's own egress (the BYOK call, the per-user slot and
+   * the caused failures): it wins over the deps' fetch; unset for the
+   * deployment's endpoints, which run on the deps' fetch.
+   */
+  fetch?: typeof fetch;
 }
 
 const INVALID_RESPONSE = "embedding response invalid";
@@ -100,6 +116,7 @@ export async function embedTexts(input: {
           body: gateway
             ? { dimensions: PIN_EMBEDDING_DIMENSIONS, input: batch, model, providerOptions: gatewayPrivacyOptions(gateway) }
             : { dimensions: PIN_EMBEDDING_DIMENSIONS, input: batch, model, prompt_name: input.kind },
+          ...(input.endpoint.byok === true ? { byok: true } : {}),
           fetch: input.fetch,
           label: "embedding request",
           path: "/embeddings",
@@ -110,7 +127,16 @@ export async function embedTexts(input: {
           assistantIndexCostLog({ ...cost, kind: "embedding", model });
           await recordIndexCost(gateway, { ...cost, kind: "embedding", model });
         }
-        results[current] = parseEmbeddings(body, batch.length);
+        try {
+          results[current] = parseEmbeddings(body, batch.length);
+        } catch (error) {
+          // F5/S3c: the user's embedding 2xx outside the schema is the
+          // caused ByokCallError at the operation's boundary (the cause
+          // reaches the caller's result); the deployment's endpoints keep
+          // their fixed message.
+          if (input.endpoint.byok === true && !(error instanceof ByokCallError)) throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
+          throw error;
+        }
       } catch (error) {
         failed = true;
         throw error;

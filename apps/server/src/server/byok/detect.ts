@@ -38,7 +38,7 @@
 
 import { silentWav } from "../ai/inference";
 import type { ByokCapability, ByokCapabilities } from "./api";
-import { byokEgressErrorCause, byokReadBody, byokResponseCause, type ByokCauseCode } from "./cause";
+import { byokAbortRace, byokEgressErrorCause, byokReadBody, byokResponseCause, type ByokCauseCode } from "./cause";
 import type { ByokEgress } from "./fetch";
 
 /** A short cause for a capability that did not pass (F5 contract §2). */
@@ -105,15 +105,18 @@ async function callEgress(
 ): Promise<CallOutcome> {
   let response: Response;
   let bodyText: string;
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
-    response = await egress(url, {
+    // Raced with the deadline: an egress that ignores the signal cannot
+    // hold the call past it.
+    response = await byokAbortRace(egress(url, {
       ...init,
       redirect: "error",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    bodyText = await byokReadBody(response, BODY_LIMIT_BYTES);
+      signal,
+    }), signal);
+    bodyText = await byokReadBody(response, BODY_LIMIT_BYTES, signal);
   } catch (error) {
-    return { cause: byokEgressErrorCause(error).cause };
+    return { cause: byokEgressErrorCause(error, signal).cause };
   }
   if (response.ok) return { bodyText, status: response.status };
   const cause = byokResponseCause(response, bodyText);

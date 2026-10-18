@@ -25,7 +25,7 @@ import { assistantMarginMonitor } from "../margin-monitor";
 import { buildAssistantToolSet } from "../tools";
 import { runAssistantTurn } from "../turn";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
-import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
+import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
 import type { PinIndexEntry, PinSearchService } from "./index";
 import { embeddingIdentity } from "./index";
 import {
@@ -33,6 +33,7 @@ import {
   CLOUD_PIN_SEARCH_MAX_SESSIONS,
   cloudOwnerPinIndexStore,
   cloudRetrievalEndpoints,
+  createByokPinSearch,
   createByokTextPinSearch,
   createCloudPinSearch,
 } from "./runtime-cloud";
@@ -240,7 +241,8 @@ function cloudEnv(db: Database, overrides: Partial<CloudEnv> = {}, log?: QueryLo
 async function searchAs(env: CloudEnv, who: Principal, query: string, fetchFn: typeof fetch, limit = 20) {
   const service = await cloudPinSearch(env, who, { fetch: fetchFn });
   assert.ok(service, `${who.id} has a pin search`);
-  return service.search({ limit, query });
+  const { hits } = await service.search({ limit, query });
+  return hits;
 }
 
 // An appliance whose assistant turn calls pinar_pins_search once, then
@@ -803,16 +805,19 @@ describe("Cloud pin search: access and the turn's deadline", () => {
       return appliance.fetch(input, init);
     }) as typeof fetch;
     const started = Date.now();
-    const hits = await createCloudPinSearch({ data: oneSession(true), env: RUNTIME_ENV, fetch: slow, indexBudgetMs: 200 }).search({ limit: 5, query: "nota lenta" });
+    const result = await createCloudPinSearch({ data: oneSession(true), env: RUNTIME_ENV, fetch: slow, indexBudgetMs: 200 }).search({ limit: 5, query: "nota lenta" });
     const elapsed = Date.now() - started;
     assert.ok(elapsed >= 150 && elapsed < 2_000, `ended after ${elapsed} ms`);
     assert.equal(visions, 1);
     assert.equal(appliance.embeddings().filter((call) => call.body?.prompt_name === "document").length, 0, "no document embedding after the deadline");
     assert.equal(appliance.embeddings().filter((call) => call.body?.prompt_name === "query").length, 1, "the question still embedded, on the turn's signal");
-    assert.deepEqual(hits, []);
+    // The query was embedded, so the ranking that ran is the vector one —
+    // with no vector to rank, the hits are empty and the answer says the
+    // semantic one ran.
+    assert.deepEqual(result, { hits: [], semantic: true });
     assert.deepEqual(await cloudPinIndexStore({}, "usr_pro").entries("session_slow"), [], "the cut session stays stale");
 
-    const hitsLater = await createCloudPinSearch({ data: oneSession(true), env: RUNTIME_ENV, fetch: appliance.fetch, indexBudgetMs: 200 }).search({ limit: 5, query: "nota lenta" });
+    const { hits: hitsLater } = await createCloudPinSearch({ data: oneSession(true), env: RUNTIME_ENV, fetch: appliance.fetch, indexBudgetMs: 200 }).search({ limit: 5, query: "nota lenta" });
     assert.deepEqual(hitsLater.map((hit) => [hit.sessionId, hit.caption]), [["session_slow", "legenda 1"]]);
   });
 
@@ -938,7 +943,7 @@ describe("The BYOK text search's budget and the turn's abort (R2)", () => {
     await sleep(400);
     assert.equal(settled, true, `the search settled right after the budget, while the read is still held (t=${Math.round(performance.now() - begin)} ms)`);
     assert.ok(performance.now() - begin < 1_000, "at the budget, not after the read");
-    assert.deepEqual(await done, [], "the held read never contributed");
+    assert.deepEqual(await done, { hits: [], semantic: false }, "the held read never contributed");
     release();
     await sleep(20);
     assert.equal(sessionReads, 1, "no session read starts after the budget");
@@ -979,7 +984,7 @@ describe("The BYOK text search's budget and the turn's abort (R2)", () => {
     ]);
     // Nothing resolved at the budget answers; the built-but-unresolved
     // session does not hold the search either.
-    assert.deepEqual(hits, []);
+    assert.deepEqual(hits, { hits: [], semantic: false });
     // The reads the search started at the budget: the first session's
     // build, its comments' access re-check, the second session's in-flight
     // build. Nothing more may start, even after the held read is released.
@@ -1192,7 +1197,7 @@ describe("The BYOK text search's budget and the turn's abort (R2)", () => {
         new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("not settled after the budget")), 800)),
       ]);
       assert.ok(performance.now() - begin < 1_000, "at the budget, not after the read");
-      assert.deepEqual(hits, [], "the held read never contributed");
+      assert.deepEqual(hits, { hits: [], semantic: false }, "the held read never contributed");
       assert.equal(commentsReads, 0, "no comments read before the release");
       release();
       await sleep(30);
@@ -1201,6 +1206,560 @@ describe("The BYOK text search's budget and the turn's abort (R2)", () => {
     } finally {
       process.off("unhandledRejection", listener);
     }
+  });
+});
+
+// ---------- the BYOK pin search (F5/S3c) ----------
+
+// The user's endpoint, faked: /embeddings answers the same bag-of-words
+// vectors as the appliance (so the cosine ranking is meaningful), and the
+// non-stream /chat/completions is the caption call (the image rides in the
+// body). Every call is recorded, with the Authorization header.
+const BYOK_URL = "https://byok-user.test/v1";
+const BYOK_KEY = "sk-byok-s3c-test";
+
+function fakeByok(options: {
+  embeddingModel?: string;
+  fail?: (path: string) => Response | Error | null;
+  hang?: (path: string) => boolean;
+  chatModel?: string;
+} = {}) {
+  const calls: Array<{ auth: string | null; body: Record<string, any> | null; path: string }> = [];
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    const raw = input instanceof Request ? await input.text() : typeof init?.body === "string" ? init.body : "";
+    const body = raw ? (JSON.parse(raw) as Record<string, any>) : null;
+    const auth = new Headers(input instanceof Request ? input.headers : init?.headers ?? {}).get("authorization");
+    calls.push({ auth, body, path: url.pathname });
+    const failure = options.fail?.(url.pathname);
+    if (failure instanceof Response) return failure;
+    if (failure instanceof Error) throw failure;
+    if (options.hang?.(url.pathname)) return new Promise<Response>(() => {});
+    if (url.pathname.endsWith("/embeddings")) {
+      return Response.json({ data: (body!.input as string[]).map((text, index) => ({ embedding: fakeEmbedding(text), index })) });
+    }
+    if (url.pathname.endsWith("/chat/completions")) {
+      // The caption call: the markers come from the text part; the image
+      // rides in the image_url part (the test asserts it was sent).
+      const content = body!.messages[1].content as Array<{ image_url?: { url: string }; text?: string; type: string }>;
+      const textPart = (content.find((part) => part.type === "text")?.text ?? "");
+      const pins = [...textPart.matchAll(/^#(\d+):/gm)].map((match) => ({ caption: `byok legenda ${match[1]}`, number: Number(match[1]), ocr: "byok ocr" }));
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ pins }), role: "assistant" } }] });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+  return {
+    calls,
+    embeddings: () => calls.filter((call) => call.path.endsWith("/embeddings")),
+    fetch: fetchFn,
+    visions: () => calls.filter((call) => call.path.endsWith("/chat/completions")),
+  };
+}
+
+function byokData(): CloudPinSourceData {
+  const session: CloudPinSourceSession = {
+    createdAt: "2026-09-30T00:00:00.000Z",
+    id: "session_byok",
+    page: { title: "Nota", url: "https://site.example/nota" },
+    pins: [
+      { comment: "nota sobre o deploy", coords: { x: 0, y: 0 }, number: 1, pinId: "p1", type: "point" },
+      { comment: "outro assunto", coords: { x: 0, y: 0 }, number: 2, pinId: "p2", type: "point" },
+    ],
+  };
+  return {
+    async comments() {
+      return [];
+    },
+    async ownedSessions() {
+      return [{ createdAt: session.createdAt, id: session.id, ownerId: "usr_pro" }];
+    },
+    async session(id) {
+      return id === session.id ? session : null;
+    },
+    async sharedSessions() {
+      return [];
+    },
+    async shot() {
+      return PNG;
+    },
+  };
+}
+
+const BYOK_EMBEDDING = { apiKey: BYOK_KEY, baseUrl: BYOK_URL, byok: true, model: "byok-embed" };
+const BYOK_CHAT = { apiKey: BYOK_KEY, baseUrl: BYOK_URL, byok: true as const, kind: "openai-compatible" as const, model: "byok-chat", thinkingControl: false };
+
+describe("the BYOK pin search (F5/S3c)", () => {
+  const RUNTIME_ENV = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock" };
+  beforeEach(() => resetCloudMemoryStateForTests());
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  test("embeddings and vision ok: the session is indexed by the BYOK and the query uses its embedding", async () => {
+    const byok = fakeByok();
+    const service = createByokPinSearch({
+      byok: {
+        embedding: { ...BYOK_EMBEDDING, fetch: byok.fetch },
+        vision: { ...BYOK_CHAT, fetch: byok.fetch },
+      },
+      data: byokData(),
+      env: {},
+    });
+    const result = await service.search({ limit: 5, query: "nota deploy" });
+    // The captions: one vision call to the user's chat model, with the
+    // image, and the key only in the Authorization header.
+    assert.equal(byok.visions().length, 1, "one caption call");
+    const visionBody = byok.visions()[0]!.body!;
+    assert.equal(visionBody.model, "byok-chat", "the user's chat model captions");
+    const content = visionBody.messages[1].content as Array<{ image_url?: { url: string }; type: string }>;
+    assert.ok(content.some((part) => part.type === "image_url" && String(part.image_url?.url).startsWith("data:image/png;base64,")), "the screenshot rides in the body");
+    assert.equal(byok.visions()[0]!.auth, `Bearer ${BYOK_KEY}`, "the key travels in the Authorization header");
+    // The document embeddings: the user's embedding model.
+    const documents = byok.embeddings().filter((call) => call.body?.prompt_name === "document");
+    assert.equal(documents.length, 1);
+    assert.equal(documents[0]!.body!.model, "byok-embed");
+    assert.equal(documents[0]!.body!.dimensions, PIN_EMBEDDING_DIMENSIONS, "exactly 256 dimensions");
+    // The entries: the BYOK identity (model\u0000url) and the captions.
+    const store = cloudPinIndexStore({}, "usr_pro");
+    const entries = await store.entries("session_byok");
+    assert.equal(entries.length, 2);
+    const identity = embeddingIdentity({ ...BYOK_EMBEDDING, fetch: byok.fetch });
+    assert.ok(entries.every((entry) => entry.model === identity && entry.vector !== null), "the vectors carry the BYOK identity");
+    assert.equal(entries.find((entry) => entry.pinId === "p1")!.caption, "byok legenda 1");
+    // The query: embedded on the user's endpoint too.
+    const queries = byok.embeddings().filter((call) => call.body?.prompt_name === "query");
+    assert.equal(queries.length, 1, "the question was embedded once");
+    assert.equal(queries[0]!.body!.model, "byok-embed");
+    // The ranking: the vector one (the query was embedded), over the BYOK
+    // vectors; the pin is found.
+    assert.equal(result.semantic, true);
+    assert.ok(result.hits.some((hit) => hit.pinId === "p1"), "the pin is a hit");
+  });
+
+  test("embeddings ok, vision not: the session is indexed without a caption, the lack is marked, and a charged turn completes it", async () => {
+    const byok = fakeByok();
+    const service = createByokPinSearch({
+      byok: {
+        embedding: { ...BYOK_EMBEDDING, fetch: byok.fetch },
+        vision: null,
+      },
+      data: byokData(),
+      env: {},
+    });
+    const result = await service.search({ limit: 5, query: "nota deploy" });
+    assert.equal(byok.visions().length, 0, "without the vision ok no caption call leaves");
+    const store = cloudPinIndexStore({}, "usr_pro");
+    const entries = await store.entries("session_byok");
+    const identity = embeddingIdentity({ ...BYOK_EMBEDDING, fetch: byok.fetch });
+    assert.ok(entries.every((entry) => entry.model === identity && entry.vector !== null), "the vectors carry the BYOK identity");
+    assert.ok(entries.every((entry) => entry.caption === null), "the lack is marked: the captions are null, not empty");
+    assert.equal(result.semantic, true, "the query was embedded on the BYOK");
+
+    // A later charged turn (the gateway's path) completes the captions: the
+    // lagging rule (a null caption while there is a vision endpoint) makes
+    // the session pending again, the captions run on the deployment's
+    // chat, and the vectors are reused — the BYOK identity still matches,
+    // so nothing is re-embedded.
+    const appliance = fakeAppliance({ vision: true });
+    const charged = createCloudPinSearch({
+      byok: { embedding: { ...BYOK_EMBEDDING, fetch: byok.fetch }, vision: null },
+      data: byokData(),
+      env: RUNTIME_ENV,
+      fetch: appliance.fetch,
+    });
+    const later = await charged.search({ limit: 5, query: "nota deploy" });
+    const laterEntries = await store.entries("session_byok");
+    assert.equal(laterEntries.find((entry) => entry.pinId === "p1")!.caption, "legenda 1", "the charged turn completed the caption");
+    assert.ok(laterEntries.every((entry) => entry.model === identity), "the BYOK vectors were not replaced");
+    assert.equal(appliance.visions().length, 1, "the captions ran on the deployment's chat");
+    assert.equal(appliance.embeddings().filter((call) => call.body?.prompt_name === "document").length, 0, "the vectors were reused, not re-embedded");
+    assert.equal(later.semantic, true);
+  });
+
+  test("the identity is kept apart: the gateway's vectors do not enter a BYOK search, and the BYOK's do not enter the gateway's", async () => {
+    // The identity rule's search side, at the ranking level (searchPins,
+    // no indexing pass): the legacy plain-model entry (the deployment's
+    // identity) and the model\u0000url entry (the BYOK's identity) share
+    // the model name on a different URL — the vector space the identity
+    // rule keeps apart.
+    const { searchPins } = await import("./index");
+    const { cloudPinSource } = await import("./source-cloud");
+    const data: CloudPinSourceData = {
+      async comments() {
+        return [];
+      },
+      async ownedSessions() {
+        return [
+          { createdAt: "2026-09-30T00:00:00.000Z", id: "session_gw", ownerId: "usr_pro" },
+          { createdAt: "2026-09-30T01:00:00.000Z", id: "session_ba", ownerId: "usr_pro" },
+        ];
+      },
+      async session(id) {
+        if (id !== "session_gw" && id !== "session_ba") return null;
+        return {
+          createdAt: "2026-09-30T00:00:00.000Z",
+          id,
+          page: { title: id, url: `https://site.example/${id}` },
+          pins: [{ comment: id === "session_gw" ? "somente gateway" : "somente byok", coords: { x: 0, y: 0 }, number: 1, pinId: `${id}-p1`, type: "point" }],
+        };
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const source = cloudPinSource(data);
+    const store = cloudPinIndexStore({}, "usr_pro");
+    const gwVector = encodeVector(fakeEmbedding("somente gateway"));
+    const byokVector = encodeVector(fakeEmbedding("somente byok"));
+    await store.replaceSession("session_gw", [{ caption: null, docHash: "gw-hash", docText: "gw doc", model: "shared-model", number: 1, ocr: null, pinId: "session_gw-p1", sessionId: "session_gw", truncated: false, updatedAt: NOW, vector: gwVector }]);
+    await store.replaceSession("session_ba", [{ caption: null, docHash: "byok-hash", docText: "byok doc", model: `shared-model\u0000${BYOK_URL}`, number: 1, ocr: null, pinId: "session_ba-p1", sessionId: "session_ba", truncated: false, updatedAt: NOW, vector: byokVector }]);
+    const now = () => new Date(NOW);
+
+    // The BYOK endpoint (byok: true) ranks only its own identity: the
+    // legacy plain-model entry (the deployment's) never enters its vector
+    // space, even when the model name is the same.
+    const byokEndpoint = { ...BYOK_EMBEDDING, model: "shared-model", fetch: fakeByok().fetch };
+    const byokRanking = await searchPins({ chat: null, embedding: byokEndpoint, now, source, store }, { limit: 5, query: "somente gateway" });
+    assert.equal(byokRanking.semantic, true);
+    assert.ok(!byokRanking.hits.some((hit) => hit.sessionId === "session_gw"), "the deployment's legacy vector does not enter the BYOK's ranking");
+    assert.ok(byokRanking.hits.some((hit) => hit.sessionId === "session_ba"), "the BYOK vector ranks on the BYOK identity");
+
+    // The deployment's endpoint (the same model name, its own URL) ranks
+    // the legacy entry, and the BYOK's model\u0000url vectors are a
+    // different identity: they never enter its ranking.
+    const deploymentEndpoint = { baseUrl: BASE_URL, model: "shared-model" };
+    const deploymentRanking = await searchPins({ chat: null, embedding: deploymentEndpoint, fetch: fakeAppliance().fetch, now, source, store }, { limit: 5, query: "somente gateway" });
+    assert.ok(deploymentRanking.hits.some((hit) => hit.sessionId === "session_gw"), "the legacy vector ranks on the deployment's identity");
+    assert.ok(!deploymentRanking.hits.some((hit) => hit.sessionId === "session_ba"), "the BYOK's vector does not enter the deployment's ranking");
+  });
+
+  test("a BYOK failure in the indexing and the query: the search settles text-only, the gateway is never called, and the session stays stale", async () => {
+    const { ByokEgressUnavailableError } = await import("../../byok/fetch");
+    const { byokSlotEgress } = await import("../../byok/endpoints");
+    const cases: Array<{ findPin: boolean; hang?: (path: string) => boolean; label: string; fail: (path: string) => Response | Error | null }> = [
+      { fail: () => new Response("unauthorized", { status: 401 }), findPin: true, label: "401" },
+      { fail: () => new Response("slow down", { status: 429, headers: { "retry-after": "30" } }), findPin: true, label: "429" },
+      { fail: () => null, hang: () => true, findPin: false, label: "the deadline" },
+      { fail: () => new ByokEgressUnavailableError(), findPin: true, label: "the refusal" },
+    ];
+    for (const item of cases) {
+      resetCloudMemoryStateForTests();
+      const byok = fakeByok({ fail: item.fail, ...(item.hang ? { hang: item.hang } : {}) });
+      // The production wiring: the endpoint's egress is the byokSlotEgress
+      // (the per-user slot and the caused failures) of the user's key.
+      const egress = byokSlotEgress(byok.fetch, "usr_pro");
+      const service = createByokPinSearch({
+        budgetMs: 500,
+        byok: {
+          embedding: { ...BYOK_EMBEDDING, fetch: egress },
+          vision: { ...BYOK_CHAT, fetch: egress },
+        },
+        data: byokData(),
+        env: {},
+      });
+      const started = Date.now();
+      const result = await service.search({ limit: 5, query: "nota deploy" });
+      // The search settles text-only: the tool's result says the semantic
+      // one did not run, without the provider's body. The fast failures
+      // keep the budget for the text build (the pin is found in its own
+      // text); the deadline spends it on the hung call and settles with
+      // what it already resolved.
+      assert.equal(result.semantic, false, item.label);
+      if (item.findPin) {
+        assert.ok(result.hits.some((hit) => hit.pinId === "p1"), `the text ranking finds the pin (${item.label})`);
+      }
+      assert.ok(!JSON.stringify(result).includes("unauthorized"), `the provider's body never crosses the result (${item.label})`);
+      assert.ok(Date.now() - started < 5_000, `the search did not wait the endpoint's own deadline (${item.label})`);
+      // Nothing was written: the failed session stays stale.
+      const store = cloudPinIndexStore({}, "usr_pro");
+      assert.deepEqual(await store.entries("session_byok"), [], `the session stays stale (${item.label})`);
+      // The rest of the turn's searches do not call the BYOK again: a
+      // second search settles text-only without a single new egress call
+      // (no repeated 429/503).
+      const callsBefore = byok.calls.length;
+      const second = await service.search({ limit: 5, query: "nota deploy" });
+      assert.equal(second.semantic, false);
+      assert.equal(byok.calls.length, callsBefore, `the degraded turn makes no new BYOK call (${item.label})`);
+      // A later healthy pass re-indexes the stale session.
+      const healthy = fakeByok();
+      const later = createByokPinSearch({
+        byok: {
+          embedding: { ...BYOK_EMBEDDING, fetch: healthy.fetch },
+          vision: { ...BYOK_CHAT, fetch: healthy.fetch },
+        },
+        data: byokData(),
+        env: {},
+      });
+      await later.search({ limit: 5, query: "nota deploy" });
+      const entries = await store.entries("session_byok");
+      assert.ok(entries.every((entry) => entry.vector !== null && entry.model === embeddingIdentity(BYOK_EMBEDDING)), `the later pass indexed the stale session (${item.label})`);
+    }
+  });
+
+  test("above the per-user cap the search settles text-only (rate_limited, no queue)", async () => {
+    // The two slots are held by the turn and another in-flight call of
+    // the user: the index' per-call slot (the byokSlotEgress inside the
+    // endpoint's egress) is refused and the search degrades to the
+    // text-only one, without a queue and without the gateway.
+    const { byokAcquireSlot, byokSlotRelease, resetByokConcurrencyForTests } = await import("../../byok/route");
+    const { byokSlotEgress } = await import("../../byok/endpoints");
+    resetByokConcurrencyForTests();
+    assert.equal(byokAcquireSlot("usr_pro"), true, "the turn's slot (byokAssistantRoute)");
+    assert.equal(byokAcquireSlot("usr_pro"), true, "another in-flight call of the user");
+    const byok = fakeByok();
+    const sloted = byokSlotEgress(byok.fetch, "usr_pro");
+    const service = createByokPinSearch({
+      byok: {
+        embedding: { ...BYOK_EMBEDDING, fetch: sloted },
+        vision: { ...BYOK_CHAT, fetch: sloted },
+      },
+      data: byokData(),
+      env: {},
+    });
+    const result = await service.search({ limit: 5, query: "nota deploy" });
+    assert.equal(result.semantic, false, "the capped calls settle text-only");
+    assert.ok(result.hits.some((hit) => hit.pinId === "p1"), "the text ranking finds the pin");
+    const store = cloudPinIndexStore({}, "usr_pro");
+    assert.deepEqual(await store.entries("session_byok"), [], "the refused session stays stale");
+    assert.equal(byok.calls.length, 0, "no egress left: the cap refused before the key");
+    // A second search does not call the BYOK again (the turn is
+    // degraded): no repeated rate_limited round-trip.
+    const second = await service.search({ limit: 5, query: "nota deploy" });
+    assert.equal(second.semantic, false);
+    assert.equal(byok.calls.length, 0, "the degraded turn makes no new BYOK call");
+    byokSlotRelease("usr_pro")();
+    byokSlotRelease("usr_pro")();
+    // After the turn frees the slots, the egress fits again: the call is
+    // never queued, it just runs when a slot is free.
+    const free = await sloted("https://byok-user.test/v1/embeddings", {
+      body: JSON.stringify({ input: ["a"], model: "byok-embed" }),
+      method: "POST",
+    });
+    assert.equal(free.status, 200);
+    await free.text();
+    resetByokConcurrencyForTests();
+  });
+
+  test("a query 429 degrades the rest of the turn: one query call, the fallback over the current documents, no new call during the Retry-After", async () => {
+    const { byokSlotEgress } = await import("../../byok/endpoints");
+    let queries = 0;
+    let documents = 0;
+    const raw = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt_name?: string; input?: string[] };
+      if (body.prompt_name === "query") {
+        queries += 1;
+        return new Response("provider-canary", { status: 429, headers: { "retry-after": "60" } });
+      }
+      documents += 1;
+      return Response.json({ data: (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index })) });
+    }) as typeof fetch;
+    const egress = byokSlotEgress(raw, "usr_pro");
+    const service = createByokPinSearch({
+      byok: { embedding: { ...BYOK_EMBEDDING, fetch: egress }, vision: null },
+      data: byokData(),
+      env: {},
+    });
+    const a = await service.search({ limit: 5, query: "nota deploy" });
+    const b = await service.search({ limit: 5, query: "nota deploy" });
+    assert.equal(queries, 1, "the question's embedding was called once: the turn did not call the provider again during the Retry-After");
+    assert.equal(documents, 1, "the indexing's document call is the only other call");
+    assert.equal(a.semantic, false, "the failed query settles text-only");
+    assert.equal(b.semantic, false, "the next search of the turn stays text-only");
+    assert.ok(a.hits.some((hit) => hit.pinId === "p1"), "the fallback ranks the current documents");
+    assert.ok(b.hits.some((hit) => hit.pinId === "p1"), "the degraded search ranks the current documents too");
+    assert.ok(!JSON.stringify({ a, b }).includes("provider-canary"), "the provider's body never crosses the result");
+  });
+
+  test("a 2xx outside the caption's schema fails the BYOK operation: the session stays pending, the turn settles text-only", async () => {
+    const { byokSlotEgress } = await import("../../byok/endpoints");
+    let vision = 0;
+    let embeds = 0;
+    const raw = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/chat/completions")) {
+        vision += 1;
+        return Response.json({ choices: [{ message: { content: "invalid caption json provider-canary" } }] });
+      }
+      embeds += 1;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { input?: string[] };
+      return Response.json({ data: (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index })) });
+    }) as typeof fetch;
+    const egress = byokSlotEgress(raw, "usr_pro");
+    const service = createByokPinSearch({
+      byok: {
+        embedding: { ...BYOK_EMBEDDING, fetch: egress },
+        vision: { ...BYOK_CHAT, fetch: egress },
+      },
+      data: byokData(),
+      env: {},
+    });
+    const result = await service.search({ limit: 5, query: "nota deploy" });
+    assert.equal(vision, 1, "one caption call");
+    assert.equal(embeds, 0, "the failed session's indexing did not reach the embedding");
+    const store = cloudPinIndexStore({}, "usr_pro");
+    assert.deepEqual(await store.entries("session_byok"), [], "the session stays pending: nothing was written");
+    assert.equal(result.semantic, false, "the turn settles text-only");
+    assert.ok(result.hits.some((hit) => hit.pinId === "p1"), "the text ranking finds the pin");
+    // The rest of the turn: no new BYOK call (the turn is degraded).
+    const second = await service.search({ limit: 5, query: "nota deploy" });
+    assert.equal(second.semantic, false);
+    assert.equal(vision, 1, "the degraded turn makes no new caption call");
+    assert.ok(!JSON.stringify({ ...result, second }).includes("provider-canary"), "the provider's body never crosses the result");
+    // A later healthy pass re-indexes the pending session.
+    const healthy = fakeByok();
+    const later = createByokPinSearch({
+      byok: {
+        embedding: { ...BYOK_EMBEDDING, fetch: healthy.fetch },
+        vision: { ...BYOK_CHAT, fetch: healthy.fetch },
+      },
+      data: byokData(),
+      env: {},
+    });
+    const laterResult = await later.search({ limit: 5, query: "nota deploy" });
+    const entries = await store.entries("session_byok");
+    assert.ok(entries.every((entry) => entry.vector !== null && entry.model === embeddingIdentity(BYOK_EMBEDDING)), "the later pass indexed the pending session");
+    assert.equal(laterResult.semantic, true);
+  });
+
+  test("the charged turn: the question's BYOK embedding is bound to the turn only (the indexing's budget does not cut it), on the user's endpoint", async () => {
+    const calls: string[] = [];
+    const rawByok = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt_name?: string; input?: string[] };
+      calls.push(body.prompt_name ?? "?");
+      if (body.prompt_name === "query") await new Promise((resolve) => setTimeout(resolve, 120));
+      return Response.json({ data: (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index })) });
+    }) as typeof fetch;
+    // The deployment's detection answers /models (no vision); any other
+    // deployment call is a bug — it must not leave (the BYOK's endpoint
+    // wins the embeddings; the question's embedding never goes the
+    // gateway's vector space).
+    const deployment = (async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/models")) {
+        return Response.json({ data: [{ id: "mock", modalities: { input: ["text"] }, type: "chat" }] });
+      }
+      throw new Error(`unexpected deployment call: ${String(input)}`);
+    }) as typeof fetch;
+    const service = createCloudPinSearch({
+      byok: { embedding: { ...BYOK_EMBEDDING, fetch: rawByok }, vision: null },
+      data: byokData(),
+      env: RUNTIME_ENV,
+      fetch: deployment,
+      indexBudgetMs: 30,
+    });
+    const started = performance.now();
+    const result = await service.search({ limit: 5, query: "nota deploy" });
+    const elapsed = performance.now() - started;
+    assert.deepEqual(calls, ["document", "query"], "the document and the query ran on the user's endpoint");
+    assert.ok(elapsed >= 100, `the search waited the question's embedding past the indexing's budget (${Math.round(elapsed)}ms)`);
+    assert.equal(result.semantic, true, "the question was embedded (the indexing's budget did not cut it)");
+    assert.ok(result.hits.some((hit) => hit.pinId === "p1"), "the pin is a hit");
+  });
+
+  test("the charged turn: a query 429 degrades the rest of the turn to text — one query call, semantic false on both searches, no gateway vector", async () => {
+    resetRetrievalCapabilitiesCacheForTests();
+    const { byokSlotEgress } = await import("../../byok/endpoints");
+    let queries = 0;
+    let documents = 0;
+    let deploymentEmbeds = 0;
+    const rawByok = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt_name?: string; input?: string[] };
+      if (body.prompt_name === "query") {
+        queries += 1;
+        // The first query 429s; a second one would succeed — the turn must
+        // not make it (the degradation is persistent text, not a retry on
+        // the user's endpoint).
+        if (queries === 1) return new Response("provider-canary", { status: 429, headers: { "retry-after": "60" } });
+        return Response.json({ data: (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index })) });
+      }
+      documents += 1;
+      return Response.json({ data: (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index })) });
+    }) as typeof fetch;
+    const egress = byokSlotEgress(rawByok, "usr_pro");
+    const deployment = (async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/models")) {
+        return Response.json({ data: [{ id: "mock", modalities: { input: ["text"] }, type: "chat" }] });
+      }
+      deploymentEmbeds += 1;
+      throw new Error(`unexpected deployment call: ${String(input)}`);
+    }) as typeof fetch;
+    const service = createCloudPinSearch({
+      byok: { embedding: { ...BYOK_EMBEDDING, fetch: egress }, vision: null },
+      data: byokData(),
+      env: RUNTIME_ENV,
+      fetch: deployment,
+    });
+    const a = await service.search({ limit: 5, query: "nota deploy" });
+    const b = await service.search({ limit: 5, query: "nota deploy" });
+    assert.equal(queries, 1, "the question's embedding was called once: the rest of the turn did not call the user's endpoint again");
+    assert.equal(documents, 1, "the indexing's document call is the only other BYOK call");
+    assert.equal(a.semantic, false, "the failed query settles text-only");
+    assert.equal(b.semantic, false, "the next search of the turn stays text-only");
+    assert.ok(a.hits.some((hit) => hit.pinId === "p1"), "the first search still finds the pin (over the index's text)");
+    assert.ok(b.hits.some((hit) => hit.pinId === "p1"), "the degraded search ranks the current documents");
+    assert.equal(deploymentEmbeds, 0, "no gateway vector ever enters the BYOK's space");
+    assert.ok(!JSON.stringify({ a, b }).includes("provider-canary"), "the provider's body never crosses the result");
+  });
+
+  test("the charged turn: a BYOK caption outside the schema keeps the session pending and the search finds the pin by text (semantic false)", async () => {
+    resetRetrievalCapabilitiesCacheForTests();
+    const { byokSlotEgress } = await import("../../byok/endpoints");
+    const calls: string[] = [];
+    const rawByok = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/chat/completions")) {
+        calls.push("vision");
+        return Response.json({ choices: [{ message: { content: "invalid caption json provider-canary" } }] });
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt_name?: string; input?: string[] };
+      calls.push(body.prompt_name ?? "?");
+      return Response.json({ data: (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index })) });
+    }) as typeof fetch;
+    const egress = byokSlotEgress(rawByok, "usr_pro");
+    let deploymentCalls = 0;
+    const deployment = (async (input: RequestInfo | URL) => {
+      deploymentCalls += 1;
+      assert.ok(String(input).endsWith("/models"), "only the deployment's detection leaves");
+      return Response.json({ data: [{ id: "mock", modalities: { input: ["text"] }, type: "chat" }] });
+    }) as typeof fetch;
+    const service = createCloudPinSearch({
+      byok: {
+        embedding: { ...BYOK_EMBEDDING, fetch: egress },
+        vision: { ...BYOK_CHAT, fetch: egress },
+      },
+      data: byokData(),
+      env: RUNTIME_ENV,
+      fetch: deployment,
+    });
+    const result = await service.search({ limit: 5, query: "nota deploy" });
+    assert.deepEqual(calls, ["vision"], "one caption call; the search settled text-only, without the query's embedding");
+    const store = cloudPinIndexStore({}, "usr_pro");
+    assert.deepEqual(await store.entries("session_byok"), [], "the session stays pending: nothing was written");
+    assert.equal(result.semantic, false, "the charged search settles text-only");
+    assert.ok(result.hits.some((hit) => hit.pinId === "p1"), "the text ranking finds the current pin (the hit is not lost)");
+    // The rest of the turn: no new BYOK call, still text.
+    const second = await service.search({ limit: 5, query: "nota deploy" });
+    assert.deepEqual(calls, ["vision"], "the degraded turn makes no new BYOK call");
+    assert.equal(second.semantic, false);
+    assert.ok(second.hits.some((hit) => hit.pinId === "p1"));
+    assert.equal(deploymentCalls, 1, "the deployment's detection is the only deployment call");
+    assert.ok(!JSON.stringify({ ...result, second }).includes("provider-canary"), "the provider's body never crosses the result");
+    // A later healthy pass re-indexes the pending session, as the BYOK
+    // turn's.
+    const healthy = fakeByok();
+    const later = createCloudPinSearch({
+      byok: {
+        embedding: { ...BYOK_EMBEDDING, fetch: healthy.fetch },
+        vision: { ...BYOK_CHAT, fetch: healthy.fetch },
+      },
+      data: byokData(),
+      env: RUNTIME_ENV,
+      fetch: deployment,
+    });
+    const laterResult = await later.search({ limit: 5, query: "nota deploy" });
+    const entries = await store.entries("session_byok");
+    assert.ok(entries.length > 0, "the later pass indexed the pending session");
+    assert.ok(entries.every((entry) => entry.vector !== null && entry.model === embeddingIdentity(BYOK_EMBEDDING)), "the later pass indexed it with the BYOK's identity");
+    assert.equal(laterResult.semantic, true);
   });
 });
 

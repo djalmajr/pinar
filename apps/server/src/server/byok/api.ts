@@ -30,7 +30,8 @@ import {
 } from "../cloud-api";
 import { byokCrypto } from "./crypto";
 import { detectByokCapabilities } from "./detect";
-import { ByokEgress, byokFetch } from "./fetch";
+import { byokEgressFor } from "./fetch";
+export { setByokEgressForTests } from "./fetch";
 import { BYOK_TEST_MAX_PER_HOUR, byokTestConsume } from "./limit";
 import { byokRow, deleteByokRow, recordByokCapabilities, saveByokRow, type ByokStoredRow } from "./store";
 import { BYOK_BASE_URL_MAX, validateByokUrl } from "./url";
@@ -98,13 +99,9 @@ function byokNow(): string {
   return new Date(byokNowMs()).toISOString();
 }
 
-// The egress of the test route: byokFetch (the refusal until S6) in
-// production, the injected fake in the tests (the ByokEgress interface).
-let byokEgressForTests: ByokEgress | null = null;
-
-export function setByokEgressForTests(egress: ByokEgress | null) {
-  byokEgressForTests = egress;
-}
+// The egress of the test route and of S3's routing (byok/route.ts):
+// byokFetch (the refusal until S6) in production, the injected fake in the
+// tests (the ByokEgress interface, the same injection for both).
 
 // The one test in flight per account (F5 contract §2); it drains in the
 // finally of the test route, so it never leaks across tests.
@@ -139,7 +136,7 @@ function byokView(row: ByokStoredRow): ByokView {
 // A capabilities_json that cannot be parsed or shaped is read as untested,
 // never as ok: an unknown result must not route anything to the user's
 // endpoint (S3 reads these).
-function capabilitiesOf(stored: string): ByokCapabilities {
+export function capabilitiesOf(stored: string): ByokCapabilities {
   const untested = untestedCapabilities();
   let value: unknown;
   try {
@@ -399,7 +396,7 @@ async function testByok(request: Request, env: CloudEnv): Promise<Response> {
         key: apiKey,
         transcriptionModel: row.transcriptionModel,
       },
-      egress: byokEgressForTests ?? ((url, init) => byokFetch(env, url, init)),
+      egress: byokEgressFor(env),
       now: byokNow(),
     });
     // The result lands only if the tested configuration is still the stored

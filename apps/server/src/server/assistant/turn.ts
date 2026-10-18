@@ -78,6 +78,17 @@ export function buildTurnWindow(history: AssistantHistoryEntry[]): AssistantHist
 export const ASSISTANT_MAX_STEPS = 8;
 export const ASSISTANT_TURN_TIMEOUT_MS = 60_000;
 
+// The error the turn's own deadline raises when it aborts the call (F5/S3
+// review F3): it is a timeout the caller may classify (the BYOK cause),
+// while the caller's abort is a cancellation and is never a timeout. The
+// class, not a message, is how the caller recognizes it.
+export class AssistantTurnTimeoutError extends Error {
+  constructor() {
+    super("assistant turn timeout");
+    this.name = "AssistantTurnTimeoutError";
+  }
+}
+
 export interface AssistantTurnUsage {
   inputTokens: number;
   outputTokens: number;
@@ -100,7 +111,16 @@ type AssistantAsk = { options: string[]; question: string };
 
 export type AssistantStreamEmit = (part:
   | { data: AssistantPublicProposal; type: "data-proposal" }
-  | { data: { options: string[]; question: string }; type: "data-ask" }) => void;
+  | { data: { options: string[]; question: string }; type: "data-ask" }
+  | { data: Record<string, unknown>; type: `data-${string}` }) => void;
+
+// What the stream's error part carries when the caller classifies it
+// (the BYOK cause, F5/S3): the error code and one data part with the
+// details, written before the error part.
+export interface AssistantTurnStreamError {
+  code: string;
+  part?: { data: Record<string, unknown>; type: `data-${string}` };
+}
 
 // The plan's outcomes map onto two kinds: final (ask null), intentional
 // stop (final with the pinar_ask question) and missing final (error
@@ -112,6 +132,9 @@ export type AssistantTurnOutcome =
 
 export interface AssistantTurnInput {
   abortSignal?: AbortSignal;
+  // F5/S3: the origin of the turn (the user's BYOK endpoint or Pinar's own),
+  // recorded in the turn's first data part for the UI.
+  source?: "byok" | "pinar";
   history: AssistantHistoryEntry[];
   maxSteps?: number;
   model: LanguageModel;
@@ -120,6 +143,9 @@ export interface AssistantTurnInput {
   thread: { id: string; title: string };
   timeoutMs?: number;
   tools: ToolSet | ((emit: AssistantStreamEmit) => ToolSet);
+  // The stream's error part: the AssistantErrorCode by default, or the
+  // caller's classification (F5/S3: the BYOK cause and its data part).
+  onStreamError?: (error: unknown) => AssistantTurnStreamError | undefined;
 }
 
 const ASK_TOOL_NAME = toLlmToolName(ASSISTANT_ASK_TOOL.name);
@@ -201,10 +227,24 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   // it never re-classifies a late failure as a timeout.
   const controller = new AbortController();
   let timedOut = false;
-  const timeoutError = new Error("assistant turn timeout");
+  const timeoutError = new AssistantTurnTimeoutError();
+  // The deadline's timer (the callback runs later, once the turn's
+  // classifications below are initialized — it never runs synchronously).
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort(timeoutError);
+    // The deadline never reaches the SDK's onError (the stream ends with
+    // its abort part): the turn's own timer writes the error part — once,
+    // and only when the caller classifies it (the BYOK cause, F5/S3). The
+    // transform marks the chunk when a classified fatal part actually went
+    // out, so the timer skips it then; the fatal protocol goes out once.
+    // The local app and the gateway keep today's abort-only answer; a
+    // client abort clears the timer, so a cancellation is never a timeout.
+    if (streamErrorChunkSent) return;
+    const classified = classifyStreamError(timeoutError);
+    if (classified === undefined) return;
+    streamErrorChunkSent = true;
+    writeUiPart({ errorText: classified.code, type: "error" });
   }, timeoutMs);
   const onCallerAbort = () => {
     clearTimeout(timer);
@@ -219,15 +259,57 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   const errorCodeFor = (): AssistantErrorCode =>
     timedOut ? "ASSISTANT_TURN_TIMEOUT" : "ASSISTANT_STREAM_FAILED";
 
+  // The stream's error part (F5/S3): the caller's classification (the BYOK
+  // cause) writes one data part with the details before the fatal error
+  // part, which then carries the caller's code (byok_error). Fatality is
+  // never inferred from the onError callback: the SDK calls it for the
+  // model's fatal failure AND for a tool error it formats as
+  // tool-input-error / tool-output-error while the turn continues (a
+  // malformed JSON argument is a JSONParseError, a chain the BYOK
+  // classifier recognizes — R1 recheck). Instead, onError returns a token
+  // with the part, and the transform below resolves the tokens on the SSE
+  // parts that actually go out: only a fatal `error` part writes the data
+  // part and the caller's code (once per turn, marking the chunk); a
+  // tool-error part always goes out with the default code — no data part,
+  // no chunk, the turn continues. The token never reaches the client.
+  let streamErrorPartSent = false;
+  // The fatal error chunk, at most once: marked when the fatal part is
+  // actually written — by the transform (a classified fatal part going
+  // out) or by the deadline's timer (which the SDK's onError never sees).
+  // The deadline skips it when the flag is already set, so the fatal
+  // protocol goes out exactly once.
+  let streamErrorChunkSent = false;
+  let fatalTokenCounter = 0;
+  const fatalTokens = new Map<string, { defaultCode: AssistantErrorCode; streamError: AssistantTurnStreamError }>();
+  const streamError = (error: unknown): string => {
+    const classified = input.onStreamError?.(error);
+    if (classified === undefined) return errorCodeFor();
+    const token = `byok:fatal:${fatalTokenCounter += 1}`;
+    fatalTokens.set(token, { defaultCode: errorCodeFor(), streamError: classified });
+    return token;
+  };
+  // The deadline's classification (the timer above): writes the data part
+  // (once per turn) and returns the code for the fatal part it writes.
+  const classifyStreamError = (error: unknown): { code: string } | undefined => {
+    const classified = input.onStreamError?.(error);
+    if (classified === undefined) return undefined;
+    if (classified.part !== undefined && !streamErrorPartSent) {
+      streamErrorPartSent = true;
+      emit({ data: classified.part.data, type: classified.part.type });
+    }
+    return { code: classified.code };
+  };
+
   // Data parts tools emit go to the UI stream writer. createUIMessageStream
   // runs `execute` synchronously below, before any tool can run; parts that
   // would arrive earlier wait for the writer and keep their order.
   let streamWriter: UIMessageStreamWriter | null = null;
-  const pendingParts: Parameters<AssistantStreamEmit>[0][] = [];
-  const emit: AssistantStreamEmit = (part) => {
+  const pendingParts: Parameters<UIMessageStreamWriter["write"]>[0][] = [];
+  const writeUiPart = (part: Parameters<UIMessageStreamWriter["write"]>[0]) => {
     if (streamWriter) streamWriter.write(part);
     else pendingParts.push(part);
   };
+  const emit: AssistantStreamEmit = (part) => writeUiPart(part);
   const tools = typeof input.tools === "function" ? input.tools(emit) : input.tools;
 
   const window = buildTurnWindow(input.history);
@@ -256,15 +338,22 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     tools,
   });
 
-  const response = createUIMessageStreamResponse({
+  const rawResponse = createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
-        writer.write({ data: { id: input.thread.id, title: input.thread.title }, type: "data-thread" });
+        writer.write({
+          data: {
+            id: input.thread.id,
+            ...(input.source !== undefined ? { source: input.source } : {}),
+            title: input.thread.title,
+          },
+          type: "data-thread",
+        });
         streamWriter = writer;
         for (const part of pendingParts.splice(0)) writer.write(part);
         writer.merge(
           toUIMessageStream({
-            onError: () => errorCodeFor(),
+            onError: (error) => streamError(error),
             sendReasoning: false,
             stream: result.stream,
             tools,
@@ -273,9 +362,76 @@ export function runAssistantTurn(input: AssistantTurnInput): {
       },
       // Stream-level failures surface as a part whose errorText is only
       // the AssistantErrorCode; the provider error never leaks.
-      onError: () => errorCodeFor(),
+      onError: (error) => streamError(error),
     }),
   });
+  // The UI stream's fatal-part transform (F5/S3 R1 recheck): it observes
+  // the SSE parts that actually go out and resolves the tokens onError
+  // returned — a fatal `error` part with a token goes out with the
+  // caller's code (byok_error), after the data part (once per turn),
+  // marking the chunk; a tool-error part with a token always goes out with
+  // the default code — no data part, no chunk. Installed only when the
+  // caller classifies (the BYOK route): the local app and the gateway
+  // answer with the stream as it is, their parts unchanged.
+  let response: Response = rawResponse;
+  if (input.onStreamError !== undefined) {
+    const fatalDecoder = new TextDecoder();
+    const fatalEncoder = new TextEncoder();
+    let fatalLineBuffer = "";
+    const rewriteFatalLine = (line: string): string | null => {
+      if (!line.startsWith("data: ")) return line;
+      const payload = line.slice(6);
+      if (payload === "" || payload.trim() === "[DONE]") return line;
+      let part: Record<string, unknown>;
+      try {
+        part = JSON.parse(payload) as Record<string, unknown>;
+      } catch {
+        return line;
+      }
+      const token = part.errorText;
+      if (typeof token !== "string") return line;
+      const entry = fatalTokens.get(token);
+      if (entry === undefined) return line;
+      fatalTokens.delete(token);
+      if (part.type === "error") {
+        // The fatal protocol already went out (the deadline's timer):
+        // the duplicate goes nowhere.
+        if (streamErrorChunkSent) return null;
+        streamErrorChunkSent = true;
+        let out = "";
+        if (entry.streamError.part !== undefined && !streamErrorPartSent) {
+          streamErrorPartSent = true;
+          // Its own SSE event: the blank line ends it before the error.
+          out += `data: ${JSON.stringify(entry.streamError.part)}\n\n`;
+        }
+        return `${out}data: ${JSON.stringify({ errorText: entry.streamError.code, type: "error" })}`;
+      }
+      // tool-input-error / tool-output-error (and any other part the SDK
+      // formats with the code): the default code, no BYOK data part, no
+      // chunk — the turn continues.
+      part.errorText = entry.defaultCode;
+      return `data: ${JSON.stringify(part)}`;
+    };
+    const fatalTransform = new TransformStream<Uint8Array, Uint8Array>({
+      flush(controller) {
+        // A truncated final line is not a complete part (the stream ends
+        // with [DONE]); it passes through as it is.
+        fatalLineBuffer += fatalDecoder.decode();
+        if (fatalLineBuffer !== "") controller.enqueue(fatalEncoder.encode(fatalLineBuffer));
+      },
+      transform(chunk, controller) {
+        fatalLineBuffer += fatalDecoder.decode(chunk, { stream: true });
+        let newline: number;
+        while ((newline = fatalLineBuffer.indexOf("\n")) !== -1) {
+          const line = fatalLineBuffer.slice(0, newline);
+          fatalLineBuffer = fatalLineBuffer.slice(newline + 1);
+          const rewritten = rewriteFatalLine(line);
+          if (rewritten !== null) controller.enqueue(fatalEncoder.encode(`${rewritten}\n`));
+        }
+      },
+    });
+    if (rawResponse.body !== null) response = new Response(rawResponse.body.pipeThrough(fatalTransform), rawResponse);
+  }
 
   // Keep the turn running to the end even if the client cancels the
   // response body: a standalone consumeStream over its own tee branch

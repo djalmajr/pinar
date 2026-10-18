@@ -144,8 +144,10 @@ type Caption = { caption: string; ocr: string };
 
 // The stored document still has the pin's "Pin #n: comment" line in its
 // fixed place. Values are written on one line, so no other text can fill
-// that place.
-function sameSection(docText: string, pin: PinDocumentInput["pin"]): boolean {
+// that place. indexSession uses it to tell an entry apart from a changed
+// pin; the BYOK text search (runtime-cloud.ts) uses the same rule to know
+// when a stored caption is still the caption of the current pin.
+export function sameSection(docText: string, pin: PinDocumentInput["pin"]): boolean {
   return docText.split("\n")[PIN_SECTION_LINE] === pinSectionText(pin);
 }
 

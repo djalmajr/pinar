@@ -25,7 +25,11 @@ import {
   type Principal,
 } from "./cloud-api";
 import { cloudAssistantStore } from "./assistant/store-cloud";
+import { buildPinDocument } from "./assistant/retrieval/document";
 import type { AssistantToolHost } from "./assistant/tools";
+import { byokCrypto } from "./byok/crypto";
+import { ByokEgressUnavailableError, setByokEgressForTests } from "./byok/fetch";
+import { resetByokConcurrencyForTests } from "./byok/route";
 import { ASSISTANT_TOOL_POLICY } from "./assistant/tool-policy";
 
 const NOW = "2026-10-01T12:00:00.000Z";
@@ -152,7 +156,8 @@ function userHost(db: Database, id: string, email: string, plan: "free" | "pro" 
 }
 
 // The fake OpenAI-compatible endpoint of the staging env: it answers the
-// chat completions call with a two-chunk SSE stream and nothing else.
+// chat completions call with a two-chunk SSE stream and nothing else, and
+// counts its calls (the BYOK test proves the gateway is not called).
 function fakeAiServer() {
   const chunks = [{ content: "Duas" }, { content: " sessões." }];
   const lines = [
@@ -171,16 +176,37 @@ function fakeAiServer() {
     "data: [DONE]",
     "",
   ];
-  return Bun.serve({
+  let calls = 0;
+  const server = Bun.serve({
     fetch: (incoming) => {
       const url = new URL(incoming.url);
       if (incoming.method === "POST" && url.pathname === "/v1/chat/completions") {
+        calls += 1;
         return new Response(lines.join("\n"), { headers: { "content-type": "text/event-stream" } });
       }
       return new Response("not found", { status: 404 });
     },
     port: 0,
   });
+  return { calls: () => calls, port: server.port, stop: () => server.stop(true) };
+}
+
+// The scripted BYOK egress: the next scripted reply per call (a tool call
+// or text), with the request's auth and body recorded — the tool's result
+// the model got is read from the second request's body.
+function scriptedByokEgress(replies: AiReply[]) {
+  const calls: Array<{ auth: string | null; body: string; url: string }> = [];
+  const chunk = (delta: Record<string, unknown>, finishReason: string | null) =>
+    `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason, index: 0 }], created: 1, id: "c1", model: "mock", object: "chat.completion.chunk" })}\n\n`;
+  setByokEgressForTests(async (url, init) => {
+    calls.push({ auth: new Headers(init?.headers ?? {}).get("authorization"), body: String(init?.body ?? ""), url });
+    const reply = replies[Math.min(calls.length - 1, replies.length - 1)];
+    const body = "text" in reply
+      ? chunk({ content: reply.text, role: "assistant" }, null) + chunk({}, "stop")
+      : chunk({ role: "assistant", tool_calls: [{ function: { arguments: JSON.stringify(reply.args), name: reply.tool }, id: `call_${calls.length}`, index: 0, type: "function" }] }, null) + chunk({}, "tool_calls");
+    return new Response(`${body}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" }, status: 200 });
+  });
+  return calls;
 }
 
 // Every row of the tables a write could touch, to prove nothing changed.
@@ -415,7 +441,11 @@ describe("cloud assistant routes", () => {
     setCloudNowForTests(NOW);
   });
 
-  afterEach(() => resetCloudMemoryStateForTests());
+  afterEach(() => {
+    resetCloudMemoryStateForTests();
+    setByokEgressForTests(null);
+    resetByokConcurrencyForTests();
+  });
 
   async function seedAccounts(db: Database) {
     insertUser(db, "usr_a", "a@example.test", "pro");
@@ -561,7 +591,7 @@ describe("cloud assistant routes", () => {
       const env = assistantEnv(db, { AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1` });
 
       const status = await route("/api/assistant/status", env, { headers: { cookie: a.cookie } });
-      assert.deepEqual(await status.json(), { available: true, reason: null, surface: "cloud" });
+      assert.deepEqual(await status.json(), { available: true, byok: { chat: false }, reason: null, surface: "cloud" });
 
       const response = await turn(env, a.cookie, { text: "Quantas sessões?" });
       assert.equal(response.status, 200);
@@ -626,6 +656,961 @@ describe("cloud assistant routes", () => {
       assert.equal(limited.status, 429);
       assert.deepEqual(await limited.json(), { code: "assistant_rate_limited", error: "Too many questions in a short time" });
     } finally {
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F5/S3: the BYOK route of the turn. With tools and chat tested ok the
+  // turn runs on the user's endpoint — one link, no fallback to the
+  // gateway, no credits; the status reports the route; useCredits: true
+  // opts the request out and returns to today's path.
+  test("S3: with an ok BYOK route the turn runs on the user's endpoint (no fallback, no credits, source byok)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 11).toString("base64");
+    const BYOK_KEY = "sk-byok-assistant-test-9876";
+    const byokCalls: Array<{ auth: string | null; body: string; url: string }> = [];
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      // The row the S2 test route would have written: chat and tools ok.
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      const capabilities = JSON.stringify({
+        chat: { error: null, ok: true, testedAt: NOW },
+        embeddings: { dims: null, error: null, ok: null, testedAt: null },
+        tools: { error: null, ok: true, testedAt: NOW },
+        transcription: { error: null, ok: null, testedAt: null },
+        vision: { error: null, ok: null, testedAt: null },
+      });
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run("usr_a", "https://byok-user.test/v1", ciphertext, "9876", cryptoObj.keyId, "chat-1", "", "", capabilities, NOW, NOW);
+
+      // The user's endpoint (the fake the tests inject): the same SSE as the
+      // gateway, with the BYOK model.
+      const lines = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "Duas", role: "assistant" }, finish_reason: null, index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}`,
+        "",
+        `data: ${JSON.stringify({ choices: [{ delta: { content: " sessões." }, finish_reason: null, index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}`,
+        "",
+        `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop", index: 0 }], created: 1, id: "c1", model: "chat-1", object: "chat.completion.chunk" })}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n");
+      setByokEgressForTests(async (url, init) => {
+        byokCalls.push({ auth: new Headers(init?.headers ?? {}).get("authorization"), body: String(init?.body ?? ""), url });
+        return new Response(lines, { headers: { "content-type": "text/event-stream" }, status: 200 });
+      });
+
+      // The status reports the route (never the key, no concurrency slot).
+      const status = await route("/api/assistant/status", env, { headers: { cookie: a.cookie } });
+      assert.deepEqual(await status.json(), { available: true, byok: { chat: true }, reason: null, surface: "cloud" });
+
+      // The owner's balance before the BYOK turn (no grant yet: the meter
+      // creates it, and the BYOK route never calls the meter).
+      const balanceOf = () =>
+        db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+      const balanceBefore = balanceOf();
+
+      // The turn runs on the user's endpoint: one call, the decrypted key in
+      // the Authorization header (never the body), no fallback to the
+      // gateway, no credits, and the origin in the first part.
+      const response = await turn(env, a.cookie, { text: "Quantas sessões?" });
+      assert.equal(response.status, 200);
+      const sse = await response.text();
+      assert.ok(sse.includes("Duas") && sse.includes("sessões."), "the BYOK answer reaches the stream");
+      const firstLine = sse.split("\n").find((line) => line.startsWith("data: "));
+      assert.ok(firstLine);
+      const firstPart = JSON.parse(firstLine.slice(6)) as { data: { source?: string; title: string }; type: string };
+      assert.equal(firstPart.type, "data-thread");
+      assert.equal(firstPart.data.source, "byok");
+
+      assert.equal(byokCalls.length, 1, "exactly one BYOK call: no retry, no fallback");
+      assert.ok(byokCalls[0].url.startsWith("https://byok-user.test/v1/chat/completions"), byokCalls[0].url);
+      assert.equal(byokCalls[0].auth, `Bearer ${BYOK_KEY}`, "the decrypted key, only in the header");
+      assert.ok(!byokCalls[0].body.includes(BYOK_KEY), "the key never goes in the body");
+      assert.equal(fake.calls(), 0, "the gateway is not called");
+
+      // The credits were not touched: nothing reserved, nothing used, the
+      // balance is the same as before the turn (the control is the
+      // useCredits turn below, which drops the grant by 3).
+      assert.deepEqual(db.query("SELECT id FROM ai_credit_usages").all(), [], "no credit usage of the BYOK turn");
+      assert.deepEqual(balanceOf(), balanceBefore, "the balance did not move");
+
+      // useCredits: true opts the request out of the BYOK route: the
+      // gateway answers and the origin is pinar.
+      const withCredits = await turn(env, a.cookie, { text: "Quantas sessões?", useCredits: true });
+      assert.equal(withCredits.status, 200);
+      const sse2 = await withCredits.text();
+      const secondLine = sse2.split("\n").find((line) => line.startsWith("data: "));
+      assert.ok(secondLine);
+      const secondPart = JSON.parse(secondLine.slice(6)) as { data: { source?: string }; type: string };
+      assert.equal(secondPart.type, "data-thread");
+      assert.equal(secondPart.data.source, "pinar");
+      assert.equal(fake.calls(), 1, "useCredits returns to the gateway path");
+      assert.equal(byokCalls.length, 1, "and the BYOK endpoint gets no second call");
+      // That turn was billed (the credits settle when the outcome settles).
+      const usages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'assistant_turn'").all();
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(usages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the useCredits turn was not billed: ${JSON.stringify(usages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      // The control: the gateway turn billed 3, so the balance measurement
+      // above (unchanged on the BYOK turn) is not vacuous.
+      assert.deepEqual(balanceOf(), { balance: 497 }, "the control turn billed 3");
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F5/S3: the failing BYOK turn, end to end. The table runs every case of
+  // the common cause table through the real turn route: the stream ends
+  // with a data-byok-error part (the cause, canUseCredits, the retryAfter
+  // when there is one) before the error part (errorText byok_error); the
+  // gateway is never called, the credits never move, the key and the
+  // provider's body never cross the stream or a log, and the cases run
+  // back to back — with the concurrency cap of 2, a leaked slot would
+  // rate_limit the third case instead of answering it.
+  test("S3: a failing BYOK turn ends with byok_error, the cause of the common table (no gateway, no credit, slot freed)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 13).toString("base64");
+    const BYOK_KEY = "sk-byok-fail-test-5678";
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      // An ok row (chat, tools): the turn takes the BYOK route and fails
+      // on the egress.
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      const capabilities = JSON.stringify({
+        chat: { error: null, ok: true, testedAt: NOW },
+        embeddings: { dims: null, error: null, ok: null, testedAt: null },
+        tools: { error: null, ok: true, testedAt: NOW },
+        transcription: { error: null, ok: null, testedAt: null },
+        vision: { error: null, ok: null, testedAt: null },
+      });
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run("usr_a", "https://byok-user.test/v1", ciphertext, "5678", cryptoObj.keyId, "chat-1", "", "", capabilities, NOW, NOW);
+
+      const usages = () => db.query("SELECT id FROM ai_credit_usages").all();
+      const balanceOf = () =>
+        db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+      const balanceBefore = balanceOf();
+
+      // The console is spied (the key and the provider's body must not
+      // reach a log); the spy still logs, so a failure stays visible.
+      const consoleCalls: string[] = [];
+      const spy =
+        (original: (...args: unknown[]) => void) =>
+        (...args: unknown[]) => {
+          consoleCalls.push(args.map((arg) => String(arg)).join(" "));
+          original(...args);
+        };
+      const realError = console.error;
+      const realWarn = console.warn;
+      const realInfo = console.info;
+      const realLog = console.log;
+      console.error = spy(realError);
+      console.warn = spy(realWarn);
+      console.info = spy(realInfo);
+      console.log = spy(realLog);
+
+      const jsonBody = (marker: string, status: number, headers: Record<string, string> = {}) =>
+        new Response(JSON.stringify({ error: { message: marker } }), {
+          headers: { "content-type": "application/json", ...headers },
+          status,
+        });
+      const cases: Array<{
+        cause: string;
+        label: string;
+        marker: string;
+        respond?: () => Response;
+        throwName?: string;
+        refusal?: boolean;
+        retryAfter?: number;
+      }> = [
+        { cause: "key_rejected", label: "401", marker: "PROVIDER-BODY-401", respond: () => jsonBody("PROVIDER-BODY-401", 401) },
+        {
+          cause: "model_not_found",
+          label: "404 with the model marker",
+          marker: "PROVIDER-BODY-404",
+          respond: () => new Response(JSON.stringify({ error: { code: "model_not_found", message: "PROVIDER-BODY-404" } }), { headers: { "content-type": "application/json" }, status: 404 }),
+        },
+        {
+          cause: "rate_limited",
+          label: "429 with Retry-After: 7",
+          marker: "PROVIDER-BODY-429",
+          respond: () => jsonBody("PROVIDER-BODY-429", 429, { "retry-after": "7" }),
+          retryAfter: 7,
+        },
+        { cause: "unavailable", label: "503", marker: "PROVIDER-BODY-503", respond: () => jsonBody("PROVIDER-BODY-503", 503) },
+        { cause: "timeout", label: "the deadline", marker: "PROVIDER-BODY-TIMEOUT", throwName: "TimeoutError" },
+        { cause: "egress_unavailable", label: "the egress refusal", marker: "", refusal: true },
+        {
+          cause: "endpoint_blocked",
+          label: "EGRESS_HOST_BLOCKED",
+          marker: "PROVIDER-BODY-HOST-BLOCKED",
+          respond: () =>
+            new Response("PROVIDER-BODY-HOST-BLOCKED", { headers: { "x-edger-egress-error": "EGRESS_HOST_BLOCKED" }, status: 502 }),
+        },
+      ];
+      for (const c of cases) {
+        setByokEgressForTests(async () => {
+          if (c.refusal) throw new ByokEgressUnavailableError();
+          if (c.throwName) throw Object.assign(new Error(c.marker || "the provider timed out"), { name: c.throwName });
+          return c.respond!();
+        });
+        const response = await turn(env, a.cookie, { text: `Sessão ${c.label}` });
+        // 200 and streamed: not the 429 rate_limited body — with the cap of
+        // 2, a slot leaked by a previous case would show up here (case 3+).
+        assert.equal(response.status, 200, `${c.label}: the failing turn still streams (no rate_limited)`);
+        const sse = await response.text();
+        const parts = sse.split("\n").filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]").map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+        const byokErrorPart = parts.find((part) => part.type === "data-byok-error");
+        assert.ok(byokErrorPart, `${c.label}: the data-byok-error part is in the stream`);
+        const data = byokErrorPart.data as { canUseCredits?: unknown; cause?: string; retryAfter?: number };
+        assert.equal(data.cause, c.cause, `${c.label}: the cause`);
+        assert.equal(data.canUseCredits, true, `${c.label}: canUseCredits`);
+        assert.equal(data.retryAfter, c.retryAfter ?? undefined, `${c.label}: the retryAfter (only the 429)`);
+        const errorPart = parts.find((part) => part.type === "error") as { errorText?: string } | undefined;
+        assert.equal(errorPart?.errorText, "byok_error", `${c.label}: the errorText`);
+        assert.ok(parts.indexOf(byokErrorPart) < parts.indexOf(errorPart!), `${c.label}: the data part precedes the error part`);
+        assert.equal(fake.calls(), 0, `${c.label}: the gateway is not called`);
+        assert.deepEqual(usages(), [], `${c.label}: no credit usage`);
+        assert.deepEqual(balanceOf(), balanceBefore, `${c.label}: the balance is the same as before the turn`);
+        assert.ok(!sse.includes(BYOK_KEY), `${c.label}: the key is not in the stream`);
+        assert.ok(c.marker === "" || !sse.includes(c.marker), `${c.label}: the provider's body is not in the stream`);
+        assert.ok(
+          !consoleCalls.some((call) => call.includes(BYOK_KEY) || (c.marker !== "" && call.includes(c.marker))),
+          `${c.label}: the key and the body do not reach a log`,
+        );
+        consoleCalls.length = 0;
+      }
+      // Every case answered a turn (no rate_limited among them): the slot
+      // was freed after each failing turn.
+      assert.equal(fake.calls(), 0, "across the table, the gateway was never called");
+      console.error = realError;
+      console.warn = realWarn;
+      console.info = realInfo;
+      console.log = realLog;
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F5/S3: production without an injected egress (byokFetch refuses). The
+  // spy on globalThis.fetch proves what leaves the server: the gateway's
+  // own calls (the fake, on loopback) and nothing for the BYOK host.
+  test("S3: without an injected egress, an egress_unavailable row goes to the gateway (billed) and a stale ok row ends with byok_error (unbilled)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 17).toString("base64");
+    const BYOK_KEY = "sk-byok-nofetch-test-9012";
+    const fetchUrls: string[] = [];
+    const realFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchUrls.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        return realFetch(input, init);
+      }) as typeof fetch;
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      const rowQuery = `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+         embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      const usages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'assistant_turn'").all();
+      const balanceOf = () =>
+        db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+
+      // (a) The row S2 would store in production: byokFetch refused, every
+      // capability ok: false with the egress_unavailable cause.
+      db.query(rowQuery).run(
+        "usr_a",
+        "https://byok-user.test/v1",
+        ciphertext,
+        "9012",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: "egress_unavailable", ok: false, testedAt: NOW },
+          embeddings: { dims: null, error: "egress_unavailable", ok: false, testedAt: NOW },
+          tools: { error: "egress_unavailable", ok: false, testedAt: NOW },
+          transcription: { error: "egress_unavailable", ok: false, testedAt: NOW },
+          vision: { error: "egress_unavailable", ok: false, testedAt: NOW },
+        }),
+        NOW,
+        NOW,
+      );
+      const status = await route("/api/assistant/status", env, { headers: { cookie: a.cookie } });
+      assert.deepEqual(await status.json(), { available: true, byok: { chat: false }, reason: null, surface: "cloud" });
+
+      const response = await turn(env, a.cookie, { text: "Quantas sessões?" });
+      assert.equal(response.status, 200);
+      const sse = await response.text();
+      assert.ok(sse.includes("Duas") && sse.includes("sessões."), "the gateway answers");
+      const firstLine = sse.split("\n").find((line) => line.startsWith("data: "));
+      assert.ok(firstLine);
+      const firstPart = JSON.parse(firstLine.slice(6)) as { data: { source?: string }; type: string };
+      assert.equal(firstPart.type, "data-thread");
+      assert.equal(firstPart.data.source, "pinar");
+      assert.ok(!fetchUrls.some((url) => url.includes("byok-user.test")), "no URL of the BYOK host leaves the server");
+      // The turn was billed (3 credits; the grant is created by the meter).
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(usages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the gateway turn was not billed: ${JSON.stringify(usages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.deepEqual(balanceOf(), { balance: 497 });
+
+      // (b) A stale ok row (an old test, before the egress existed): the
+      // turn ends with byok_error egress_unavailable, nothing goes to the
+      // BYOK host and nothing is billed.
+      db.query("UPDATE byok_endpoints SET capabilities_json = ? WHERE owner_id = 'usr_a'").run(
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+      );
+      const balanceBefore = balanceOf();
+      const second = await turn(env, a.cookie, { text: "Quantas sessões de novo?" });
+      assert.equal(second.status, 200);
+      const sse2 = await second.text();
+      const parts2 = sse2.split("\n").filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]").map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+      const byokPart = parts2.find((part) => part.type === "data-byok-error");
+      assert.ok(byokPart, "the data-byok-error part is in the stream");
+      assert.equal((byokPart.data as { cause?: string }).cause, "egress_unavailable");
+      assert.equal((byokPart.data as { canUseCredits?: unknown }).canUseCredits, true);
+      assert.equal((parts2.find((part) => part.type === "error") as { errorText?: string } | undefined)?.errorText, "byok_error");
+      assert.ok(!sse2.includes(BYOK_KEY), "the key is not in the stream");
+      assert.equal(fake.calls(), 1, "the gateway was not called again (no fallback)");
+      assert.ok(!fetchUrls.some((url) => url.includes("byok-user.test")), "nothing left for the BYOK host");
+      assert.deepEqual(usages(), [{ status: "succeeded" }], "no new charge on the BYOK turn");
+      assert.deepEqual(balanceOf(), balanceBefore, "the balance did not move");
+    } finally {
+      globalThis.fetch = realFetch;
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F5/S3: useCredits of a wrong type is an invalid request, answered at
+  // the body validation — before the thread exists or any message is
+  // stored, so nothing is written.
+  test("S3: a useCredits of the wrong type answers 400 invalid_request and stores nothing", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, { AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1` });
+      const counts = () => ({
+        messages: (db.query("SELECT COUNT(*) AS n FROM assistant_messages WHERE owner_id = 'usr_a'").get() as { n: number }).n,
+        threads: (db.query("SELECT COUNT(*) AS n FROM assistant_threads WHERE owner_id = 'usr_a'").get() as { n: number }).n,
+      });
+      const before = counts();
+      for (const useCredits of ["true", 1, null]) {
+        const response = await turn(env, a.cookie, { text: "Quantas sessões?", useCredits });
+        assert.equal(response.status, 400, JSON.stringify(useCredits));
+        const body = (await response.json()) as { code: string; error: string };
+        assert.equal(body.code, "invalid_request");
+        assert.equal(body.error, "Invalid request body");
+      }
+      assert.deepEqual(counts(), before, "no thread, no message stored");
+      assert.equal(fake.calls(), 0, "no model call");
+    } finally {
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F5/S3: a BYOK turn calls pinar_pins_search: the search is the text-only
+  // ranking over the sessions' CURRENT documents (F1 review fix) — no hub
+  // detection, no indexing, no captions from the model, no query embedding,
+  // no pin_index row read for the ranking and none written, no gateway call
+  // at all (contract §5, A53). The useCredits turn keeps the gateway's search.
+  test("S3: a BYOK turn's pinar_pins_search is text-only (no gateway call, no indexing, no index cost); useCredits keeps the gateway's search", async () => {
+    const db = migratedDatabase();
+    const scripted = scriptedAiServer([
+      { args: { limit: 5, query: "deploy" }, tool: "pinar_pins_search" },
+      { text: "Achei." },
+    ]);
+    const byokKey = Buffer.alloc(32, 21).toString("base64");
+    const BYOK_KEY = "sk-byok-search-test-3456";
+    const fetchUrls: string[] = [];
+    const realFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchUrls.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        return realFetch(input, init);
+      }) as typeof fetch;
+      const { a } = await seedAccounts(db);
+      // The session's pins, and the index entries they already have (text-
+      // only: no vector, as the local app or a past gateway turn wrote).
+      insertProject(db, "project_a", "usr_a");
+      insertCollection(db, "collection_a", "project_a", "usr_a");
+      insertSession(db, "session_a1", "usr_a", "collection_a", [
+        { comment: "nota sobre o deploy", number: 1, pinId: "pin_a1" },
+        { comment: "outro assunto", number: 2, pinId: "pin_a2" },
+      ]);
+      // No row in pin_index: the BYOK turn's search ranks the sessions'
+      // current documents, not the index (F1 review fix) — the pins are
+      // found by their comments with nothing stored yet.
+      const entries = () => db.query("SELECT doc_text FROM pin_index WHERE owner_id = 'usr_a' ORDER BY pin_id").all();
+      const indexCosts = () => db.query("SELECT id FROM assistant_index_costs").all();
+
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${scripted.server.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "https://byok-user.test/v1",
+        ciphertext,
+        "3456",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      const byokCalls = scriptedByokEgress([
+        { args: { limit: 5, query: "deploy" }, tool: "pinar_pins_search" },
+        { text: "Achei." },
+      ]);
+
+      // The BYOK turn: the model (the user's endpoint) calls the tool and
+      // the tool answers with the text ranking over the seeded entries.
+      const response = await turn(env, a.cookie, { text: "Onde está a nota de deploy?" });
+      assert.equal(response.status, 200);
+      const sse = await response.text();
+      assert.ok(sse.includes("Achei."), "the BYOK answer reaches the stream");
+      assert.equal(byokCalls.length, 2, "the tool's round trip, on the user's endpoint");
+      assert.ok(
+        byokCalls[1].body.includes("pin_a1") && byokCalls[1].body.includes("nota sobre o deploy"),
+        "the hit (the text ranking) is the tool result the model got",
+      );
+      assert.ok(byokCalls[1].body.includes("score"), "the ranking's score");
+      assert.ok(!byokCalls[1].body.includes("outro assunto"), "the non-matching pin is not a hit");
+
+      // No gateway at all: no chat completions, no /models probe, no
+      // embedding — nothing left for the gateway's host.
+      assert.equal(scripted.requests.length, 0, "the gateway's chat completions is not called");
+      assert.ok(!fetchUrls.some((url) => url.includes(`127.0.0.1:${scripted.server.port}`)), "no URL of the gateway host leaves the server");
+      // No indexing on the BYOK turn: the index stays empty, no cost.
+      assert.deepEqual(entries(), [], "the pin index stays empty (no indexing on the BYOK turn)");
+      assert.deepEqual(indexCosts(), [], "no row of assistant_index_costs");
+
+      // The useCredits turn keeps today's path: the gateway's model, the
+      // gateway's search (the detection probe leaves for the gateway's
+      // host), and the charge.
+      fetchUrls.length = 0;
+      const withCredits = await turn(env, a.cookie, { text: "Onde está a nota de deploy?", useCredits: true });
+      assert.equal(withCredits.status, 200);
+      const sse2 = await withCredits.text();
+      assert.ok(sse2.includes("Achei."), "the gateway's answer reaches the stream");
+      assert.equal(scripted.requests.length, 2, "the gateway's model answered the tool's round trip");
+      assert.ok(fetchUrls.some((url) => url.includes(`127.0.0.1:${scripted.server.port}`)), "the search's detection leaves for the gateway (as today)");
+      const usages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'assistant_turn'").all();
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(usages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the useCredits turn was not billed: ${JSON.stringify(usages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+      setByokEgressForTests(null);
+      scripted.server.stop(true);
+      db.close();
+    }
+  });
+
+  // F5/S3: the 2xx cut mid-stream (contract §4 "Streaming"): the guard
+  // cuts the body by size or time, or the network drops — the read's
+  // exception becomes the caused byok_error, and the partial text is never
+  // a final answer.
+  test("S3: a 2xx cut mid-stream ends with byok_error, the cause of the cut (no charge, no gateway, slot freed)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 23).toString("base64");
+    const BYOK_KEY = "sk-byok-cut-test-7890";
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "https://byok-user.test/v1",
+        ciphertext,
+        "7890",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      const usages = () => db.query("SELECT id FROM ai_credit_usages").all();
+      const balanceOf = () =>
+        db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+      const balanceBefore = balanceOf();
+
+      // A 2xx body: one valid SSE chunk, then the failure on the read.
+      const cutBody = (error: unknown) => {
+        const encoder = new TextEncoder();
+        const sse = encoder.encode(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "Parcial", role: "assistant" }, finish_reason: null, index: 0 }], created: 1, id: "c1", model: "mock", object: "chat.completion.chunk" })}\n\n`,
+        );
+        let reads = 0;
+        return new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (reads++ === 0) controller.enqueue(sse);
+            else controller.error(error);
+          },
+        });
+      };
+      const cases: Array<{ cause: string; error: unknown; label: string }> = [
+        { cause: "timeout", error: Object.assign(new Error("the guard cut the stream by time"), { name: "TimeoutError" }), label: "the deadline" },
+        { cause: "endpoint_unreachable", error: new Error("socket destroyed"), label: "the network" },
+      ];
+      for (const c of cases) {
+        setByokEgressForTests(async () => new Response(cutBody(c.error), { headers: { "content-type": "text/event-stream" }, status: 200 }));
+        const response = await turn(env, a.cookie, { text: `Corte ${c.label}` });
+        // 200 and streamed: the cut is an error of the stream, not the
+        // rate_limited body (the slot of the previous case was freed).
+        assert.equal(response.status, 200, `${c.label}: the cut still streams (no rate_limited)`);
+        const sse = await response.text();
+        const parts = sse.split("\n").filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]").map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+        const byokPart = parts.find((part) => part.type === "data-byok-error");
+        assert.ok(byokPart, `${c.label}: the data-byok-error part is in the stream`);
+        const data = byokPart.data as { canUseCredits?: unknown; cause?: string };
+        assert.equal(data.cause, c.cause, `${c.label}: the cause of the cut`);
+        assert.equal(data.canUseCredits, true, `${c.label}: canUseCredits`);
+        const errorPart = parts.find((part) => part.type === "error") as { errorText?: string } | undefined;
+        assert.equal(errorPart?.errorText, "byok_error", `${c.label}: the class reached onStreamError`);
+        assert.ok(!sse.includes("text-end"), `${c.label}: the partial text is never a final answer`);
+        assert.ok(!sse.includes(BYOK_KEY), `${c.label}: the key is not in the stream`);
+        const stored = db.query("SELECT status, text FROM assistant_messages WHERE role = 'assistant' AND owner_id = 'usr_a' ORDER BY rowid DESC").get() as { status: string; text: string };
+        assert.equal(stored.status, "error", `${c.label}: the stored answer is the error`);
+        assert.equal(stored.text, "", `${c.label}: the partial text is not the stored answer`);
+        assert.equal(fake.calls(), 0, `${c.label}: the gateway is not called`);
+        assert.deepEqual(usages(), [], `${c.label}: no charge`);
+        assert.deepEqual(balanceOf(), balanceBefore, `${c.label}: the balance did not move`);
+      }
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F1 review fix: the BYOK text search ranks the sessions' CURRENT
+  // documents — a pin that was never indexed is found by its comment, an
+  // edited comment is scored by its new text (the old term no longer
+  // matches), and a caption contributes only from an entry that is still
+  // current by the indexing' own rule. The gateway is never called and
+  // nothing is indexed.
+  test("S3: the BYOK text search ranks the current text (unindexed pins, an edited comment, the caption of a current entry)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 25).toString("base64");
+    const BYOK_KEY = "sk-byok-text-test-4321";
+    const fetchUrls: string[] = [];
+    const realFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        fetchUrls.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        return realFetch(input, init);
+      }) as typeof fetch;
+      const { a } = await seedAccounts(db);
+      insertProject(db, "project_a", "usr_a");
+      insertCollection(db, "collection_a", "project_a", "usr_a");
+      insertSession(db, "session_a1", "usr_a", "collection_a", [
+        { comment: "nota sobre o deploy", number: 1, pinId: "pin_a1" },
+        { comment: "outro assunto", number: 2, pinId: "pin_a2" },
+      ]);
+      // One entry that is current by the indexing' own rule (its "Pin #2"
+      // line in place, its stored hash still the hash of its stored text)
+      // and carries a caption: only it may contribute its caption to the
+      // current document of pin_a2.
+      const captionDoc = await buildPinDocument({
+        caption: { caption: "legenda do pin", ocr: "" },
+        comments: [],
+        page: { title: "session_a1", url: "https://example.test/session_a1" },
+        pin: { comment: "outro assunto", number: 2 },
+      });
+      db.query(
+        `INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run("session_a1", "pin_a2", "usr_a", 2, "", null, captionDoc.text, captionDoc.hash, 0, "legenda do pin", null, NOW);
+      const entries = () => db.query("SELECT doc_text, caption FROM pin_index WHERE owner_id = 'usr_a' ORDER BY pin_id").all();
+      const entriesBefore = entries();
+      const indexCosts = () => db.query("SELECT id FROM assistant_index_costs").all();
+      const usages = () => db.query("SELECT id FROM ai_credit_usages").all();
+
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "https://byok-user.test/v1",
+        ciphertext,
+        "4321",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      // One BYOK turn that makes the model search for `query`: the second
+      // request's body is the tool result the model got.
+      const searchBody = async (query: string) => {
+        const calls = scriptedByokEgress([
+          { args: { limit: 5, query }, tool: "pinar_pins_search" },
+          { text: "Achei." },
+        ]);
+        const response = await turn(env, a.cookie, { text: `Procure ${query}` });
+        assert.equal(response.status, 200, `the turn for ${query} streams`);
+        await response.text();
+        assert.equal(calls.length, 2, `the tool's round trip, on the user's endpoint (${query})`);
+        assert.ok(!calls[1].body.includes(BYOK_KEY), `the key is not in the body (${query})`);
+        return calls[1].body;
+      };
+
+      // 1. Unindexed: pin_a1 has no row at all — found by its comment.
+      let body = await searchBody("deploy");
+      assert.ok(body.includes("pin_a1") && body.includes("nota sobre o deploy"), "the unindexed pin is found by its comment");
+      assert.ok(!body.includes("pin_a2"), "the non-matching pin is not a hit");
+
+      // 2. Edited comment: the new term finds, the old one no longer does.
+      db.query("UPDATE sessions SET pins_json = ? WHERE id = 'session_a1'").run(
+        JSON.stringify([
+          { comment: "nota sobre o billing", number: 1, pinId: "pin_a1" },
+          { comment: "outro assunto", number: 2, pinId: "pin_a2" },
+        ]),
+      );
+      body = await searchBody("billing");
+      assert.ok(body.includes("pin_a1") && body.includes("nota sobre o billing"), "the edited comment is scored by its new text");
+      body = await searchBody("deploy");
+      assert.ok(!body.includes("pin_a1") && !body.includes("nota sobre o deploy"), "the old term no longer matches");
+
+      // 3. The caption of the current entry contributes to the document.
+      body = await searchBody("assunto");
+      assert.ok(body.includes("pin_a2"), "pin_a2 matches its comment");
+      assert.ok(body.includes("legenda do pin"), "the current entry's caption is in the document the model got");
+
+      // The gateway was never called, nothing was indexed, nothing charged.
+      assert.equal(fake.calls(), 0, "the gateway's chat completions is not called");
+      assert.ok(!fetchUrls.some((url) => url.includes(`127.0.0.1:${fake.port}`)), "no URL of the gateway host leaves the server");
+      assert.deepEqual(entries(), entriesBefore, "the pin index is untouched");
+      assert.deepEqual(indexCosts(), [], "no row of assistant_index_costs");
+      assert.deepEqual(usages(), [], "no charge");
+    } finally {
+      globalThis.fetch = realFetch;
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F2 review fix: a 2xx that is not the expected shape (malformed SSE, a
+  // valid event outside the chunk schema, JSON where the SSE is expected)
+  // is an error of the SDK's parsing and validation — it ends the BYOK
+  // turn with byok_error and the sanitized cause invalid_response (the
+  // provider's body never crosses the boundary), without the gateway and
+  // without a charge.
+  test("S3: an invalid response from the user's endpoint ends with byok_error / invalid_response (no gateway, no charge)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 26).toString("base64");
+    const BYOK_KEY = "sk-byok-invalid-test-4321";
+    const CANARY = "provider-body-canary";
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "https://byok-user.test/v1",
+        ciphertext,
+        "4321",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      const usages = () => db.query("SELECT id FROM ai_credit_usages").all();
+      const balanceOf = () =>
+        db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+      const balanceBefore = balanceOf();
+      const fixtures: Array<{ body: string; contentType: string; label: string }> = [
+        { body: "data: {broken-json}\n\n", contentType: "text/event-stream", label: "the malformed SSE" },
+        { body: `data: {"secret":"${CANARY}"}\n\n`, contentType: "text/event-stream", label: "the event outside the chunk schema" },
+        { body: `{"error":{"message":"${CANARY}"}}`, contentType: "application/json", label: "the JSON where the SSE is expected" },
+      ];
+      for (const fixture of fixtures) {
+        setByokEgressForTests(async () => new Response(fixture.body, { headers: { "content-type": fixture.contentType }, status: 200 }));
+        const response = await turn(env, a.cookie, { text: fixture.label });
+        assert.equal(response.status, 200, `${fixture.label}: the failure still streams`);
+        const sse = await response.text();
+        const parts = sse.split("\n").filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]").map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+        const byokParts = parts.filter((part) => part.type === "data-byok-error");
+        const errorParts = parts.filter((part) => part.type === "error");
+        assert.equal(byokParts.length, 1, `${fixture.label}: the data-byok-error part once`);
+        const data = byokParts[0]!.data as { canUseCredits?: unknown; cause?: string };
+        assert.equal(data.cause, "invalid_response", fixture.label);
+        assert.equal(data.canUseCredits, true, fixture.label);
+        assert.equal(errorParts.length, 1, `${fixture.label}: the error part once`);
+        assert.equal(errorParts[0]!.errorText, "byok_error", fixture.label);
+        assert.ok(parts.findIndex((part) => part.type === "data-byok-error") < parts.findIndex((part) => part.type === "error"), `${fixture.label}: the part precedes the error`);
+        assert.ok(!sse.includes(CANARY), `${fixture.label}: the provider's body is not in the stream`);
+        assert.ok(!sse.includes(BYOK_KEY), `${fixture.label}: the key is not in the stream`);
+        const stored = db.query("SELECT status, text FROM assistant_messages WHERE role = 'assistant' AND owner_id = 'usr_a' ORDER BY rowid DESC").get() as { status: string; text: string };
+        assert.equal(stored.status, "error", fixture.label);
+        assert.equal(stored.text, "", fixture.label);
+        assert.equal(fake.calls(), 0, `${fixture.label}: the gateway is not called`);
+        assert.deepEqual(usages(), [], `${fixture.label}: no charge`);
+        assert.deepEqual(balanceOf(), balanceBefore, `${fixture.label}: the balance did not move`);
+      }
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  // F4 review fix: the status answers whether a BYOK route would exist
+  // without decrypting a key the capabilities already refuse; it decrypts
+  // only to tell a readable key from the ciphertext the master key cannot
+  // read (that row has no route and answers false too — the turn falls to
+  // the gateway).
+  test("S3: the status does not decrypt the key when chat or tools is not ok", async () => {
+    const db = migratedDatabase();
+    const master = Buffer.alloc(32, 31).toString("base64");
+    const otherMaster = Buffer.alloc(32, 32).toString("base64");
+    const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    let decrypts = 0;
+    const insertRow = (capabilitiesJson: string, keyCiphertext: string, keyId: string) => {
+      db.query("DELETE FROM byok_endpoints WHERE owner_id = 'usr_a'").run();
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run("usr_a", "https://byok-user.test/v1", keyCiphertext, "1234", keyId, "chat-1", "", "", capabilitiesJson, NOW, NOW);
+    };
+    try {
+      const { a } = await seedAccounts(db);
+      const cryptoObj = (await byokCrypto(master))!;
+      const otherCrypto = (await byokCrypto(otherMaster))!;
+      const readable = await cryptoObj.encrypt("sk-byok-status-test");
+      const unreadable = await otherCrypto.encrypt("sk-byok-other-master");
+      crypto.subtle.decrypt = (async (...args: Parameters<SubtleCrypto["decrypt"]>) => {
+        decrypts += 1;
+        return originalDecrypt(...args);
+      }) as SubtleCrypto["decrypt"];
+      const statusChat = async (): Promise<boolean | undefined> => {
+        const response = await route("/api/assistant/status", assistantEnv(db, { BYOK_MASTER_KEY: master }), { headers: { cookie: a.cookie } });
+        assert.equal(response.status, 200);
+        return ((await response.json()) as { byok?: { chat?: boolean } }).byok?.chat;
+      };
+
+      // The typical production row: the capabilities are not ok → false,
+      // without a single decrypt of the provider's key.
+      insertRow(JSON.stringify({ chat: { ok: false, error: "egress_unavailable" }, tools: { ok: false, error: "egress_unavailable" } }), readable, cryptoObj.keyId);
+      decrypts = 0;
+      assert.equal(await statusChat(), false, "the unusable capabilities answer false");
+      assert.equal(decrypts, 0, "unusable capabilities should not decrypt the provider key for a boolean status");
+
+      // The ok capabilities with the readable key: the route exists.
+      decrypts = 0;
+      insertRow(JSON.stringify({ chat: { ok: true }, tools: { ok: true } }), readable, cryptoObj.keyId);
+      assert.equal(await statusChat(), true, "the readable key answers true");
+      assert.ok(decrypts >= 1, "the readable row may decrypt to prove the route exists");
+
+      // The ok capabilities with a ciphertext the master key cannot read:
+      // no route (the turn falls to the gateway) → false.
+      decrypts = 0;
+      insertRow(JSON.stringify({ chat: { ok: true }, tools: { ok: true } }), unreadable, otherCrypto.keyId);
+      assert.equal(await statusChat(), false, "the unreadable ciphertext has no route");
+    } finally {
+      crypto.subtle.decrypt = originalDecrypt as SubtleCrypto["decrypt"];
+      db.close();
+    }
+  });
+
+  // Item 4 of the review (partial): a synchronous exception between the
+  // slot and the route's handover — byokAssistantModel throwing inside the
+  // Cloud's byokTurn after the slot was taken (here, the row's URL failing
+  // the model's endpoint contract). The slot frees once and the turn gets
+  // the defined 503; a leaked slot would rate_limit the retry.
+  test("S3: a synchronous failure between the BYOK slot and the route frees the slot (503, the retry is not rate_limited)", async () => {
+    const db = migratedDatabase();
+    const fake = fakeAiServer();
+    const byokKey = Buffer.alloc(32, 27).toString("base64");
+    const BYOK_KEY = "sk-byok-slot-test-9012";
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        BYOK_MASTER_KEY: byokKey,
+      });
+      const cryptoObj = (await byokCrypto(byokKey))!;
+      const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
+      // An ok capability row whose URL the model refuses (the ftp scheme
+      // fails assertAssistantBaseUrl): byokAssistantModel throws
+      // synchronously after the slot was taken.
+      db.query(
+        `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "usr_a",
+        "ftp://byok-user.test/v1",
+        ciphertext,
+        "9012",
+        cryptoObj.keyId,
+        "chat-1",
+        "",
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: null, error: null, ok: null, testedAt: null },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: null, testedAt: null },
+        }),
+        NOW,
+        NOW,
+      );
+
+      const first = await turn(env, a.cookie, { text: "a" });
+      assert.equal(first.status, 503, "the synchronous failure gives the defined 503");
+      const body = (await first.json()) as { code: string; error: string };
+      assert.equal(body.code, "assistant_unavailable");
+
+      // The slot is free again: with the URL fixed, the retry runs. The
+      // pending egress keeps one slot in flight; a second turn must still
+      // get a slot (a leaked one would be the cap and rate_limit it).
+      db.query("UPDATE byok_endpoints SET base_url = ? WHERE owner_id = 'usr_a'").run("https://byok-user.test/v1");
+      const pending: Array<() => void> = [];
+      const reply = "data: " + JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 1, model: "chat-1", choices: [{ delta: { role: "assistant", content: "ok" }, index: 0, finish_reason: "stop" }] }) + "\n\ndata: [DONE]\n\n";
+      setByokEgressForTests(async () => new Response(new ReadableStream({ start(controller) {
+        pending.push(() => {
+          controller.enqueue(new TextEncoder().encode(reply));
+          controller.close();
+        });
+      } }), { headers: { "content-type": "text/event-stream" } }));
+      const second = await turn(env, a.cookie, { text: "b" });
+      assert.equal(second.status, 200, "the retry takes a slot");
+      const third = await turn(env, a.cookie, { text: "c" });
+      assert.equal(third.status, 200, "no leaked slot: the second in-flight slot is still free");
+      // The turns' drain (the consumeStream tee) issues the egress calls
+      // lazily: wait for both before releasing them.
+      const deadline = Date.now() + 5_000;
+      while (pending.length < 2) {
+        if (Date.now() > deadline) throw new Error(`only ${pending.length} egress call(s) issued`);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      pending.forEach((release) => release());
+      await Promise.all([second.text(), third.text()]);
+      assert.equal(fake.calls(), 0, "the gateway is not called");
+      assert.deepEqual(db.query("SELECT id FROM ai_credit_usages").all(), [], "no charge");
+    } finally {
+      setByokEgressForTests(null);
       fake.stop();
       db.close();
     }
@@ -1129,7 +2114,7 @@ describe("cloud assistant chain (F4/S1)", () => {
     try {
       const env = assistantEnv(db);
       const a = await seedPro(db, env);
-      assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+      assert.deepEqual(await statusOf(env, a.cookie), { available: true, byok: { chat: false }, reason: null, surface: "cloud" });
       assert.equal((await health(env)).hasAssistant, true);
       // Without the appliance strings the default appliance chain stays off.
       for (const overrides of [{ AI_BASE_URL: undefined }, { AI_API_KEY: undefined }]) {
@@ -1143,7 +2128,7 @@ describe("cloud assistant chain (F4/S1)", () => {
       // ...and with the key it is on, the appliance strings or not.
       for (const overrides of [{}, { AI_API_KEY: undefined, AI_BASE_URL: undefined, AI_MODEL: undefined }]) {
         const on = assistantEnv(db, { ...overrides, ASSISTANT_CHAIN: `gateway:${HAIKU}`, AI_GATEWAY_API_KEY: GATEWAY_KEY });
-        assert.deepEqual(await statusOf(on, a.cookie), { available: true, reason: null, surface: "cloud" }, JSON.stringify(overrides));
+        assert.deepEqual(await statusOf(on, a.cookie), { available: true, byok: { chat: false }, reason: null, surface: "cloud" }, JSON.stringify(overrides));
         assert.equal((await health(on)).hasAssistant, true, JSON.stringify(overrides));
       }
     } finally {
@@ -1165,7 +2150,7 @@ describe("cloud assistant chain (F4/S1)", () => {
       insertUser(db, "usr_free", "free@example.test", "free");
       const free = await seedCloudWebSessionForTests({ email: "free@example.test", id: "usr_free", plan: "free" }, env);
       const { logged } = await capturingLogs(async () => {
-        assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+        assert.deepEqual(await statusOf(env, a.cookie), { available: true, byok: { chat: false }, reason: null, surface: "cloud" });
         assert.deepEqual(await statusOf(env, free.cookie), { available: false, reason: "requires_pro", surface: "cloud" });
         assert.equal((await health(env)).hasAssistant, true);
       });
@@ -1216,7 +2201,7 @@ describe("cloud assistant chain (F4/S1)", () => {
       resetCloudMemoryStateForTests();
       const on = productionEnv(db, withBoth);
       const a = await seedPro(db, on);
-      assert.deepEqual(await statusOf(on, a.cookie), { available: true, reason: null, surface: "cloud" });
+      assert.deepEqual(await statusOf(on, a.cookie), { available: true, byok: { chat: false }, reason: null, surface: "cloud" });
       assert.equal((await health(on)).hasAssistant, true);
     } finally {
       db.close();
@@ -1238,7 +2223,7 @@ describe("cloud assistant chain (F4/S1)", () => {
         const a = await seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" }, appliance);
         const free = await seedCloudWebSessionForTests({ email: "free@example.test", id: "usr_free", plan: "free" }, appliance);
         for (const env of [appliance, gateway]) {
-          assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" }, String(deployment ?? "development"));
+          assert.deepEqual(await statusOf(env, a.cookie), { available: true, byok: { chat: false }, reason: null, surface: "cloud" }, String(deployment ?? "development"));
           assert.deepEqual(await statusOf(env, free.cookie), { available: false, reason: "requires_pro", surface: "cloud" }, String(deployment ?? "development"));
           assert.equal((await health(env)).hasAssistant, true, String(deployment ?? "development"));
         }
@@ -1274,7 +2259,7 @@ describe("cloud assistant chain (F4/S1)", () => {
       const env = productionEnv(db);
       const a = await seedPro(db, env);
       const { logged, result } = await capturingLogs(async () => {
-        assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+        assert.deepEqual(await statusOf(env, a.cookie), { available: true, byok: { chat: false }, reason: null, surface: "cloud" });
         assert.equal((await health(env)).hasAssistant, true);
         const response = await turn(env, a.cookie, "Quantas sessões?");
         assert.equal(response.status, 200);

@@ -33,6 +33,7 @@ import {
   CLOUD_PIN_SEARCH_MAX_SESSIONS,
   cloudOwnerPinIndexStore,
   cloudRetrievalEndpoints,
+  createByokTextPinSearch,
   createCloudPinSearch,
 } from "./runtime-cloud";
 import type { CloudPinSourceData, CloudPinSourceSession } from "./source-cloud";
@@ -874,6 +875,332 @@ describe("Cloud pin search: access and the turn's deadline", () => {
     assert.ok(document, "the document embedding had started");
     assert.equal(document.signal?.aborted, true, "and its request was cut");
     assert.deepEqual(await cloudPinIndexStore({}, "usr_pro").entries("session_slow"), [], "the cut session stays stale");
+  });
+});
+
+// ---------- the BYOK text search's budget and the turn's abort (R2) ----------
+
+describe("The BYOK text search's budget and the turn's abort (R2)", () => {
+  const R2_SESSION: CloudPinSourceSession = {
+    createdAt: "2026-10-17T12:00:00.000Z",
+    id: "ses_byok_r2",
+    page: { title: "Página", url: "https://exemplo.test" },
+    pins: [{ comment: "alfinete da agulha", coords: { x: 0, y: 0 }, number: 1, pinId: "pin_r2", type: "point" }],
+  };
+  const R2_ROW = { createdAt: R2_SESSION.createdAt, id: R2_SESSION.id, ownerId: "usr_byok" };
+  const R2_OLD_ROW = { createdAt: "2026-10-16T00:00:00.000Z", id: "ses_byok_r2_old", ownerId: "usr_byok" };
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  // The reviewer's budget probe, the fixed behavior: a pending read does
+  // not hold the search past the budget, and no read starts after it.
+  test("a pending read does not hold the search past the budget: it settles with what it built and starts no new read", async () => {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionReads = 0;
+    let commentsReads = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        commentsReads += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW];
+      },
+      async session() {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          markStarted();
+          await held;
+        }
+        return R2_SESSION;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const begin = performance.now();
+    const pending = createByokTextPinSearch({ budgetMs: 150, data, env: {} }).search({ limit: 5, query: "agulha" });
+    await started;
+    let settled = false;
+    const done = pending.then((hits) => {
+      settled = true;
+      return hits;
+    });
+    await sleep(400);
+    assert.equal(settled, true, `the search settled right after the budget, while the read is still held (t=${Math.round(performance.now() - begin)} ms)`);
+    assert.ok(performance.now() - begin < 1_000, "at the budget, not after the read");
+    assert.deepEqual(await done, [], "the held read never contributed");
+    release();
+    await sleep(20);
+    assert.equal(sessionReads, 1, "no session read starts after the budget");
+    assert.equal(commentsReads, 0, "no comments read starts after the budget");
+  });
+
+  test("the search settles at the budget with a pending read in flight and starts no new read", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionReads = 0;
+    let commentsReads = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        commentsReads += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW, R2_OLD_ROW];
+      },
+      async session(id) {
+        sessionReads += 1;
+        if (id === R2_OLD_ROW.id) await held; // the older session's read is held
+        return id === R2_ROW.id || id === R2_OLD_ROW.id ? { ...R2_SESSION, id } : null;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const pending = createByokTextPinSearch({ budgetMs: 150, data, env: {} }).search({ limit: 5, query: "agulha" });
+    const hits = await Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("not settled after the budget")), 800)),
+    ]);
+    // Nothing resolved at the budget answers; the built-but-unresolved
+    // session does not hold the search either.
+    assert.deepEqual(hits, []);
+    // The reads the search started at the budget: the first session's
+    // build, its comments' access re-check, the second session's in-flight
+    // build. Nothing more may start, even after the held read is released.
+    const sessionReadsAtBudget = sessionReads;
+    const commentsReadsAtBudget = commentsReads;
+    release();
+    await sleep(20);
+    assert.equal(sessionReads, sessionReadsAtBudget, "no session read starts after the budget");
+    assert.equal(commentsReads, commentsReadsAtBudget, "the held session's comments never start");
+  });
+
+  // The reviewer's cancel probe, the fixed behavior: the abort ends the
+  // search with the caller's reason (the gateway search's answer) and no
+  // read starts after it.
+  test("the turn's abort ends the search with the caller's reason and starts no new read", async () => {
+    const controller = new AbortController();
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionReads = 0;
+    let commentsAfterAbort = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        if (controller.signal.aborted) commentsAfterAbort += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW];
+      },
+      async session() {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          markStarted();
+          await held;
+        }
+        return R2_SESSION;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const cancel = new Error("client cancelled turn");
+    const pending = createByokTextPinSearch({ data, env: {} }).search({ limit: 5, query: "agulha", signal: controller.signal });
+    await started;
+    controller.abort(cancel);
+    release();
+    await assert.rejects(
+      pending,
+      (reason: unknown) => reason === cancel,
+      "the search ends with the caller's reason, as the gateway search does",
+    );
+    assert.equal(commentsAfterAbort, 0, "no comments read starts after the abort");
+    assert.equal(sessionReads, 1, "no session read starts after the abort");
+  });
+
+  test("an already aborted turn's signal starts no read", async () => {
+    const controller = new AbortController();
+    const cancel = new Error("client cancelled turn");
+    controller.abort(cancel);
+    let sessionReads = 0;
+    let commentsReads = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        commentsReads += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW];
+      },
+      async session() {
+        sessionReads += 1;
+        return R2_SESSION;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    await assert.rejects(
+      createByokTextPinSearch({ data, env: {} }).search({ limit: 5, query: "agulha", signal: controller.signal }),
+      (reason: unknown) => reason === cancel,
+    );
+    assert.equal(sessionReads + commentsReads, 0, "no read starts");
+  });
+
+  // The reviewer's nested probe, the fixed behavior (R2 recheck): the
+  // comments' inner access recheck is held when the abort happens; the
+  // search ends with the caller's reason, and the abandoned continuation
+  // starts no comments read after it — the data's guard refuses the new
+  // operation — and the abandoned chain's rejection is observed, not left
+  // unhandled.
+  test("an abandoned comments access recheck starts no comments read after the abort", async () => {
+    const controller = new AbortController();
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionReads = 0;
+    let commentsBeforeRelease = 0;
+    let commentsAfterAbort = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        if (controller.signal.aborted) commentsAfterAbort += 1;
+        else commentsBeforeRelease += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW];
+      },
+      async session() {
+        sessionReads += 1;
+        if (sessionReads === 2) {
+          markStarted();
+          await held;
+        }
+        return R2_SESSION;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const unhandled: unknown[] = [];
+    const listener = (event: unknown) => unhandled.push(event);
+    process.on("unhandledRejection", listener);
+    try {
+      const cancel = new Error("client cancelled during the comments access recheck");
+      const pending = createByokTextPinSearch({ data, env: {} }).search({ limit: 5, query: "agulha", signal: controller.signal });
+      await started;
+      controller.abort(cancel);
+      await assert.rejects(
+        pending,
+        (reason: unknown) => reason === cancel,
+        "the search ends with the caller's reason, as the gateway search does",
+      );
+      assert.equal(commentsBeforeRelease, 0, "no comments read before the release");
+      release();
+      await sleep(30);
+      assert.equal(commentsAfterAbort, 0, "the abandoned continuation starts no comments read after the abort");
+      assert.equal(sessionReads, 2, "no session read starts after the abort");
+      assert.equal(unhandled.length, 0, "the abandoned chain's rejection is observed, not left unhandled");
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+  });
+
+  // The deadline with the inner read held (R2 recheck): the search
+  // settles at the budget with what it already resolved, and the
+  // abandoned continuation (the comments read after the access recheck)
+  // starts no new read and leaves no unhandled rejection.
+  test("the deadline settles the search with a pending inner read: the continuation starts no new read and no rejection is unhandled", async () => {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sessionReads = 0;
+    let commentsReads = 0;
+    const data: CloudPinSourceData = {
+      async comments() {
+        commentsReads += 1;
+        return [];
+      },
+      async ownedSessions() {
+        return [R2_ROW];
+      },
+      async session() {
+        sessionReads += 1;
+        if (sessionReads === 2) {
+          markStarted();
+          await held;
+        }
+        return R2_SESSION;
+      },
+      async sharedSessions() {
+        return [];
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const unhandled: unknown[] = [];
+    const listener = (event: unknown) => unhandled.push(event);
+    process.on("unhandledRejection", listener);
+    try {
+      const begin = performance.now();
+      const pending = createByokTextPinSearch({ budgetMs: 150, data, env: {} }).search({ limit: 5, query: "agulha" });
+      await started;
+      const hits = await Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("not settled after the budget")), 800)),
+      ]);
+      assert.ok(performance.now() - begin < 1_000, "at the budget, not after the read");
+      assert.deepEqual(hits, [], "the held read never contributed");
+      assert.equal(commentsReads, 0, "no comments read before the release");
+      release();
+      await sleep(30);
+      assert.equal(commentsReads, 0, "the abandoned continuation starts no comments read after the budget");
+      assert.equal(unhandled.length, 0, "the abandoned chain's rejection is observed, not left unhandled");
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
   });
 });
 

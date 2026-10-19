@@ -1791,3 +1791,192 @@ describe("the PUT tests before it saves", () => {
     assert.equal(byokView(await jsonBody(await api("GET", "/api/byok", env, { headers: { cookie } }))).configured, false);
   });
 });
+
+describe("the Pinar's own host is never a BYOK endpoint", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    resetByokTestWindowsForTests();
+    setByokEgressForTests(null);
+    setCloudNowForTests(NOW);
+    setByokNowForTests(NOW);
+  });
+
+  afterEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    resetByokTestWindowsForTests();
+    setByokEgressForTests(null);
+    setCloudNowForTests(null);
+    setByokNowForTests(null);
+  });
+
+  // Every URL the detection asked the fake egress for.
+  function recordingEgress() {
+    const calls: string[] = [];
+    setByokEgressForTests(async (url) => {
+      calls.push(String(url));
+      return Response.json(applianceCatalog);
+    });
+    return calls;
+  }
+
+  function put(env: CloudEnv, cookie: string, body: Record<string, unknown>) {
+    return api("PUT", "/api/byok", env, {
+      body: JSON.stringify(body),
+      headers: { cookie, "content-type": "application/json" },
+    });
+  }
+
+  function windowAttempts(db: Database): number {
+    const row = db.query("SELECT attempts FROM auth_rate_limits WHERE action = 'byok_test'").get() as { attempts: number } | null;
+    return row?.attempts ?? 0;
+  }
+
+  const NOT_ALLOWED = { code: "invalid_base_url", error: "The base URL is not allowed" };
+  // The public hosts in every spelling the comparison normalizes, and the
+  // host the test requests come in on (https://pinar.test).
+  const OWN_HOSTS = [
+    "https://pinar.dev/v1",
+    "https://www.pinar.dev/v1",
+    "https://PINAR.DEV/v1",
+    "https://pinar.dev./v1",
+    "https://pinar.dev:443/v1",
+    "https://Www.Pinar.Dev.:443",
+    "https://pinar.test/v1",
+    "https://PINAR.TEST./v1",
+  ];
+
+  test("the PUT refuses the own host with 400 before the limit, the decryption and any egress", async () => {
+    const db = migratedDatabase();
+    const capture = new ConsoleCapture();
+    try {
+      const cookie = await insertUser(db, "usr_own", "own@example.test", "pro");
+      const env = envFor(db);
+      const calls = recordingEgress();
+      for (const baseUrl of OWN_HOSTS) {
+        const response = await put(env, cookie, { apiKey: TEST_KEY, baseUrl, chatModel: "chat-1" });
+        assert.equal(response.status, 400, baseUrl);
+        assert.equal(response.headers.get("cache-control"), "no-store");
+        assert.deepEqual(await jsonBody(response), NOT_ALLOWED, baseUrl);
+      }
+      assert.deepEqual(calls, [], "no egress for the own host");
+      assert.equal(windowAttempts(db), 0, "the limit is not consumed");
+      assert.equal(db.query("SELECT * FROM byok_endpoints").all().length, 0, "nothing was stored");
+
+      // A saved endpoint, then a keyless PUT to the own host under a master
+      // key that cannot read the stored ciphertext: a decryption would answer
+      // 503, the refusal comes first with the 400 and the row is unchanged.
+      assert.equal((await put(env, cookie, { apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1", chatModel: "chat-1" })).status, 200);
+      assert.deepEqual(calls, ["https://api.example.test/v1/models"]);
+      db.query("DELETE FROM auth_rate_limits WHERE action = 'byok_test'").run();
+      resetByokTestWindowsForTests();
+      const before = db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_own'").get();
+      const rotated = envFor(db, { BYOK_MASTER_KEY: OTHER_MASTER_KEY });
+      const keyless = await put(rotated, cookie, { baseUrl: "https://pinar.dev./v1" });
+      assert.equal(keyless.status, 400);
+      assert.deepEqual(await jsonBody(keyless), NOT_ALLOWED);
+      // Control: the same keyless PUT to a third-party host does decrypt.
+      assert.equal((await put(rotated, cookie, { baseUrl: "https://api2.example.test/v1" })).status, 503);
+      db.query("DELETE FROM auth_rate_limits WHERE action = 'byok_test'").run();
+      resetByokTestWindowsForTests();
+      assert.equal((await put(rotated, cookie, { baseUrl: "https://pinar.dev/v1" })).status, 400);
+      assert.equal(windowAttempts(db), 0, "the keyless refusal does not consume the limit");
+      assert.deepEqual(calls, ["https://api.example.test/v1/models"], "no egress after the save");
+      assert.deepEqual(db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_own'").get(), before);
+      capture.assertNotLeaked(TEST_KEY);
+    } finally {
+      capture.restore();
+      db.close();
+    }
+  });
+
+  test("a neighbor host is not the Pinar: it is tested and saved", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_near", "near@example.test", "pro");
+      const env = envFor(db);
+      const calls = recordingEgress();
+      for (const baseUrl of ["https://api.pinar.dev.example/v1", "https://pinar.dev.example", "https://notpinar.dev/v1", "https://pinar.test.example/v1"]) {
+        const response = await put(env, cookie, { apiKey: TEST_KEY, baseUrl, chatModel: "chat-1" });
+        assert.equal(response.status, 200, baseUrl);
+        assert.equal(byokView(await jsonBody(response)).baseUrl, baseUrl);
+      }
+      assert.deepEqual(calls, [
+        "https://api.pinar.dev.example/v1/models",
+        "https://pinar.dev.example/models",
+        "https://notpinar.dev/v1/models",
+        "https://pinar.test.example/v1/models",
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("POST /api/byok/test refuses a stored row on the own host: 400, no limit, no decryption, no egress, the row stays", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_old", "old@example.test", "pro");
+      const env = envFor(db);
+      const calls = recordingEgress();
+      assert.equal((await put(env, cookie, { apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1", chatModel: "chat-1" })).status, 200);
+      calls.length = 0;
+      db.query("DELETE FROM auth_rate_limits WHERE action = 'byok_test'").run();
+      resetByokTestWindowsForTests();
+      // A row from before the refusal existed, in every spelling the
+      // comparison normalizes (the trailing dot is what the PUT would have
+      // stripped, so only an old row can hold it).
+      const rotated = envFor(db, { BYOK_MASTER_KEY: OTHER_MASTER_KEY });
+      for (const baseUrl of OWN_HOSTS) {
+        db.query("UPDATE byok_endpoints SET base_url = ? WHERE owner_id = 'usr_old'").run(baseUrl);
+        const before = db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_old'").get();
+        for (const target of [env, rotated]) {
+          const response = await api("POST", "/api/byok/test", target, { headers: { cookie } });
+          assert.equal(response.status, 400, baseUrl);
+          assert.equal(response.headers.get("cache-control"), "no-store");
+          assert.deepEqual(await jsonBody(response), NOT_ALLOWED, baseUrl);
+        }
+        assert.deepEqual(db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_old'").get(), before, "nothing is deleted nor recorded");
+      }
+      assert.deepEqual(calls, [], "no egress for the own host");
+      assert.equal(windowAttempts(db), 0, "the limit is not consumed");
+
+      // Control: a third-party row is tested, and with the unreadable master
+      // key it is decrypted (503).
+      db.query("UPDATE byok_endpoints SET base_url = 'https://api.pinar.dev.example/v1' WHERE owner_id = 'usr_old'").run();
+      assert.equal((await api("POST", "/api/byok/test", rotated, { headers: { cookie } })).status, 503);
+      assert.equal((await api("POST", "/api/byok/test", env, { headers: { cookie } })).status, 200);
+      assert.deepEqual(calls, ["https://api.pinar.dev.example/v1/models"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("the memory deployment refuses the same way, on the host each request came in on", async () => {
+    const env: CloudEnv = { BYOK_MASTER_KEY: MASTER_KEY };
+    const account = await seedCloudWebSessionForTests({ email: "m@example.test", plan: "pro" });
+    const calls = recordingEgress();
+    const putAt = (origin: string, baseUrl: string) => handleByokRequest(
+      new Request(`${origin}/api/byok`, {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl, chatModel: "chat-1" }),
+        headers: { cookie: account.cookie, "content-type": "application/json" },
+        method: "PUT",
+      }),
+      env,
+    );
+    for (const baseUrl of OWN_HOSTS) {
+      const response = await putAt("https://pinar.test", baseUrl);
+      assert.equal(response.status, 400, baseUrl);
+      assert.deepEqual(await jsonBody(response), NOT_ALLOWED, baseUrl);
+    }
+    // The request host is whatever EdgeR routed: a staging request refuses
+    // the staging host, in any case and with the trailing dot.
+    for (const baseUrl of ["https://stg.pinar.dev/v1", "https://STG.pinar.dev./v1", "https://stg.pinar.dev:443"]) {
+      assert.equal((await putAt("https://stg.pinar.dev", baseUrl)).status, 400, baseUrl);
+    }
+    assert.deepEqual(calls, []);
+    // Control: the staging host is not the host of a request on another one.
+    assert.equal((await putAt("https://pinar.test", "https://stg.pinar.dev/v1")).status, 200);
+    assert.deepEqual(calls, ["https://stg.pinar.dev/v1/models"]);
+  });
+});

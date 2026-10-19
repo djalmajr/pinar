@@ -71,6 +71,48 @@ export function validateByokUrl(input: unknown): ByokUrlResult {
   return { normalized: url.origin + (path === "/" ? "" : path) };
 }
 
+// The public hosts of the production deployment: the same list as
+// `production.hosts` in apps/server/scripts/edger-install.ts, which routes
+// them to this worker. The server has no other place that names them, and
+// the request may also arrive by another route (staging, a name route), so
+// the host the request came in on is checked as well (isPinarOwnHost).
+export const PINAR_PUBLIC_HOSTS: readonly string[] = ["pinar.dev", "www.pinar.dev"];
+
+/**
+ * The comparable host of a URL: the hostname lowercased by the WHATWG URL,
+ * without one DNS trailing dot and without the brackets of an IPv6
+ * literal; null when it does not parse. The port is left out on purpose:
+ * the default one is already dropped by the parser, and any other port of
+ * the same host is still the Pinar.
+ */
+function comparableHost(input: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return null;
+  }
+  const hostname = url.hostname.endsWith(".") ? url.hostname.slice(0, -1) : url.hostname;
+  const host = bareHostname(hostname);
+  return host === "" ? null : host;
+}
+
+/**
+ * True when the BYOK base URL points at the Pinar itself: one of the
+ * public hosts, or the host of the request that is being served (after
+ * EdgeR, which hands the worker the routed host). A BYOK key must never be
+ * sent to the Pinar, so the routes refuse such a URL before the limit, the
+ * decryption and any egress. It compares names only and never resolves
+ * them: a third-party name that points at the Pinar is the egress guard's
+ * job.
+ */
+export function isPinarOwnHost(baseUrl: string, requestUrl: string): boolean {
+  const host = comparableHost(baseUrl);
+  if (host === null) return false;
+  if (PINAR_PUBLIC_HOSTS.includes(host)) return true;
+  return host === comparableHost(requestUrl);
+}
+
 function bareHostname(hostname: string): string {
   // IPv6 literals arrive bracketed and lowercased by the URL parser; the
   // zone (if any survives) does not change the class of the address.

@@ -9,7 +9,7 @@ import type {
 import { MENU_LABEL_FIT } from "./SessionActionsMenu";
 import { collectionDisplayName } from "@pinar/shared";
 import { sessionGroupCount } from "../lib/session-groups";
-import { collectionBadgeClass, collectionButtonClass } from "./history-sidebar-badge";
+import { collectionBadgeClass, collectionButtonClass, sidebarCountText } from "./history-sidebar-badge";
 import {
   DragOverlay,
   useDndContext,
@@ -97,6 +97,24 @@ type Translate = (
   key: ServerMessageKey,
   values?: Record<string, number | string>,
 ) => string;
+
+interface SidebarCountProps {
+  className?: string;
+  count: number;
+  t: Translate;
+}
+
+// The badge shows "999+" past three digits; the title and the screen reader
+// get the full count, formatted in the interface language.
+function SidebarCount({ className, count, t }: SidebarCountProps) {
+  const label = t("aggregate.sessionCount", { count });
+  return (
+    <SidebarMenuBadge className={className} title={label}>
+      <span aria-hidden="true">{sidebarCountText(count)}</span>
+      <span className="sr-only">{label}</span>
+    </SidebarMenuBadge>
+  );
+}
 
 interface ContainerTarget {
   id: string;
@@ -308,6 +326,7 @@ function SortableCollection({
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const collectionHasActions = !collection.isProtected || pinarRuntime() === "cloud";
+  const sessionCount = sessionGroupCount(collection.sessions);
   const sessionDropTarget =
     sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   const style: CSSProperties = {
@@ -334,7 +353,7 @@ function SortableCollection({
         {...sortable.listeners}
         ref={sortable.setActivatorNodeRef}
         className={cn(
-          collectionButtonClass({ hasActions: collectionHasActions }),
+          collectionButtonClass({ count: sessionCount, hasActions: collectionHasActions }),
           "touch-none",
           sortable.isDragging ? "cursor-grabbing" : "cursor-default",
           sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
@@ -384,15 +403,15 @@ function SortableCollection({
           {isExpanded ? <FolderOpenIcon /> : <FolderIcon />}
         </button>
       )}
-      <SidebarMenuBadge
+      <SidebarCount
         className={collectionBadgeClass({
           hasActions: collectionHasActions,
           menuActionFocused,
           menuOpen,
         })}
-      >
-        {sessionGroupCount(collection.sessions)}
-      </SidebarMenuBadge>
+        count={sessionCount}
+        t={t}
+      />
       <CollectionMenu
         canManageCollaborators={canManageCollaborators}
         collection={collection}
@@ -443,13 +462,14 @@ function FixedCollection({
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const collectionHasActions = !collection.isProtected || pinarRuntime() === "cloud";
+  const sessionCount = sessionGroupCount(collection.sessions);
   const sessionDropTarget =
     droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   return (
     <SidebarMenuItem ref={droppable.setNodeRef}>
       <SidebarMenuButton
         className={cn(
-          collectionButtonClass({ hasActions: collectionHasActions }),
+          collectionButtonClass({ count: sessionCount, hasActions: collectionHasActions }),
           sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
         )}
         isActive={isActive}
@@ -459,7 +479,7 @@ function FixedCollection({
         <InboxIcon />
         <span>{visibleCollectionName(collection, t)}</span>
       </SidebarMenuButton>
-      <SidebarMenuBadge
+      <SidebarCount
         className={collectionBadgeClass({
           // The protected inbox renders no menu in the local runtime, so the
           // badge keeps its place and must not fade on hover there: nothing
@@ -468,9 +488,9 @@ function FixedCollection({
           menuActionFocused,
           menuOpen,
         })}
-      >
-        {sessionGroupCount(collection.sessions)}
-      </SidebarMenuBadge>
+        count={sessionCount}
+        t={t}
+      />
       <CollectionMenu
         canManageCollaborators={canManageCollaborators}
         collection={collection}
@@ -863,6 +883,7 @@ export function HistorySidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  className={collectionButtonClass({ count: totalSessions, hasActions: false })}
                   isActive={selectedCollectionId === null && selectedFilterId === null && !sharedOnly}
                   tooltip={t("dashboard.allSessions")}
                   onClick={() => selectCollection(null)}
@@ -870,7 +891,7 @@ export function HistorySidebar({
                   <LayoutGridIcon />
                   <span>{t("dashboard.allSessions")}</span>
                 </SidebarMenuButton>
-                <SidebarMenuBadge>{totalSessions}</SidebarMenuBadge>
+                <SidebarCount count={totalSessions} t={t} />
               </SidebarMenuItem>
               {fixedCollections.map((collection) => (
                 <FixedCollection
@@ -890,6 +911,7 @@ export function HistorySidebar({
               {pinarRuntime() === "cloud" ? (
                 <SidebarMenuItem>
                   <SidebarMenuButton
+                    className={collectionButtonClass({ count: sharedCount, hasActions: false })}
                     isActive={sharedOnly}
                     tooltip={t("dashboard.shared")}
                     onClick={selectShared}
@@ -897,7 +919,7 @@ export function HistorySidebar({
                     <LinkIcon />
                     <span>{t("dashboard.shared")}</span>
                   </SidebarMenuButton>
-                  <SidebarMenuBadge>{sharedCount}</SidebarMenuBadge>
+                  <SidebarCount count={sharedCount} t={t} />
                 </SidebarMenuItem>
               ) : null}
             </SidebarMenu>
@@ -991,7 +1013,12 @@ export function HistorySidebar({
                 {sharedCollections.map((col) => (
                   <SidebarMenuItem key={col.id}>
                     <SidebarMenuButton
-                      className={cn(col.isSuspended && "cursor-not-allowed opacity-60")}
+                      className={cn(
+                        !col.isSuspended
+                          && typeof col.sessionCount === "number"
+                          && collectionButtonClass({ count: col.sessionCount, hasActions: false }),
+                        col.isSuspended && "cursor-not-allowed opacity-60",
+                      )}
                       disabled={col.isSuspended}
                       tooltip={
                         col.isSuspended
@@ -1014,7 +1041,7 @@ export function HistorySidebar({
                         {t("dashboard.sharedCollectionSuspended")}
                       </SidebarMenuBadge>
                     ) : typeof col.sessionCount === "number" ? (
-                      <SidebarMenuBadge>{col.sessionCount}</SidebarMenuBadge>
+                      <SidebarCount count={col.sessionCount} t={t} />
                     ) : null}
                   </SidebarMenuItem>
                 ))}

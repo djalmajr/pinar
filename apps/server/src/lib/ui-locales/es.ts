@@ -783,10 +783,6 @@ const messages: UiMessages = {
   "viewer.noAgentResult": "Aún no hay resultado del agente",
   "viewer.reviewTimeline": "Historial de revisión",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.aiSummary": "Resumen con IA",
-  "viewer.aiSummaryTitle": "Resumen de anotaciones",
-  "viewer.aiSummaryDescription":
-    "Pinar solo analiza el título, la URL y los comentarios de los pines.",
   "viewer.aiSummarizing": "Resumiendo…",
   "viewer.aiHighlights": "Puntos principales",
   "viewer.aiCloudCreditCost": "Usa {count, plural, one {# crédito de IA de Pinar Cloud} other {# créditos de IA de Pinar Cloud}}.",

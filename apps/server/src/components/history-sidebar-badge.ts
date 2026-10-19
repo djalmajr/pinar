@@ -1,3 +1,12 @@
+// The base row reserves room for three digits, so a larger count shows as
+// "999+" and the row widens its reservation (see collectionButtonClass). The
+// full number stays in the badge's title and accessible label.
+export const SIDEBAR_COUNT_CAP = 999;
+
+export function sidebarCountText(count: number) {
+  return count > SIDEBAR_COUNT_CAP ? `${SIDEBAR_COUNT_CAP}+` : String(count);
+}
+
 interface CollectionBadgeState {
   // The row renders the ⋮ actions button at the right edge.
   hasActions: boolean;
@@ -18,9 +27,15 @@ export function collectionBadgeClass({ hasActions, menuActionFocused, menuOpen }
 }
 
 // Below `md` the row's label reserves room for the shifted count and the ⋮
-// button: 28px to clear the button, plus up to three digits (~30px) and a gap.
-// The base button only reserves pr-9 for a count, which a long truncated name
-// runs into once the count moved left. From `md` up the base reservation stays.
-export function collectionButtonClass({ hasActions }: Pick<CollectionBadgeState, "hasActions">) {
-  return hasActions ? "max-md:group-has-data-[sidebar=menu-badge]/menu-item:pr-16" : "";
+// button: 28px to clear the button, plus the widest count, "999+" (~39px),
+// and a gap.
+// The base button only reserves pr-9 for a count at the right edge, enough for
+// three digits. A "999+" count there (from `md` up, or always on a row without
+// actions) needs pr-12: 4px from the edge, ~39px, and a gap.
+export function collectionButtonClass({ count, hasActions }: { count: number; hasActions: boolean }) {
+  const classes: string[] = [];
+  if (hasActions) classes.push("max-md:group-has-data-[sidebar=menu-badge]/menu-item:pr-18");
+  if (count > SIDEBAR_COUNT_CAP)
+    classes.push(`${hasActions ? "md:" : ""}group-has-data-[sidebar=menu-badge]/menu-item:pr-12`);
+  return classes.join(" ");
 }

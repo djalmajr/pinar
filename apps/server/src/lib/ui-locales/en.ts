@@ -778,10 +778,6 @@ const messages = {
   "viewer.noAgentResult": "No agent result yet",
   "viewer.reviewTimeline": "Review history",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.aiSummary": "AI summary",
-  "viewer.aiSummaryTitle": "Annotation summary",
-  "viewer.aiSummaryDescription":
-    "Pinar analyzes only the page title, URL, and pin comments.",
   "viewer.aiSummarizing": "Summarizing…",
   "viewer.aiHighlights": "Highlights",
   "viewer.aiCloudCreditCost": "Uses {count, plural, one {# Pinar Cloud AI credit} other {# Pinar Cloud AI credits}}.",

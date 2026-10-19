@@ -757,10 +757,6 @@ const messages: UiMessages = {
   "viewer.noAgentResult": "尚无代理结果",
   "viewer.reviewTimeline": "审阅历史",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.aiSummary": "AI 摘要",
-  "viewer.aiSummaryTitle": "注释摘要",
-  "viewer.aiSummaryDescription":
-    "Pinar 仅分析页面标题、URL 和标记评论。",
   "viewer.aiSummarizing": "正在生成摘要…",
   "viewer.aiHighlights": "要点",
   "viewer.aiCloudCreditCost": "使用 {count} 个 Pinar Cloud AI 积分。",

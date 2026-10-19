@@ -23,6 +23,28 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.9.0": {
+      title: "Votre propre endpoint d’IA dans Pinar Cloud",
+      summary:
+        "Les comptes Pro de Pinar Cloud peuvent enregistrer leur propre endpoint d’IA, les erreurs d’IA de l’assistant, de la reproduction et de la voix montrent désormais la cause avec un choix, les documents juridiques décrivent cet endpoint, avec une nouvelle acceptation pour Pinar Cloud, et le nombre de la barre latérale ne recouvre plus le bouton d’actions sur mobile.",
+      changes: {
+        "own-ai-endpoint": {
+          title: "Votre propre endpoint dans Pinar Cloud (Pro)",
+          description:
+            "Dans Pinar Cloud, les comptes Pro peuvent enregistrer leur propre endpoint dans Paramètres → Assistant IA : une URL de base HTTPS, une clé API et des modèles optionnels de chat, Embeddings et transcription. Une fonction est servie par cet endpoint, sans crédits Pinar Cloud, quand sa capacité passe le test de connexion ; une fonction dont la capacité n’a pas passé continue d’utiliser les fournisseurs de Pinar, avec crédits, avec l’exception de la recherche dans vos pins d’une réponse servie par cet endpoint, qui utilise la vision et les Embeddings de l’endpoint quand ils passent, ou le texte seul quand ils ne passent pas. Quand l’endpoint échoue, l’assistant et les étapes rédigées de reproduction montrent la cause avec « Réessayer » et « Utiliser les crédits Pinar », et l’extension propose de renvoyer le même enregistrement vocal avec crédits.",
+        },
+        "own-endpoint-legal-update": {
+          title: "Documents juridiques mis à jour pour votre propre endpoint",
+          description:
+            "La Politique de confidentialité, les Conditions d’utilisation et la page Service Providers and Subprocessors décrivent désormais votre propre endpoint d’IA : vous choisissez le fournisseur et contractez avec lui, son traitement suit les conditions entre vous et lui, et Pinar ne fait que lui transmettre vos requêtes. Le traitement a lieu là où ce fournisseur traite les données, ce qui peut être hors du Brésil. Le fournisseur de cet endpoint n’est pas un sous-traitant ultérieur de Pinar. Si vous utilisez Pinar Cloud, vous acceptez à nouveau les documents mis à jour.",
+        },
+        "sidebar-count-on-phones": {
+          title: "Le nombre de la barre latérale ne recouvre plus le bouton d’actions sur mobile",
+          description:
+            "Sur mobile, le bouton d’actions (⋮) des lignes de la Boîte de réception et des collections dans la barre latérale du workspace est toujours visible, et le nombre de sessions se trouvait par-dessus. Le nombre se place maintenant à côté du bouton, et un nom long est coupé avant lui. Sur les écrans plus grands, rien ne change.",
+        },
+      },
+    },
     "v0.8.1": {
       title: "La voix et les étapes rédigées fonctionnent de nouveau dans Pinar Cloud",
       summary:
@@ -634,18 +656,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "own-ai-endpoint": {
-        description:
-          "Dans Pinar Cloud, les comptes Pro peuvent enregistrer leur propre endpoint dans Paramètres → Assistant IA : une URL de base HTTPS, une clé API et des modèles optionnels de chat, Embeddings et transcription. Une fonction est servie par cet endpoint, sans crédits Pinar Cloud, quand sa capacité passe le test de connexion ; une fonction dont la capacité n’a pas passé continue d’utiliser les fournisseurs de Pinar, avec crédits, avec l’exception de la recherche dans vos pins d’une réponse servie par cet endpoint, qui utilise la vision et les Embeddings de l’endpoint quand ils passent, ou le texte seul quand ils ne passent pas. Quand l’endpoint échoue, l’assistant et les étapes rédigées de reproduction montrent la cause avec « Réessayer » et « Utiliser les crédits Pinar », et l’extension propose de renvoyer le même enregistrement vocal avec crédits.",
-        title: "Votre propre endpoint dans Pinar Cloud (Pro)",
-      },
-    },
-    summary:
-      "Les comptes Pro de Pinar Cloud peuvent enregistrer leur propre endpoint, et les erreurs d’IA de l’assistant, de la reproduction et de la voix montrent désormais la cause avec un choix.",
-    title: "Votre propre endpoint dans Pinar Cloud",
   },
 } satisfies ReleaseLocale;
 

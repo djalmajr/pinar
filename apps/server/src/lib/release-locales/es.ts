@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.9.0": {
+      title: "Tu propio endpoint de IA en Pinar Cloud",
+      summary:
+        "Las cuentas Pro en Pinar Cloud pueden registrar su propio endpoint de IA, los errores de IA del asistente, la reproducción y la voz ahora muestran la causa con una opción, los documentos legales describen ese endpoint, con nueva aceptación para Pinar Cloud, y el número de la barra lateral ya no tapa el botón de acciones en el móvil.",
+      changes: {
+        "own-ai-endpoint": {
+          title: "Tu propio endpoint en Pinar Cloud (Pro)",
+          description:
+            "En Pinar Cloud, las cuentas Pro pueden registrar su propio endpoint en Configuración → Asistente de IA: URL base HTTPS, clave API y modelos opcionales de chat, Embeddings y transcripción. Una función es atendida por ese endpoint, sin créditos de Pinar Cloud, cuando su capacidad pasa la prueba de conexión; una función cuya capacidad no pasó sigue usando los proveedores de Pinar, con créditos, con la excepción de la búsqueda en los pins de una respuesta atendida por ese endpoint, que usa la visión y los Embeddings del endpoint cuando pasan, o solo el texto cuando no pasan. Cuando el endpoint falla, el asistente y los pasos escritos de reproducción muestran la causa con “Intentar de nuevo” y “Usar créditos de Pinar”, y la extensión ofrece reenviar la misma grabación de voz con créditos.",
+        },
+        "own-endpoint-legal-update": {
+          title: "Documentos legales actualizados para tu propio endpoint",
+          description:
+            "La Política de privacidad, los Términos del Servicio y la página Service Providers and Subprocessors ahora describen tu propio endpoint de IA: tú eliges y contratas al proveedor, su tratamiento sigue los términos entre tú y él, y Pinar solo le reenvía tus solicitudes. El tratamiento ocurre donde ese proveedor trata los datos, lo que puede ser fuera de Brasil. El proveedor de ese endpoint no es un subencargado de Pinar. Si usas Pinar Cloud, aceptas de nuevo los documentos actualizados.",
+        },
+        "sidebar-count-on-phones": {
+          title: "El número de la barra lateral ya no tapa el botón de acciones en el móvil",
+          description:
+            "En el móvil, el botón de acciones (⋮) de las filas de la Bandeja de entrada y de las colecciones en la barra lateral del espacio de trabajo siempre está visible, y el número de sesiones quedaba encima de él. Ahora el número queda al lado del botón, y un nombre largo se corta antes. En pantallas más grandes no cambia nada.",
+        },
+      },
+    },
     "v0.8.1": {
       title: "La voz y los pasos escritos vuelven a funcionar en Pinar Cloud",
       summary:
@@ -634,18 +656,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "own-ai-endpoint": {
-        description:
-          "En Pinar Cloud, las cuentas Pro pueden registrar su propio endpoint en Configuración → Asistente de IA: URL base HTTPS, clave API y modelos opcionales de chat, Embeddings y transcripción. Una función es atendida por ese endpoint, sin créditos de Pinar Cloud, cuando su capacidad pasa la prueba de conexión; una función cuya capacidad no pasó sigue usando los proveedores de Pinar, con créditos, con la excepción de la búsqueda en los pins de una respuesta atendida por ese endpoint, que usa la visión y los Embeddings del endpoint cuando pasan, o solo el texto cuando no pasan. Cuando el endpoint falla, el asistente y los pasos escritos de reproducción muestran la causa con “Intentar de nuevo” y “Usar créditos de Pinar”, y la extensión ofrece reenviar la misma grabación de voz con créditos.",
-        title: "Tu propio endpoint en Pinar Cloud (Pro)",
-      },
-    },
-    summary:
-      "Las cuentas Pro en Pinar Cloud pueden registrar su propio endpoint, y los errores de IA del asistente, la reproducción y la voz ahora muestran la causa con una opción.",
-    title: "Tu propio endpoint en Pinar Cloud",
   },
 } satisfies ReleaseLocale;
 

@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.9.0": {
+      title: "Pinar Cloud 中的自有 AI 端点",
+      summary:
+        "Pinar Cloud 的 Pro 账户可以注册自己的 AI 端点；助手、复现和语音的 AI 错误现在会显示原因并提供选择；法律文件描述了该端点，在 Pinar Cloud 中需要再次接受；手机上侧边栏的数量也不再遮住操作按钮。",
+      changes: {
+        "own-ai-endpoint": {
+          title: "Pinar Cloud 中的自有端点（Pro）",
+          description:
+            "在 Pinar Cloud 中，Pro 账户可以在「设置 → AI 助手」中注册自己的端点：HTTPS 基础 URL、API 密钥，以及用于聊天、嵌入和转写的可选模型。相应的能力通过连接测试时，该功能由这个端点处理，不消耗 Pinar Cloud 积分；能力未通过的功能继续使用 Pinar 的提供商，消耗积分，例外是由该端点处理的回答中的 pins 搜索，它在视觉和嵌入通过时使用端点的视觉和嵌入，未通过时仅按文本进行。端点失败时，助手和书面复现步骤会显示原因，并提供「重试」和「使用 Pinar 积分」；扩展会提供以积分重新发送同一段语音录音。",
+        },
+        "own-endpoint-legal-update": {
+          title: "针对自有端点更新的法律文件",
+          description:
+            "隐私政策、服务条款和 Service Providers and Subprocessors 页面现在描述了您的自有 AI 端点：提供商由您选择并签约，其处理遵循您与该提供商之间的条款，Pinar 只是把您的请求转发给它。处理在该提供商处理数据的地方进行，可能位于巴西境外。该端点的提供商不是 Pinar 的子处理者。如果您使用 Pinar Cloud，需要再次接受更新后的文件。",
+        },
+        "sidebar-count-on-phones": {
+          title: "手机上侧边栏的数量不再遮住操作按钮",
+          description:
+            "在手机上，工作区侧边栏中收件箱和集合各行的操作按钮（⋮）始终可见，而会话数量曾显示在它上面。现在数量显示在按钮旁边，过长的名称会在数量之前截断。在较大的屏幕上没有变化。",
+        },
+      },
+    },
     "v0.8.1": {
       title: "Pinar Cloud 中的语音和文字步骤恢复可用",
       summary:
@@ -631,18 +653,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "own-ai-endpoint": {
-        description:
-          "在 Pinar Cloud 中，Pro 账户可以在「设置 → AI 助手」中注册自己的端点：HTTPS 基础 URL、API 密钥，以及用于聊天、嵌入和转写的可选模型。相应的能力通过连接测试时，该功能由这个端点处理，不消耗 Pinar Cloud 积分；能力未通过的功能继续使用 Pinar 的提供商，消耗积分，例外是由该端点处理的回答中的 pins 搜索，它在视觉和嵌入通过时使用端点的视觉和嵌入，未通过时仅按文本进行。端点失败时，助手和书面复现步骤会显示原因，并提供「重试」和「使用 Pinar 积分」；扩展会提供以积分重新发送同一段语音录音。",
-        title: "Pinar Cloud 中的自有端点（Pro）",
-      },
-    },
-    summary:
-      "Pinar Cloud 的 Pro 账户可以注册自己的端点，助手、复现和语音的 AI 错误现在会显示原因并提供选择。",
-    title: "Pinar Cloud 中的自有端点",
   },
 } satisfies ReleaseLocale;
 

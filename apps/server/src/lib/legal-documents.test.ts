@@ -51,7 +51,7 @@ describe("public legal documents", () => {
     assert.doesNotMatch(termsPt, /Araújo/);
     assert.doesNotMatch(termsEn, /\("Pinar", "we", "us"\)/);
     assert.doesNotMatch(termsPt, /\("Pinar", "nós"\)/);
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-18");
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-19");
     for (const documentId of LegalDocumentIds) {
       const english = legalDocument(documentId, "en").body;
       const portuguese = legalDocument(documentId, "pt").body;
@@ -295,6 +295,6 @@ describe("public legal documents", () => {
       }
     }
     // The documents move to the BYOK version, dated by the orchestrator at merge.
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-18");
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-19");
   });
 });

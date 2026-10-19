@@ -1,6 +1,6 @@
 import type { SupportedLanguage } from "@pinar/shared";
 
-export const CURRENT_LEGAL_VERSION = "2026-10-18";
+export const CURRENT_LEGAL_VERSION = "2026-10-19";
 export const OPERATOR_CONTACT_EMAIL = {
   en: "contact@pinar.dev",
   pt: "contato@pinar.dev",

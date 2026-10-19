@@ -46,6 +46,10 @@ export function AssistantToggle() {
       tabIndex={visible ? 0 : -1}
       title={t("assistant.toggle")}
       type="button"
+      // Only the icon, also while the panel is open: the ghost variant would
+      // fill the expanded state with bg-muted.
+      className="aria-expanded:bg-transparent"
+      variant="ghost"
       onClick={toggle}
     >
       <IconSparkles aria-hidden="true" className="size-4" />

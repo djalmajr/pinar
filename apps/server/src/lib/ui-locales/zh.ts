@@ -66,6 +66,8 @@ const messages: UiMessages = {
   "assistant.retry": "重试",
   "assistant.errorTimeout": "助手回答用时过长。请重试。",
   "assistant.errorIncomplete": "助手无法完成这次回答。请重试。",
+  "assistant.errorTimeoutInactivity": "模型一分钟没有回应。请重试。",
+  "assistant.errorTimeoutLimit": "回答超过了助手的时间上限。请重试。",
   "assistant.errorFailed": "助手当前不可用。请稍后再试。",
   "assistant.errorRateLimited": "短时间内提问过多。请稍候。",
   "assistant.errorNoCredits": "AI 点数不足：每条消息使用 {required} 点，你还剩 {count} 点。",

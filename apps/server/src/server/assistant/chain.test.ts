@@ -20,6 +20,9 @@ import {
   type AssistantChainLink,
   type AssistantCircuitBreaker,
 } from "./chain";
+import { encodeAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
+import { createAssistantTurnBudget } from "./deadline";
+import { fakeTurnClock, settleIo } from "./deadline.test-helpers";
 import { runAssistantTurn, type AssistantTurnOutcome } from "./turn";
 
 // ---------- fakes ----------
@@ -812,5 +815,247 @@ describe("client stream", () => {
     assert.ok(!viaChain.body.includes(ASSISTANT_CHAIN_METADATA_KEY));
     assert.ok(viaChain.outcome.billing);
     assert.equal(plain.outcome.billing, undefined);
+  });
+});
+
+// ---------- the turn's budget and the typed final error ----------
+
+function errorTexts(body: string): string[] {
+  return body
+    .split("\n")
+    .filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
+    .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>)
+    .filter((part) => part.type === "error")
+    .map((part) => String(part.errorText));
+}
+
+// A provider call that hangs until the turn's signal aborts it.
+function hangingFetch(): { calls: () => number; fetch: typeof fetch } {
+  let calls = 0;
+  const fetchFn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    calls += 1;
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    });
+  }) as typeof fetch;
+  return { calls: () => calls, fetch: fetchFn };
+}
+
+describe("the chain under the turn's budget", () => {
+  // The first link fails with a transient 503 when the budget has `leftMs`
+  // left; the second link answers if it is tried.
+  async function fallbackWith(leftMs: number) {
+    const clock = fakeTurnClock();
+    const budget = createAssistantTurnBudget(clock);
+    await clock.advance(240_000 - leftMs);
+    const fake = fakeFetch({ [DEEPSEEK]: [answers("da reserva", { cost: "0.0001" })], [HAIKU]: [status(503, "internal_server_error")] });
+    const model = assistantChainModel({
+      appliance: null,
+      breaker: createAssistantCircuitBreaker(),
+      chain: gatewayChain(HAIKU, DEEPSEEK),
+      context: { conversationId: "thread-1", requestId: "request-1", turnBudget: budget },
+      fetch: fake.fetch,
+      gateway: { apiKey: GATEWAY_KEY },
+    });
+    const { outcome, response } = runAssistantTurn({
+      budget,
+      history: [{ role: "user", text: "oi" }],
+      model,
+      system: "system",
+      thread: { id: "thread-1", title: "T" },
+      tools: {},
+    });
+    const body = await response.text();
+    const result = await outcome;
+    budget.dispose();
+    return { body, calls: fake.calls.map((call) => call.model), outcome: result };
+  }
+
+  test("with 30 s left the fallback runs on what is left", async () => {
+    const { body, calls, outcome } = await fallbackWith(30_000);
+    assert.deepEqual(calls, [HAIKU, DEEPSEEK]);
+    assert.equal(outcome.kind, "final");
+    assert.equal(billingOf(outcome).link, 1);
+    assert.deepEqual(errorTexts(body), []);
+  });
+
+  test("with less than 30 s left the fallback does not start: the turn times out (turn phase)", async () => {
+    const { body, calls, outcome } = await fallbackWith(29_999);
+    assert.deepEqual(calls, [HAIKU], "the second link is never called");
+    assert.equal(outcome.kind === "error" && outcome.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "turn", retryable: true })]);
+  });
+
+  test("the first link always runs, whatever is left", async () => {
+    const clock = fakeTurnClock();
+    const budget = createAssistantTurnBudget(clock);
+    await clock.advance(230_000);
+    const fake = fakeFetch({ [HAIKU]: [answers("rápido")] });
+    const model = assistantChainModel({
+      appliance: null,
+      breaker: createAssistantCircuitBreaker(),
+      chain: gatewayChain(HAIKU, DEEPSEEK),
+      context: { conversationId: "thread-1", requestId: "request-1", turnBudget: budget },
+      fetch: fake.fetch,
+      gateway: { apiKey: GATEWAY_KEY },
+    });
+    const { outcome, response } = runAssistantTurn({ budget, history: [{ role: "user", text: "oi" }], model, system: "s", thread: { id: "thread-1", title: "T" }, tools: {} });
+    await response.text();
+    assert.equal((await outcome).kind, "final");
+    budget.dispose();
+  });
+
+  const hubs: Array<[string, AssistantChainLink[], boolean]> = [
+    ["gateway", gatewayChain(HAIKU), false],
+    ["appliance", [{ hub: "appliance", model: "qwen3.8-27b" }], true],
+  ];
+  for (const [hub, chain, appliance] of hubs) {
+    test(`${hub}: 60 s without progress ends with the typed timeout part (inactivity)`, async () => {
+      const clock = fakeTurnClock();
+      const hanging = hangingFetch();
+      const model = chainModel({ appliance, chain, fetch: hanging.fetch });
+      const { outcome, response } = runAssistantTurn({ clock, history: [{ role: "user", text: "oi" }], model, system: "s", thread: { id: "thread-1", title: "T" }, tools: {} });
+      const reading = response.text();
+      await clock.advance(60_000);
+      const body = await reading;
+      assert.equal(hanging.calls(), 1);
+      assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "inactivity", retryable: true })]);
+      assert.equal((await outcome).kind === "error" && (await outcome as { code?: string }).code, "ASSISTANT_TURN_TIMEOUT");
+      assert.ok(!body.includes(GATEWAY_KEY) && !body.includes(APPLIANCE_KEY));
+    });
+  }
+
+  test("gateway: a refused request ends with the typed stream failure (model phase)", async () => {
+    const fake = fakeFetch({ [HAIKU]: [status(401, "authentication_error")] });
+    const { body, outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: fake.fetch }));
+    assert.equal(outcome.kind === "error" && outcome.code, "ASSISTANT_STREAM_FAILED");
+    assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_STREAM_FAILED", phase: "model", retryable: true })]);
+  });
+
+  // Each call of the gateway fake is an SSE body the test feeds by hand:
+  // the first goes to the first model, the second to the fallback.
+  function heldSseFetch(clock: ReturnType<typeof fakeTurnClock>) {
+    const encoder = new TextEncoder();
+    const calls: Array<{ at: number; model: string }> = [];
+    const bodies: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const fetchFn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ at: clock.now(), model: new Headers(init?.headers).get("ai-language-model-id") ?? "" });
+      const body = new ReadableStream<Uint8Array>({ start: (controller) => void bodies.push(controller) });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    const emit = (call: number, part: unknown) => bodies[call]!.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`));
+    return { bodies, calls, emit, fetch: fetchFn };
+  }
+
+  // After `before` of the budget spent before the stream, the first model
+  // keeps progressing (raw chunks every 50 s, held before the commit) and
+  // breaks `breakAt` into its attempt; the fallback starts then.
+  async function fallbackAfterProgress(breakAt: number, before = 0) {
+    const clock = fakeTurnClock();
+    const budget = createAssistantTurnBudget(clock);
+    await clock.advance(before);
+    const sse = heldSseFetch(clock);
+    const model = assistantChainModel({
+      appliance: null,
+      breaker: createAssistantCircuitBreaker(),
+      chain: gatewayChain(HAIKU, DEEPSEEK),
+      context: { conversationId: "thread-1", requestId: "request-1", turnBudget: budget },
+      fetch: sse.fetch,
+      gateway: { apiKey: GATEWAY_KEY },
+    });
+    const { outcome, response } = runAssistantTurn({ budget, history: [{ role: "user", text: "oi" }], model, system: "s", thread: { id: "thread-1", title: "T" }, tools: {} });
+    const reading = response.text();
+    let settled: AssistantTurnOutcome | null = null;
+    void outcome.then((value) => {
+      settled = value;
+    });
+    await settleIo();
+    sse.emit(0, { type: "stream-start", warnings: [] });
+    let at = 0;
+    while (at + 50_000 < breakAt) {
+      await clock.advance(50_000);
+      at += 50_000;
+      sse.emit(0, { rawValue: { reasoning: "working" }, type: "raw" });
+    }
+    await clock.advance(breakAt - at);
+    sse.bodies[0]!.error(new TypeError("fixture broken response"));
+    await settleIo();
+    return { budget, clock, done: () => settled, outcome, reading, sse };
+  }
+
+  const finishPart = { finishReason: { raw: "stop", unified: "stop" }, type: "finish", usage: { inputTokens: { total: 3 }, outputTokens: { total: 4 } } };
+  const answerParts = (text: string) => [{ id: "txt", type: "text-start" }, { delta: text, id: "txt", type: "text-delta" }, { id: "txt", type: "text-end" }, finishPart];
+
+  test("a fallback started at 170 s gets its own attempt cap: it answers at 200 s, within the 240 s budget", async () => {
+    const run = await fallbackAfterProgress(170_000);
+    assert.deepEqual(run.sse.calls, [{ at: 1_000_000, model: HAIKU }, { at: 1_170_000, model: DEEPSEEK }]);
+    run.sse.emit(1, { type: "stream-start", warnings: [] });
+    await run.clock.advance(10_000);
+    assert.equal(run.done(), null, "the first model's cap (180 s) does not cut the fallback");
+    await run.clock.advance(20_000);
+    for (const part of answerParts("da reserva")) run.sse.emit(1, part);
+    run.sse.bodies[1]!.close();
+    const body = await run.reading;
+    const result = await run.outcome;
+    run.budget.dispose();
+    assert.equal(result.kind, "final");
+    assert.deepEqual(errorTexts(body), []);
+    assert.equal(run.clock.pending(), 0);
+  });
+
+  test("a fallback that passes its own 180 s ends with the attempt phase, not at the first model's cap", async () => {
+    const run = await fallbackAfterProgress(10_000);
+    assert.equal(run.sse.calls.length, 2);
+    run.sse.emit(1, { type: "stream-start", warnings: [] });
+    // Progress every 50 s keeps the inactivity clock off the cut.
+    for (let i = 0; i < 3; i += 1) {
+      await run.clock.advance(50_000);
+      run.sse.emit(1, { rawValue: { reasoning: "working" }, type: "raw" });
+    }
+    // 160 s of the turn, 150 s of the fallback: past the first model's
+    // 180 s at 180 s of the turn, still alive until 190 s.
+    await run.clock.advance(29_999);
+    assert.equal(run.done(), null, "alive at 189.999 s: the first model's cap was disarmed");
+    await run.clock.advance(1);
+    const body = await run.reading;
+    const result = await run.outcome;
+    run.budget.dispose();
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "attempt", retryable: true })]);
+    assert.equal(run.clock.pending(), 0);
+  });
+
+  test("a first model that breaks with less than 30 s left gets no fallback: the turn phase", async () => {
+    // 60 s before the stream, 150.001 s of the first model: 29.999 s left.
+    const run = await fallbackAfterProgress(150_001, 60_000);
+    const body = await run.reading;
+    const result = await run.outcome;
+    run.budget.dispose();
+    assert.deepEqual(run.sse.calls.map((call) => call.model), [HAIKU], "the second link is never called");
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "turn", retryable: true })]);
+  });
+
+  test("held parts before the commit rearm the turn's inactivity clock", async () => {
+    const clock = fakeTurnClock();
+    const budget = createAssistantTurnBudget(clock);
+    let ticks = 0;
+    budget.onProgress(() => {
+      ticks += 1;
+    });
+    const fake = fakeFetch({ [HAIKU]: [answers("ok")] });
+    const model = assistantChainModel({
+      appliance: null,
+      breaker: createAssistantCircuitBreaker(),
+      chain: gatewayChain(HAIKU),
+      context: { conversationId: "thread-1", requestId: "request-1", turnBudget: budget },
+      fetch: fake.fetch,
+      gateway: { apiKey: GATEWAY_KEY },
+    });
+    await drainCall(model);
+    // stream-start, text-start and the committing text-delta are read in
+    // the held window.
+    assert.equal(ticks, 3);
+    budget.dispose();
   });
 });

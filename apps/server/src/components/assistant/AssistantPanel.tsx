@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { Button, cn } from "@pinar/ui";
 import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import { byokCauseMessageKey } from "@/lib/ai-error-presentation";
+import { parseAssistantTurnTerminal, type AssistantTurnTerminal } from "@/lib/assistant-turn-terminal";
 import type { Translate } from "@/lib/i18n";
 import IconHistory from "~icons/lucide/history";
 import IconPlus from "~icons/lucide/plus";
@@ -46,7 +47,48 @@ import { AssistantThreadList } from "./AssistantThreadList";
 export interface AssistantTurnError {
   byok: AssistantByokErrorInfo | null;
   credits: { balance: number; required: number } | null;
-  key: AssistantErrorKey;
+  key: AssistantErrorKey | AssistantTurnTerminalKey;
+}
+
+export type AssistantTurnTerminalKey =
+  | "assistant.errorFailed"
+  | "assistant.errorIncomplete"
+  | "assistant.errorTimeoutInactivity"
+  | "assistant.errorTimeoutLimit";
+
+// The typed final error of a turn (lib/assistant-turn-terminal.ts): a
+// timeout says which limit ran out — a minute without progress, or the
+// attempt's or the turn's ceiling.
+export function assistantTurnTerminalMessageKey(terminal: AssistantTurnTerminal): AssistantTurnTerminalKey {
+  switch (terminal.code) {
+    case "ASSISTANT_TURN_TIMEOUT":
+      return terminal.phase === "inactivity" ? "assistant.errorTimeoutInactivity" : "assistant.errorTimeoutLimit";
+    case "ASSISTANT_TURN_INCOMPLETE":
+      return "assistant.errorIncomplete";
+    default:
+      return "assistant.errorFailed";
+  }
+}
+
+// A failed turn's note from the chat error. The transport delivers the JSON
+// error body (or the stream's errorText) as the error message; only the
+// mapped i18n key is ever shown, never the raw text. The typed terminal
+// (mid-stream, or the 504 before the stream) maps by its code and phase.
+// The cause of a BYOK failure (F5/S4): the `data-byok-error` part of the
+// same turn when it failed mid-stream, or the pre-stream 429 body; a
+// byok_error without either still shows the generic note.
+export function assistantTurnErrorFromChatError(error: Error, byokPart?: AssistantByokErrorInfo | null): AssistantTurnError {
+  const code = assistantErrorFromChatError(error);
+  const terminal = parseAssistantTurnTerminal(error);
+  const key = terminal !== null ? assistantTurnTerminalMessageKey(terminal) : assistantErrorMessageKey(code);
+  const byok = code === "byok_error"
+    ? byokPart ?? assistantByokErrorFromChatError(error) ?? { canUseCredits: true, cause: "", retryAfter: null }
+    : null;
+  return {
+    byok,
+    credits: key === "assistant.errorNoCredits" ? assistantCreditsFromChatError(error) : null,
+    key,
+  };
 }
 
 // Lack of credits shows the balance and a link to buy more (/pricing); a
@@ -145,21 +187,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
         setActiveThreadId(id);
       },
       onTurnError: (error, byokPart) => {
-        // The transport delivers the JSON error body as the error message;
-        // only the mapped i18n key is ever shown, never the raw text.
-        const code = assistantErrorFromChatError(error);
-        const key = assistantErrorMessageKey(code);
-        // The cause of a BYOK failure (F5/S4): the `data-byok-error` part of
-        // the same turn when it failed mid-stream, or the pre-stream 429
-        // body; a byok_error without either still shows the generic note.
-        const byok = code === "byok_error"
-          ? byokPart ?? assistantByokErrorFromChatError(error) ?? { canUseCredits: true, cause: "", retryAfter: null }
-          : null;
-        setTurnError({
-          byok,
-          credits: key === "assistant.errorNoCredits" ? assistantCreditsFromChatError(error) : null,
-          key,
-        });
+        setTurnError(assistantTurnErrorFromChatError(error, byokPart));
       },
     }),
     [],

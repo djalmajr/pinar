@@ -12,6 +12,13 @@
 // finish with no content (a valid empty answer the turn judges): after
 // that a later error goes on to the turn and no other link is tried.
 //
+// The turn's budget (deadline.ts) reaches the chain through the call's
+// context: a fallback link runs only with at least
+// ASSISTANT_TURN_MIN_FALLBACK_MS left of it — what is left, never a new
+// budget —, else the call ends with the `turn` timeout. The parts held
+// before the commit count as the turn's progress (they rearm its
+// inactivity clock), since the turn only sees them once the link commits.
+//
 // Every committed call adds its billing under providerMetadata
 // [ASSISTANT_CHAIN_METADATA_KEY] of the finish part: the link, its
 // `hub:model`, whether it was a fallback and the cost in USD micros, read
@@ -27,6 +34,7 @@
 // AssistantChainError with a fixed message and no cause.
 
 import { createGateway, wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
+import { ASSISTANT_TURN_MIN_FALLBACK_MS, AssistantTurnTimeoutError, type AssistantTurnBudget } from "./deadline";
 import { assistantLanguageModel, assistantProviderOptions, guardRedirects, type ProviderOptions } from "./models";
 import type { AssistantTurnBilling, AssistantTurnUsage } from "./turn";
 
@@ -349,6 +357,12 @@ function callBilling(index: number, link: AssistantChainLink, finish: FinishPart
     : { ...base, costSource: "table", costUsdMicros: fromTable };
 }
 
+export interface AssistantChainContext {
+  conversationId: string;
+  requestId: string;
+  turnBudget?: Pick<AssistantTurnBudget, "markAttempt" | "markProgress" | "remainingMs">;
+}
+
 /**
  * One model over the chain (F4 contract §1). Each call opens the first
  * link whose breaker is closed; a transient error before the first text or
@@ -368,8 +382,9 @@ export function assistantChainModel(input: {
   appliance: { apiKey: string; baseUrl: string } | null;
   breaker: AssistantCircuitBreaker;
   chain: AssistantChainLink[];
-  // the turn's thread (sessionId and X-Conversation-Id) and request
-  context?: { conversationId: string; requestId: string };
+  // the turn's thread (sessionId and X-Conversation-Id) and request, and
+  // the turn's budget (the fallback's floor and the held parts' progress)
+  context?: AssistantChainContext;
   fetch?: typeof fetch;
   gateway: { apiKey: string; zeroDataRetention?: boolean } | null;
   onAttempt?: (attempt: AssistantChainAttempt) => void;
@@ -414,9 +429,14 @@ export function assistantChainModel(input: {
     }
   };
 
+  // The link the turn's last call started: a step that starts another
+  // model begins a new attempt.
+  let startedLink: number | null = null;
   const stream = async (params: ChainCallOptions): Promise<ChainStreamResult> => {
     const signal = params.abortSignal;
+    const turnBudget = context.turnBudget;
     let lastStatus: number | undefined;
+    let attempted = 0;
     for (const [index, entry] of links.entries()) {
       const name = assistantChainLinkName(entry.link);
       if (input.breaker.isOpen(entry.link)) {
@@ -424,6 +444,14 @@ export function assistantChainModel(input: {
         continue;
       }
       signal?.throwIfAborted();
+      // A fallback only with the useful minimum left of the turn's budget.
+      if (attempted > 0 && turnBudget !== undefined && turnBudget.remainingMs() < ASSISTANT_TURN_MIN_FALLBACK_MS) {
+        throw new AssistantTurnTimeoutError("turn");
+      }
+      attempted += 1;
+      // Another model than the one running: its own attempt cap (turn.ts).
+      if (startedLink !== null && startedLink !== index) turnBudget?.markAttempt();
+      startedLink = index;
       let failure: unknown;
       let failed = false;
       let result: ChainStreamResult | undefined;
@@ -437,6 +465,7 @@ export function assistantChainModel(input: {
         for (;;) {
           const next = await reader.read();
           if (next.done) break;
+          turnBudget?.markProgress();
           if (next.value.type === "error") {
             failed = true;
             failure = next.value.error;

@@ -664,10 +664,15 @@ const locale = {
           "Dans Paramètres → Assistant IA, « Tester et enregistrer » teste l’URL, la clé et les modèles saisis avant d’enregistrer votre endpoint dans Pinar Cloud, et n’enregistre que si au moins une capacité passe ; si aucune ne passe, rien n’est enregistré et la configuration précédente reste en place. « Tester la connexion » teste de nouveau l’endpoint enregistré, et seul le bouton cliqué affiche la progression.",
         title: "Votre propre endpoint est testé avant d’être enregistré",
       },
+      "assistant-slow-models": {
+        description:
+          "L’assistant ne termine plus une réponse après 60 secondes fixes : il attend tant que le modèle continue de répondre et s’arrête après 1 minute sans aucune réponse, 3 minutes dans la même tentative ou 4 minutes au total et propose « Réessayer ». Après une erreur, « Consultation en cours… » ne reste plus dans la conversation. Le bouton de l’assistant dans l’en-tête n’est plus que l’icône, sans fond.",
+        title: "L’assistant attend un modèle lent qui continue de répondre",
+      },
     },
     summary:
-      "Votre propre endpoint Pinar Cloud est testé avant d’être enregistré, et seul le bouton cliqué affiche la progression.",
-    title: "Endpoint personnel testé avant l’enregistrement",
+      "Votre propre endpoint Pinar Cloud est testé avant d’être enregistré, et seul le bouton cliqué affiche la progression. L’assistant attend un modèle lent tant qu’il continue de répondre, n’affiche plus « Consultation en cours… » après une erreur, et le bouton de l’assistant dans l’en-tête n’est plus que l’icône.",
+    title: "Endpoint personnel testé avant l’enregistrement et un assistant qui attend les modèles lents",
   },
 } satisfies ReleaseLocale;
 

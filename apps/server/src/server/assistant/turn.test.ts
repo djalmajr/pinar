@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { LanguageModel, ToolSet } from "ai";
+import { jsonSchema, tool, type LanguageModel, type ToolSet } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { ASSISTANT_PROPOSAL_TTL_MS, newAssistantProposalId, prepareProposal, publicProposal, type AssistantProposalRecord } from "./proposals";
 import { FIXTURE_ID_PREFIX, fixtureReader, fixtureWorld } from "./proposals.test-helpers";
+import { createAssistantConversation } from "../../components/assistant/assistant-conversation";
+import { encodeAssistantTurnTerminal, parseAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
+import { byokStreamErrorPart } from "../byok/route";
+import { createAssistantTurnBudget } from "./deadline";
+import { fakeTurnClock, pushableStream, settleIo } from "./deadline.test-helpers";
 import { newAssistantMessageId } from "./store";
 import { ASSISTANT_TOOL_POLICY } from "./tool-policy";
 import type { AssistantProposalSink, AssistantToolHost } from "./tools";
@@ -245,7 +250,7 @@ test("a provider error surfaces exactly ASSISTANT_STREAM_FAILED, never the secre
   const body = await readSse(response);
   const errorParts = sseDataParts(body).filter((part) => (part as { type?: string }).type === "error");
   assert.equal(errorParts.length, 1, "the stream must carry one error part");
-  assert.deepEqual(errorParts[0], { errorText: "ASSISTANT_STREAM_FAILED", type: "error" });
+  assert.deepEqual(errorParts[0], { errorText: JSON.stringify({ code: "ASSISTANT_STREAM_FAILED", phase: "model", retryable: true }), type: "error" });
   assert.ok(!body.includes("SEGREDO"), "the provider error text must never reach the client");
   assert.ok(!body.includes("sk-"), "no secret material may reach the client");
   assert.deepEqual(await outcome, {
@@ -332,7 +337,7 @@ test("a model error part is ASSISTANT_STREAM_FAILED in the outcome and logs noth
     });
     const body = await readSse(response);
     const errorParts = sseDataParts(body).filter((part) => (part as { type?: string }).type === "error");
-    assert.deepEqual(errorParts, [{ errorText: "ASSISTANT_STREAM_FAILED", type: "error" }], "the SSE must carry one sanitized error part");
+    assert.deepEqual(errorParts, [{ errorText: JSON.stringify({ code: "ASSISTANT_STREAM_FAILED", phase: "model", retryable: true }), type: "error" }], "the SSE must carry one sanitized error part");
     assert.ok(!body.includes("SYNTHETIC"), "the error part content must not reach the client");
     assert.deepEqual(await outcome, {
       code: "ASSISTANT_STREAM_FAILED",
@@ -698,4 +703,353 @@ test("asking for writes without a proposal sink throws before the turn starts", 
       }),
     /proposal sink/,
   );
+});
+
+// ---------- the turn's deadlines (deadline.ts), on a fake clock ----------
+
+const errorPartsOf = (body: string) =>
+  sseDataParts(body).filter((part) => (part as { type?: string }).type === "error") as Array<{ errorText: string; type: string }>;
+const timeoutTerminal = (phase: "attempt" | "inactivity" | "turn") =>
+  encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase, retryable: true });
+
+// Tracks whether a promise settled, without awaiting it.
+function settledFlag(promise: Promise<unknown>): () => boolean {
+  let settled = false;
+  void promise.then(() => {
+    settled = true;
+  });
+  return () => settled;
+}
+
+describe("the turn's deadlines", () => {
+  test("a slow model that keeps producing passes 60 s and ends final", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { outcome, response } = runAssistantTurn({
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const reading = readSse(response);
+    feed.push({ id: "t1", type: "text-start" });
+    // 55 s between parts, 165 s in all: past the old fixed 60 s, under the
+    // 180 s attempt cap.
+    for (const word of ["Você ", "tem ", "duas sessões."]) {
+      await clock.advance(55_000);
+      feed.push({ delta: word, id: "t1", type: "text-delta" });
+    }
+    feed.push({ id: "t1", type: "text-end" });
+    feed.push(finish("stop"));
+    feed.close();
+    const body = await reading;
+    const result = await outcome;
+    assert.equal(result.kind, "final", JSON.stringify(result));
+    assert.equal(result.kind === "final" && result.text, "Você tem duas sessões.");
+    assert.deepEqual(errorPartsOf(body), []);
+  });
+
+  test("60 s without any part ends the turn by inactivity, with the typed final error", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { outcome, response } = runAssistantTurn({
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const reading = readSse(response);
+    const settled = settledFlag(outcome);
+    feed.push({ id: "t1", type: "text-start" });
+    await clock.advance(59_999);
+    assert.equal(settled(), false, "one millisecond before the window the turn is still running");
+    await clock.advance(1);
+    const body = await reading;
+    assert.deepEqual(await outcome, { code: "ASSISTANT_TURN_TIMEOUT", kind: "error", steps: 0, usage: ZERO });
+    assert.deepEqual(errorPartsOf(body), [{ errorText: timeoutTerminal("inactivity"), type: "error" }]);
+  });
+
+  test("a raw provider chunk counts as progress (includeRawChunks)", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { outcome, response } = runAssistantTurn({
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const reading = readSse(response);
+    // Reasoning the SDK does not map arrives only as raw chunks.
+    await clock.advance(50_000);
+    feed.push({ rawValue: { reasoning: "..." }, type: "raw" });
+    await clock.advance(50_000);
+    feed.push({ rawValue: { reasoning: "..." }, type: "raw" });
+    await clock.advance(50_000);
+    for (const part of [...textParts("Pronto."), finish("stop")]) feed.push(part);
+    feed.close();
+    await reading;
+    const result = await outcome;
+    assert.equal(result.kind, "final", JSON.stringify(result));
+  });
+
+  test("a slow tool is not inactivity: the clock stands still while it runs", async () => {
+    const clock = fakeTurnClock();
+    let releaseTool!: () => void;
+    const toolGate = new Promise<void>((resolve) => {
+      releaseTool = resolve;
+    });
+    let toolRuns = 0;
+    let modelCalls = 0;
+    const model = mockModel(() => {
+      modelCalls += 1;
+      return modelCalls === 1
+        ? { stream: modelStream([{ input: "{}", toolCallId: "tc1", toolName: "slow_read", type: "tool-call" }, finish("tool-calls")]) }
+        : { stream: modelStream([...textParts("Achei."), finish("stop")]) };
+    });
+    const { outcome, response } = runAssistantTurn({
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model,
+      system: "sys",
+      thread: THREAD,
+      tools: {
+        slow_read: tool({
+          execute: async () => {
+            toolRuns += 1;
+            await toolGate;
+            return "ok";
+          },
+          inputSchema: jsonSchema({ properties: {}, type: "object" }),
+        }),
+      },
+    });
+    const reading = readSse(response);
+    const settled = settledFlag(outcome);
+    await clock.advance(150_000);
+    assert.equal(toolRuns, 1, "the tool is running");
+    assert.equal(settled(), false, "150 s of a running tool is not inactivity");
+    releaseTool();
+    await settleIo();
+    const body = await reading;
+    const result = await outcome;
+    assert.equal(result.kind, "final", JSON.stringify(result));
+    assert.equal(result.kind === "final" && result.text, "Achei.");
+    assert.deepEqual(errorPartsOf(body), []);
+  });
+
+  test("the attempt cap: steady progress still ends at 180 s with the attempt phase", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { outcome, response } = runAssistantTurn({
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const reading = readSse(response);
+    const settled = settledFlag(outcome);
+    feed.push({ id: "t1", type: "text-start" });
+    for (let index = 0; index < 5; index++) {
+      await clock.advance(30_000);
+      feed.push({ delta: ".", id: "t1", type: "text-delta" });
+    }
+    await clock.advance(29_999);
+    assert.equal(settled(), false, "under 180 s the attempt goes on");
+    await clock.advance(1);
+    const body = await reading;
+    const result = await outcome;
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(errorPartsOf(body), [{ errorText: timeoutTerminal("attempt"), type: "error" }]);
+  });
+
+  test("the turn's budget: work before the stream counts, and the cap is what is left (turn phase)", async () => {
+    const clock = fakeTurnClock();
+    const budget = createAssistantTurnBudget(clock);
+    // 100 s spent before the stream (the request's own work).
+    await clock.advance(100_000);
+    const feed = pushableStream();
+    const { outcome, response } = runAssistantTurn({
+      budget,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const reading = readSse(response);
+    const settled = settledFlag(outcome);
+    feed.push({ id: "t1", type: "text-start" });
+    for (let index = 0; index < 4; index++) {
+      await clock.advance(30_000);
+      feed.push({ delta: ".", id: "t1", type: "text-delta" });
+    }
+    await clock.advance(19_999);
+    assert.equal(settled(), false, "139.999 s into the stream, 239.999 s into the turn");
+    await clock.advance(1);
+    const body = await reading;
+    const result = await outcome;
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(errorPartsOf(body), [{ errorText: timeoutTerminal("turn"), type: "error" }]);
+    budget.dispose();
+  });
+
+  test("BYOK: the deadline keeps the byok_error protocol with the timeout cause", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { outcome, response } = runAssistantTurn({
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      onStreamError: byokStreamErrorPart,
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const reading = readSse(response);
+    await clock.advance(60_000);
+    const body = await reading;
+    const parts = sseDataParts(body) as Array<{ data?: unknown; errorText?: string; type: string }>;
+    assert.deepEqual(parts.filter((part) => part.type === "data-byok-error").map((part) => part.data), [{ canUseCredits: true, cause: "timeout" }]);
+    assert.deepEqual(errorPartsOf(body), [{ errorText: "byok_error", type: "error" }]);
+    const result = await outcome;
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
+  });
+
+  test("the caller's abort stops every deadline: no timeout, no final error part", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const caller = new AbortController();
+    const { outcome, response } = runAssistantTurn({
+      abortSignal: caller.signal,
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const reading = readSse(response);
+    feed.push({ id: "t1", type: "text-start" });
+    await clock.advance(10_000);
+    caller.abort(new Error("client left"));
+    await clock.advance(300_000);
+    const body = await reading;
+    assert.deepEqual(errorPartsOf(body), []);
+    const result = await outcome;
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_STREAM_FAILED");
+    assert.equal(clock.pending(), 0, "no timer left behind");
+  });
+
+  test("a missing final ends the stream with the typed ASSISTANT_TURN_INCOMPLETE part", async () => {
+    const tools: ToolSet = buildAssistantToolSet({ host: { callTool: async () => "ok" }, kinds: ["read"], surface: "local" });
+    let calls = 0;
+    const model = mockModel(() => {
+      calls += 1;
+      return { stream: modelStream([toolCallPart(`tc${calls}`), finish("tool-calls")]) };
+    });
+    const { outcome, response } = runAssistantTurn({
+      history: [{ role: "user", text: "?" }],
+      maxSteps: 2,
+      model,
+      system: "sys",
+      thread: THREAD,
+      tools,
+    });
+    const body = await readSse(response);
+    assert.deepEqual(errorPartsOf(body), [{
+      errorText: encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_INCOMPLETE", phase: "model", retryable: true }),
+      type: "error",
+    }]);
+    const result = await outcome;
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_INCOMPLETE");
+  });
+
+  test("a final answer and a pinar_ask carry no final error part", async () => {
+    const { response } = runAssistantTurn({
+      history: [{ role: "user", text: "?" }],
+      model: textModel("Duas."),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    assert.deepEqual(errorPartsOf(await readSse(response)), []);
+  });
+});
+
+const ZERO = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+// ---------- the typed final error through the panel's chat transport ----------
+
+// The SSE the turn writes, read by the panel's real transport (the SDK Chat
+// with DefaultChatTransport): the chat ends in "error" and its error carries
+// the terminal the panel maps.
+describe("the typed final error through the panel's chat transport", () => {
+  async function consume(response: Response) {
+    const sse = await response.text();
+    const errors: Error[] = [];
+    const conversation = createAssistantConversation({
+      chatId: "assistant:probe",
+      fetch: async () => new Response(sse, { headers: response.headers }),
+      generation: 0,
+      hooks: { generation: { current: 0 }, onTurnError: (error) => errors.push(error) },
+      messages: [],
+      threadId: THREAD.id,
+    });
+    await conversation.chat.sendMessage({ text: "?" });
+    return { errors, status: conversation.chat.status };
+  }
+
+  test("a deadline reaches the chat as an error with the timeout terminal", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { outcome, response } = runAssistantTurn({
+      clock,
+      history: [{ role: "user", text: "?" }],
+      model: mockModel(() => ({ stream: feed.stream })),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const consuming = consume(response);
+    await clock.advance(60_000);
+    const { errors, status } = await consuming;
+    await outcome;
+    assert.equal(status, "error");
+    assert.deepEqual(errors.map((error) => parseAssistantTurnTerminal(error)), [{ code: "ASSISTANT_TURN_TIMEOUT", phase: "inactivity", retryable: true }]);
+  });
+
+  test("a missing final reaches the chat as an error with the incomplete terminal, after the finish part", async () => {
+    const { outcome, response } = runAssistantTurn({
+      history: [{ role: "user", text: "?" }],
+      model: textModel("Vou verificar."),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const { errors, status } = await consume(response);
+    await outcome;
+    assert.equal(status, "error");
+    assert.deepEqual(errors.map((error) => parseAssistantTurnTerminal(error)), [{ code: "ASSISTANT_TURN_INCOMPLETE", phase: "model", retryable: true }]);
+  });
+
+  test("a final answer leaves the chat ready, without an error", async () => {
+    const { response } = runAssistantTurn({
+      history: [{ role: "user", text: "?" }],
+      model: textModel("Duas sessões."),
+      system: "sys",
+      thread: THREAD,
+      tools: {},
+    });
+    const { errors, status } = await consume(response);
+    assert.equal(status, "ready");
+    assert.deepEqual(errors, []);
+  });
 });

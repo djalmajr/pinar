@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, test } from "node:test";
 import type { LanguageModel } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
+import { createClient } from "@libsql/client";
+import { createLibsqlD1 } from "../edger/libsql-d1";
 import { ASSISTANT_SYSTEM_PROMPT } from "./prompt";
 import {
   cloudAssistantStore,
   resetCloudAssistantMemoryForTests,
 } from "./store-cloud";
-import type { AssistantStore } from "./store";
+import type { AssistantMessage, AssistantStore } from "./store";
 import { ASSISTANT_CHAIN_METADATA_KEY } from "./chain";
 import {
   ASSISTANT_TURN_CLIENT_CANCELLED,
@@ -18,6 +23,8 @@ import {
   type AssistantTurnReservation,
 } from "./http";
 import { ASSISTANT_PROPOSAL_TTL_MS } from "./proposals";
+import { encodeAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
+import { fakeTurnClock, pushableStream } from "./deadline.test-helpers";
 import {
   FIXTURE_ID_PREFIX,
   fixtureHost,
@@ -344,7 +351,7 @@ describe("assistant http handler", () => {
     const parts = sseDataParts(body);
     const errorPart = parts.find((part) => part.type === "error");
     assert.ok(errorPart, "the stream carries an error part");
-    assert.equal(errorPart.errorText, "ASSISTANT_STREAM_FAILED");
+    assert.equal(errorPart.errorText, JSON.stringify({ code: "ASSISTANT_STREAM_FAILED", phase: "model", retryable: true }));
     assert.ok(!body.includes("provider down"), "the provider message never crosses the stream");
     const id = threadIdFromTurn(body);
 
@@ -1522,5 +1529,347 @@ describe("assistant turn credits (meterTurn)", () => {
     assert.equal((await proposalAction(deps, proposal.id, "confirm")).status, 200);
     assert.equal((await proposalAction(deps, proposal.id, "undo")).status, 200);
     assert.deepEqual(meter.log.events, ["reserve", "consume"]);
+  });
+});
+
+// ---------- the turn's budget over http (deadline.ts), on a fake clock ----------
+
+describe("assistant turn deadlines over http", () => {
+  const timeoutBody = { code: "ASSISTANT_TURN_TIMEOUT", error: "The assistant took too long to answer", phase: "turn", retryable: true };
+
+  test("a budget spent before the stream answers 504 with the typed code, and the model never runs", async () => {
+    const clock = fakeTurnClock();
+    let modelCalls = 0;
+    const { deps } = makeDeps({
+      model: () => {
+        modelCalls += 1;
+        return textModel("nunca");
+      },
+      status: () => new Promise<AssistantStatus>(() => {}),
+    });
+    const pending = postTurn({ ...deps, clock }, { text: "oi" });
+    await clock.advance(239_999);
+    let answered = false;
+    void pending.then(() => {
+      answered = true;
+    });
+    await clock.advance(0);
+    assert.equal(answered, false, "under 240 s the request still waits");
+    await clock.advance(1);
+    const response = await pending;
+    assert.equal(response.status, 504);
+    assert.deepEqual(await response.json(), timeoutBody);
+    assert.equal(modelCalls, 0);
+    assert.equal(clock.pending(), 0, "the budget's timer is disposed");
+  });
+
+  test("a reservation that arrives after the budget ran out is refunded, and the thread is free again", async () => {
+    const clock = fakeTurnClock();
+    const { deps } = makeDeps({ model: () => textModel("ok") });
+    const log: string[] = [];
+    let resolveReservation!: (reservation: AssistantTurnReservation) => void;
+    const meterTurn: NonNullable<AssistantRequestDeps["meterTurn"]> = () =>
+      new Promise((resolve) => {
+        resolveReservation = resolve;
+      });
+    const pending = postTurn({ ...deps, clock, meterTurn }, { text: "oi" });
+    await clock.advance(240_000);
+    const response = await pending;
+    assert.equal(response.status, 504);
+    assert.deepEqual(await response.json(), timeoutBody);
+    resolveReservation({
+      consume: async () => {
+        log.push("consume");
+      },
+      refund: async (code) => {
+        log.push(`refund ${code}`);
+      },
+      reserved: true,
+    });
+    await waitFor(() => (log.length > 0 ? log : null));
+    assert.deepEqual(log, ["refund ASSISTANT_TURN_TIMEOUT"]);
+    // The thread lock went with the 504: the next turn of that thread runs.
+    const threads = await deps.store.listThreads({ limit: 10, offset: 0 });
+    assert.equal(threads.length, 1);
+    const next = await postTurn({ ...deps, clock }, { text: "de novo", threadId: threads[0].id });
+    assert.equal(next.status, 200);
+    await readSse(next);
+  });
+
+  test("a BYOK route that arrives after the budget ran out frees its slot", async () => {
+    const clock = fakeTurnClock();
+    const { deps } = makeDeps();
+    let released = 0;
+    let resolveRoute!: (route: Awaited<ReturnType<NonNullable<AssistantRequestDeps["byokTurn"]>>>) => void;
+    const byokTurn: NonNullable<AssistantRequestDeps["byokTurn"]> = () =>
+      new Promise((resolve) => {
+        resolveRoute = resolve;
+      });
+    const pending = postTurn({ ...deps, byokTurn, clock }, { text: "oi" });
+    await clock.advance(240_000);
+    assert.equal((await pending).status, 504);
+    resolveRoute({
+      endpoint: FAKE_ENDPOINT,
+      kind: "route",
+      model: textModel("nunca"),
+      pinSearch: { search: async () => [] },
+      release: () => {
+        released += 1;
+      },
+    });
+    await waitFor(() => (released > 0 ? released : null));
+    assert.equal(released, 1);
+  });
+
+  test("the budget starts with the request: 100 s before the stream leave 140 s to the attempt (turn phase)", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { deps } = makeDeps({ model: () => mockModel(() => ({ stream: feed.stream })) });
+    const slowStore: AssistantStore = {
+      ...deps.store,
+      listMessages: async (threadId, options) => {
+        await new Promise((resolve) => clock.setTimeout(() => resolve(undefined), 100_000));
+        return deps.store.listMessages(threadId, options);
+      },
+    };
+    const pending = postTurn({ ...deps, clock, store: slowStore }, { text: "oi" });
+    await clock.advance(100_000);
+    const response = await pending;
+    assert.equal(response.status, 200);
+    const reading = readSse(response);
+    feed.push({ id: "t1", type: "text-start" });
+    for (let index = 0; index < 4; index++) {
+      await clock.advance(30_000);
+      feed.push({ delta: ".", id: "t1", type: "text-delta" });
+    }
+    await clock.advance(20_000);
+    const body = await reading;
+    const errors = sseDataParts(body).filter((part) => part.type === "error");
+    assert.deepEqual(errors, [{ errorText: encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "turn", retryable: true }), type: "error" }]);
+  });
+
+  test("a turn that times out mid-stream refunds its credits with ASSISTANT_TURN_TIMEOUT and stores the code", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { deps, store } = makeDeps({ model: () => mockModel(() => ({ stream: feed.stream })) });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, clock, meterTurn: meter.meterTurn }, { text: "oi" });
+    assert.equal(response.status, 200);
+    const reading = readSse(response);
+    feed.push({ id: "t1", type: "text-start" });
+    await clock.advance(60_000);
+    const body = await reading;
+    await settled(meter.log);
+    assert.deepEqual(meter.log.refunded, ["ASSISTANT_TURN_TIMEOUT"]);
+    assert.deepEqual(meter.log.consumed, []);
+    const errors = sseDataParts(body).filter((part) => part.type === "error");
+    assert.deepEqual(errors, [{ errorText: encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "inactivity", retryable: true }), type: "error" }]);
+    const threadId = threadIdFromTurn(body);
+    const messages = await waitFor(() => store.listMessages(threadId, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    assert.equal(messages[1].errorCode, "ASSISTANT_TURN_TIMEOUT");
+  });
+
+  // The first user-message write of the store hangs until released; the
+  // write then goes on to the real store (or fails, with `fail`).
+  function heldFirstUserWrite(store: AssistantStore, options: { fail?: boolean } = {}) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    const heldStore: AssistantStore = {
+      ...store,
+      appendMessage: (message: AssistantMessage) => {
+        if (held || message.role !== "user") return store.appendMessage(message);
+        held = true;
+        return gate.then(() => {
+          if (options.fail) throw new Error("D1_ERROR: database is locked");
+          return store.appendMessage(message);
+        });
+      },
+    };
+    return { release, store: heldStore };
+  }
+
+  // A model that records each prompt it gets and answers "resposta".
+  function promptRecorder() {
+    const prompts: string[] = [];
+    const model = () =>
+      new MockLanguageModelV4({
+        doStream: (async (options: { prompt: unknown }) => {
+          prompts.push(JSON.stringify(options.prompt));
+          return { stream: modelStream([...textParts("resposta"), finish("stop")]) };
+        }) as unknown as MockLanguageModelV4["doStream"],
+        modelId: "mock",
+      });
+    return { model, prompts };
+  }
+
+  // The held question over the route: no 504 while the write hangs past
+  // the budget, a second turn of the thread gets the 409, and the 504
+  // leaves only once the write settled; the next turn then sees the old
+  // question once, and the thread's updatedAt only moves forward.
+  async function assertHeldQuestion(input: {
+    clock: ReturnType<typeof fakeTurnClock>;
+    deps: AssistantRequestDeps;
+    heldStore: AssistantStore;
+    prompts: string[];
+    release: () => void;
+    store: AssistantStore;
+  }) {
+    const { clock, deps, heldStore, prompts, release, store } = input;
+    const meter = fakeMeter();
+    const pending = postTurn({ ...deps, clock, meterTurn: meter.meterTurn, store: heldStore }, { text: "pergunta antiga", threadId: T1 });
+    let answered = false;
+    void pending.then(() => {
+      answered = true;
+    });
+    await clock.advance(300_000);
+    assert.equal(answered, false, "no 504 while the question's write is pending, even past 240 s");
+    const busy = await postTurn({ ...deps, clock, meterTurn: meter.meterTurn, store: heldStore }, { text: "outra", threadId: T1 });
+    assert.equal(busy.status, 409);
+    assert.equal(((await busy.json()) as { code: string }).code, "turn_in_progress");
+    release();
+    const response = await pending;
+    assert.equal(response.status, 504);
+    assert.deepEqual(await response.json(), timeoutBody);
+    // The credits come after the question: nothing was reserved, so there
+    // is nothing to refund and nothing consumed; the model never ran.
+    assert.deepEqual(meter.log.events, []);
+    assert.equal(prompts.length, 0);
+    assert.equal(clock.pending(), 0, "the budget's timer is disposed");
+    const [old] = await store.listMessages(T1, { limit: 10 });
+    assert.equal(old.text, "pergunta antiga");
+    const stampedOld = (await store.getThread(T1))!.updatedAt;
+    assert.equal(stampedOld, old.createdAt);
+    // The thread went free with the 504: the next turn runs and reads the
+    // old question in its history, once.
+    const next = await postTurn({ ...deps, clock, meterTurn: meter.meterTurn, store: heldStore }, { text: "pergunta nova", threadId: T1 });
+    assert.equal(next.status, 200);
+    await readSse(next);
+    const after = await waitFor(() => store.listMessages(T1, { limit: 10 }).then((items) => (items.length === 3 ? items : null)));
+    assert.deepEqual(after.map((message) => [message.role, message.text]), [["user", "pergunta antiga"], ["user", "pergunta nova"], ["assistant", "resposta"]]);
+    assert.equal(prompts.length, 1);
+    assert.equal(prompts[0].split("pergunta antiga").length - 1, 1, "the old question enters the next prompt once");
+    assert.ok(prompts[0].includes("pergunta nova"));
+    const stampedNext = (await store.getThread(T1))!.updatedAt;
+    assert.ok(stampedNext > stampedOld, "updatedAt only moves forward");
+    assert.equal(stampedNext, after[2].createdAt);
+  }
+
+  test("a question write held past 240 s holds the thread (409) and the 504 until it lands; the next turn sees it once", async () => {
+    const clock = fakeTurnClock();
+    const recorder = promptRecorder();
+    const { deps, store } = makeDeps({ model: recorder.model });
+    await store.createThread({ id: T1, now: ISO(0), title: "T" });
+    const held = heldFirstUserWrite(store);
+    await assertHeldQuestion({ clock, deps, heldStore: held.store, prompts: recorder.prompts, release: held.release, store });
+  });
+
+  test("a question write that fails after the budget ran out answers 504, not 503, and frees the thread", async () => {
+    const clock = fakeTurnClock();
+    const { deps, store } = makeDeps({ model: () => textModel("ok") });
+    await store.createThread({ id: T1, now: ISO(0), title: "T" });
+    const held = heldFirstUserWrite(store, { fail: true });
+    const pending = postTurn({ ...deps, clock, store: held.store }, { text: "pergunta antiga", threadId: T1 });
+    await clock.advance(240_000);
+    held.release();
+    const response = await pending;
+    assert.equal(response.status, 504);
+    assert.deepEqual(await response.json(), timeoutBody);
+    assert.deepEqual(await store.listMessages(T1, { limit: 10 }), []);
+    assert.equal((await store.getThread(T1))!.updatedAt, ISO(0));
+    const next = await postTurn({ ...deps, clock, store: held.store }, { text: "de novo", threadId: T1 });
+    assert.equal(next.status, 200);
+    await readSse(next);
+  });
+
+  test("a new thread's creation held past 240 s answers 504 only once the thread is written", async () => {
+    const clock = fakeTurnClock();
+    const { deps, store } = makeDeps({ model: () => textModel("ok") });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const heldStore: AssistantStore = { ...store, createThread: (input) => gate.then(() => store.createThread(input)) };
+    const pending = postTurn({ ...deps, clock, store: heldStore }, { text: "oi" });
+    let answered = false;
+    void pending.then(() => {
+      answered = true;
+    });
+    await clock.advance(300_000);
+    assert.equal(answered, false, "no 504 while the thread's write is pending");
+    release();
+    assert.equal((await pending).status, 504);
+    // Written before the 504, never after it; no question in it.
+    const threads = await store.listThreads({ limit: 10, offset: 0 });
+    assert.equal(threads.length, 1);
+    assert.deepEqual(await store.listMessages(threads[0].id, { limit: 10 }), []);
+  });
+
+  // The reviewer's probe (review-20261019T152214) over the route, on the
+  // production libSQL adapter (createLibsqlD1) and the D1 store: the first
+  // question's SELECT or batch is held in the driver while the route's clock
+  // runs past its deadline. The database's clock is the real one and the
+  // route's is a fake one far from it (the skew the probe simulated): with
+  // the write awaited before the 504, no clock is compared, and the old
+  // question never lands after the next turn's write.
+  for (const stage of ["select", "batch"] as const) {
+    test(`libSQL (${stage} held): the old question lands before the 504 and never rolls the next turn's updatedAt back`, async () => {
+      const client = createClient({ url: "file::memory:" });
+      try {
+        const migrations = fileURLToPath(new URL("../../../migrations/", import.meta.url));
+        for (const name of readdirSync(migrations).filter((file) => file.endsWith(".sql")).sort()) {
+          await client.executeMultiple(readFileSync(join(migrations, name), "utf8"));
+        }
+        await client.execute("INSERT INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at) VALUES ('u1', 'u1@example.test', 'pro', 1, 'active', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')");
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let armed = false;
+        let held = false;
+        const db = createLibsqlD1({
+          batch: async (statements, mode) => {
+            if (armed && stage === "batch" && !held) {
+              held = true;
+              await gate;
+            }
+            return client.batch(statements, mode);
+          },
+          execute: async (statement) => {
+            const sql = typeof statement === "string" ? statement : statement.sql;
+            if (armed && stage === "select" && !held && sql.startsWith("SELECT id FROM assistant_threads")) {
+              held = true;
+              await gate;
+            }
+            return client.execute(statement);
+          },
+        });
+        const store = cloudAssistantStore({ DB: db }, "u1");
+        await store.createThread({ id: T1, now: ISO(0), title: "T" });
+        armed = true;
+        const clock = fakeTurnClock();
+        const recorder = promptRecorder();
+        const { deps } = makeDeps({ model: recorder.model });
+        await assertHeldQuestion({ clock, deps: { ...deps, store }, heldStore: store, prompts: recorder.prompts, release, store });
+        assert.ok(held, `the ${stage} was held`);
+      } finally {
+        client.close();
+      }
+    });
+  }
+
+  test("the chain's model receives the turn's budget in its context", async () => {
+    let budgetLeft: number | null = null;
+    const { deps } = makeDeps({
+      model: (_endpoint, context) => {
+        budgetLeft = context.turnBudget?.remainingMs() ?? null;
+        return textModel("ok");
+      },
+    });
+    const clock = fakeTurnClock();
+    await readSse(await postTurn({ ...deps, clock }, { text: "oi" }));
+    assert.equal(budgetLeft, 240_000);
   });
 });

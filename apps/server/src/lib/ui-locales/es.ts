@@ -66,6 +66,8 @@ const messages: UiMessages = {
   "assistant.retry": "Intentar de nuevo",
   "assistant.errorTimeout": "El asistente tardó demasiado en responder. Inténtalo de nuevo.",
   "assistant.errorIncomplete": "El asistente no pudo completar esta respuesta. Inténtalo de nuevo.",
+  "assistant.errorTimeoutInactivity": "El modelo pasó un minuto sin responder. Inténtalo de nuevo.",
+  "assistant.errorTimeoutLimit": "La respuesta superó el tiempo máximo del asistente. Inténtalo de nuevo.",
   "assistant.errorFailed": "El asistente no está disponible ahora. Inténtalo en un momento.",
   "assistant.errorRateLimited": "Demasiadas preguntas en poco tiempo. Espera un instante.",
   "assistant.errorNoCredits": "Créditos de IA insuficientes: cada mensaje usa {required} y te {count, plural, one {queda # crédito} other {quedan # créditos}}.",

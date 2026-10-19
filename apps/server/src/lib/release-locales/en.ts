@@ -679,6 +679,11 @@ const locale = {
           "The assistant no longer ends an answer after a fixed 60 seconds: it waits while the model keeps answering and stops after 1 minute without any response, 3 minutes in the same attempt, or 4 minutes in total and offers “Try again”. After an error, “Looking it up…” no longer stays in the conversation. The assistant button in the header is now just the icon, without a background.",
         title: "The assistant waits for a slow model that keeps answering",
       },
+      "assistant-panel-steps": {
+        description:
+          "While the assistant works, the panel shows what it is doing, with each lookup as a step: a done step gets a check, and a step that failed reads “not completed”. When the answer arrives, the steps fold into one line, such as “3 steps”, that you can open. After 20 seconds without progress, the panel says it is taking longer than usual. Stopping an answer keeps what was already written and marks it “Answer interrupted”, with “Try again”. Code blocks in answers have a copy button, a failed answer shows “Try again” as an icon beside the message, and running out of credits shows its own card with the link to buy more.",
+        title: "The assistant shows each step and keeps interrupted answers",
+      },
     },
     summary:
       "The assistant waits for a slow model while it keeps answering, stops showing “Looking it up…” after an error, and the assistant button in the header is now just the icon.",

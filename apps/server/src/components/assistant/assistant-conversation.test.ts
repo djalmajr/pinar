@@ -24,6 +24,7 @@ import {
   type AssistantConversationHooks,
   type AssistantConversationStore,
 } from "./assistant-conversation";
+import { assistantInterruptedMessageId } from "./assistant-trace";
 
 interface StreamedConversation {
   close: () => void;
@@ -454,6 +455,57 @@ describe("stopping the current conversation's stream on unmount", () => {
     a.close();
     await a.send;
     expect(a.conversation.chat.status).toBe("ready");
+  });
+});
+
+describe("an aborted turn reaches onTurnAborted (the interrupted mark)", () => {
+  test("Stop mid-answer passes the messages as the turn left them; the answer with text carries the mark", async () => {
+    const aborted: string[][] = [];
+    const hooks: AssistantConversationHooks = {
+      generation: { current: 0 },
+      onTurnAborted: (messages) => aborted.push(messages.map((message) => message.id)),
+    };
+    const a = startStreamingConversation(hooks, 0);
+    await Bun.sleep(20);
+    a.emit({ messageId: "answerA", type: "start" });
+    a.emit({ id: "t", type: "text-start" });
+    a.emit({ delta: "partial", id: "t", type: "text-delta" });
+    await Bun.sleep(20);
+    await a.conversation.chat.stop();
+    a.close();
+    await a.send;
+    expect(aborted).toHaveLength(1);
+    expect(aborted[0]?.at(-1)).toBe("answerA");
+    expect(assistantInterruptedMessageId(a.conversation.chat.messages)).toBe("answerA");
+  });
+
+  test("control: a turn that finishes normally is not aborted", async () => {
+    let aborted = 0;
+    const a = startStreamingConversation({ generation: { current: 0 }, onTurnAborted: () => { aborted += 1; } }, 0);
+    await Bun.sleep(20);
+    a.emit({ messageId: "answerA", type: "start" });
+    a.emit({ id: "t", type: "text-start" });
+    a.emit({ delta: "done", id: "t", type: "text-delta" });
+    a.emit({ id: "t", type: "text-end" });
+    a.emit({ type: "finish" });
+    a.close();
+    await a.send;
+    expect(a.conversation.chat.status).toBe("ready");
+    expect(aborted).toBe(0);
+  });
+
+  test("the stop of a conversation already switched away from never marks the current one", async () => {
+    let aborted = 0;
+    const cell = { current: 0 };
+    const a = startStreamingConversation({ generation: cell, onTurnAborted: () => { aborted += 1; } }, 0);
+    await Bun.sleep(20);
+    a.emit({ messageId: "answerA", type: "start" });
+    await Bun.sleep(20);
+    cell.current = 1;
+    await a.conversation.chat.stop();
+    a.close();
+    await a.send;
+    expect(aborted).toBe(0);
   });
 });
 

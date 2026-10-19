@@ -664,6 +664,11 @@ const locale = {
           "El asistente ya no termina una respuesta después de 60 segundos fijos: espera mientras el modelo sigue respondiendo y se detiene después de 1 minuto sin ninguna respuesta, 3 minutos en el mismo intento o 4 minutos en total y ofrece “Intentar de nuevo”. Después de un error, “Consultando…” ya no queda en la conversación. El botón del asistente en el encabezado ahora es solo el icono, sin fondo.",
         title: "El asistente espera a un modelo lento que sigue respondiendo",
       },
+      "assistant-panel-steps": {
+        description:
+          "Mientras el asistente trabaja, el panel muestra lo que está haciendo, con cada consulta como un paso: un paso hecho lleva una marca, y uno que falló aparece como “no completado”. Cuando llega la respuesta, los pasos se pliegan en una línea, como “3 pasos”, que puedes abrir. Después de 20 segundos sin progreso, el panel avisa que está tardando más de lo normal. Detener una respuesta conserva lo que ya se escribió y la marca como “Respuesta interrumpida”, con “Intentar de nuevo”. Los bloques de código de las respuestas tienen un botón para copiar, una respuesta que falla muestra “Intentar de nuevo” como un icono junto al mensaje, y la falta de créditos aparece en una tarjeta propia con el enlace para comprar más.",
+        title: "El asistente muestra cada paso y conserva las respuestas interrumpidas",
+      },
     },
     summary:
       "El asistente espera a un modelo lento mientras sigue respondiendo, deja de mostrar “Consultando…” después de un error y el botón del asistente en el encabezado ahora es solo el icono.",

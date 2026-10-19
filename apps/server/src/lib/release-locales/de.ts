@@ -664,6 +664,11 @@ const locale = {
           "Der Assistent beendet eine Antwort nicht mehr nach festen 60 Sekunden: Er wartet, solange das Modell weiter antwortet, und hört nach 1 Minute ohne jede Antwort, nach 3 Minuten im selben Versuch oder nach 4 Minuten insgesamt auf und bietet „Erneut versuchen“ an. Nach einem Fehler bleibt „Wird nachgesehen…“ nicht mehr im Gespräch stehen. Die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol, ohne Hintergrund.",
         title: "Der Assistent wartet auf ein langsames Modell, das weiter antwortet",
       },
+      "assistant-panel-steps": {
+        description:
+          "Während der Assistent arbeitet, zeigt der Bereich, was er gerade tut, mit jeder Abfrage als Schritt: Ein erledigter Schritt bekommt ein Häkchen, und ein fehlgeschlagener Schritt zeigt „nicht abgeschlossen“. Sobald die Antwort da ist, klappen die Schritte zu einer Zeile zusammen, etwa „3 Schritte“, die du öffnen kannst. Nach 20 Sekunden ohne Fortschritt sagt der Bereich, dass es länger als üblich dauert. Wenn du eine Antwort stoppst, bleibt das bereits Geschriebene erhalten und wird als „Antwort unterbrochen“ markiert, mit „Erneut versuchen“. Codeblöcke in Antworten haben einen Button zum Kopieren, eine fehlgeschlagene Antwort zeigt „Erneut versuchen“ als Symbol neben der Nachricht, und fehlende Credits zeigen eine eigene Karte mit dem Link zum Kauf.",
+        title: "Der Assistent zeigt jeden Schritt und behält unterbrochene Antworten",
+      },
     },
     summary:
       "Der Assistent wartet auf ein langsames Modell, solange es weiter antwortet, zeigt nach einem Fehler nicht mehr „Wird nachgesehen…“ an, und die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol.",

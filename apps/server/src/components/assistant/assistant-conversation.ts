@@ -50,6 +50,8 @@ export interface AssistantConversationHooks {
   onActiveThreadCreated?: (threadId: string) => void;
   /** A turn of the current conversation failed; the second argument is the `data-byok-error` part of the same turn when there is one. */
   onTurnError?: (error: Error, byok?: AssistantByokErrorInfo | null) => void;
+  /** A turn of the current conversation was aborted (Stop, or the request aborted); the messages as it left them. */
+  onTurnAborted?: (messages: AssistantUIMessage[]) => void;
 }
 
 export interface AssistantConversationInit {
@@ -119,6 +121,14 @@ export function createAssistantConversation(init: AssistantConversationInit): As
       // dropped by the generation check above it.
       if (init.hooks.generation.current !== conversation.generation) return;
       init.hooks.onTurnError?.(error, conversation.byokError.current);
+    },
+    onFinish: ({ isAbort, messages }) => {
+      // An aborted turn ends without an error: the panel marks the answer
+      // as interrupted. Same generation rule as onError: the stop of a
+      // conversation switch belongs to the one being left.
+      if (!isAbort) return;
+      if (init.hooks.generation.current !== conversation.generation) return;
+      init.hooks.onTurnAborted?.(messages);
     },
   });
   return conversation;

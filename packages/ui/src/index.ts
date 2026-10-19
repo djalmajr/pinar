@@ -41,3 +41,4 @@ export * from "./components/message-scroller.js";
 export * from "./components/trace.js";
 export * from "./components/code-block.js";
 export * from "./components/chat-markdown.js";
+export * from "./components/tooltip-button.js";

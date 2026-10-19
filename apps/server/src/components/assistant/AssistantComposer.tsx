@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
-import { Button } from "@pinar/ui";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupTextarea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@pinar/ui";
 import type { Translate } from "@/lib/i18n";
+import IconArrowUp from "~icons/lucide/arrow-up";
+import IconSquare from "~icons/lucide/square";
 
 const MAX_AUTO_SIZE_LINES = 6;
-
-// Same input classes as the viewer comment field (PinDiscussion): @pinar/ui
-// has no Textarea, so the bare element carries the shared classes.
-const INPUT_CLASSES =
-  "min-h-20 w-full min-w-0 resize-y rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 dark:bg-input/30 dark:disabled:bg-input/80";
 
 // Grows with the text up to six lines, then scrolls.
 function autosize(el: HTMLTextAreaElement) {
@@ -64,36 +69,73 @@ export function AssistantComposer({ busy, t, onSend, onStop }: AssistantComposer
     submit();
   }
 
+  // The Skia's composer (skedly skia-composer.tsx): the field and its
+  // actions in one InputGroup, with icon buttons that say what they do in
+  // the tooltip and the aria-label. While a turn runs only the field fades:
+  // Stop stays active and must not look disabled.
   return (
-    <div className="shrink-0 border-t px-4 py-3">
+    <div className="shrink-0 px-4 pt-2 pb-3">
       <form
-        className="flex min-w-0 flex-col gap-2"
+        className="w-full"
         onSubmit={(event) => {
           event.preventDefault();
           submit();
         }}
       >
-        <textarea
-          aria-label={t("assistant.placeholder")}
-          className={INPUT_CLASSES}
-          disabled={busy}
-          placeholder={t("assistant.placeholder")}
-          ref={textareaRef}
-          value={draft}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-        />
-        <div className="flex items-center justify-end">
-          {busy ? (
-            <Button size="sm" type="button" onClick={onStop}>
-              {t("assistant.stop")}
-            </Button>
-          ) : (
-            <Button disabled={!canSend} size="sm" type="submit">
-              {t("assistant.send")}
-            </Button>
-          )}
-        </div>
+        <InputGroup className="bg-muted has-disabled:opacity-100">
+          <InputGroupTextarea
+            aria-label={t("assistant.placeholder")}
+            className="min-h-10 flex-none overflow-y-auto px-3 py-2 text-sm placeholder:text-foreground/60"
+            disabled={busy}
+            placeholder={t("assistant.placeholder")}
+            ref={textareaRef}
+            rows={1}
+            value={draft}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+          />
+          <InputGroupAddon align="block-end" className="justify-end p-1.5">
+            {busy ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <InputGroupButton
+                      aria-label={t("assistant.stop")}
+                      className="rounded-full"
+                      data-testid="assistant-stop"
+                      onClick={onStop}
+                      size="icon-sm"
+                      type="button"
+                      variant="default"
+                    />
+                  }
+                >
+                  <IconSquare aria-hidden="true" className="size-3.5 fill-current" />
+                </TooltipTrigger>
+                <TooltipContent>{t("assistant.stop")}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <InputGroupButton
+                      aria-label={t("assistant.send")}
+                      className="rounded-full data-disabled:opacity-50"
+                      data-testid="assistant-send"
+                      disabled={!canSend}
+                      size="icon-sm"
+                      type="submit"
+                      variant="default"
+                    />
+                  }
+                >
+                  <IconArrowUp aria-hidden="true" className="size-4" />
+                </TooltipTrigger>
+                <TooltipContent>{t("assistant.send")}</TooltipContent>
+              </Tooltip>
+            )}
+          </InputGroupAddon>
+        </InputGroup>
       </form>
     </div>
   );

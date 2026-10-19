@@ -689,6 +689,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-panel-steps": {
+        description:
+          "While the assistant works, the panel shows what it is doing, with each lookup as a step: a done step gets a check, and a step that failed reads “not completed”. When the answer arrives, the steps fold into one line, such as “3 steps”, that you can open. After 20 seconds without progress, the panel says it is taking longer than usual. Stopping an answer keeps what was already written and marks it “Answer interrupted”, with “Try again”. Code blocks in answers have a copy button, a failed answer shows “Try again” as an icon beside the message, and running out of credits shows its own card with the link to buy more.",
+        title: "The assistant shows each step and keeps interrupted answers",
+      },
+    },
+    summary:
+      "The assistant panel shows each lookup as a step, folds the steps when the answer arrives, warns when it takes longer than usual, and keeps an interrupted answer with a way to try again.",
+    title: "The assistant shows each step and keeps interrupted answers",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

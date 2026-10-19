@@ -10,7 +10,7 @@ export type ReleaseChangeId =
  * date, so it must never be looked up through the tag-based release routes.
  * Empty while there is no prepared release; the v0.9.1 changes shipped.
  */
-export const upcomingChanges: readonly string[] = [];
+export const upcomingChanges = ["assistant-panel-steps"] as const;
 export type UpcomingChangeId = (typeof upcomingChanges)[number];
 
 export interface ReleaseChange {

@@ -674,6 +674,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-panel-steps": {
+        description:
+          "Während der Assistent arbeitet, zeigt der Bereich, was er gerade tut, mit jeder Abfrage als Schritt: Ein erledigter Schritt bekommt ein Häkchen, und ein fehlgeschlagener Schritt zeigt „nicht abgeschlossen“. Sobald die Antwort da ist, klappen die Schritte zu einer Zeile zusammen, etwa „3 Schritte“, die du öffnen kannst. Nach 20 Sekunden ohne Fortschritt sagt der Bereich, dass es länger als üblich dauert. Wenn du eine Antwort stoppst, bleibt das bereits Geschriebene erhalten und wird als „Antwort unterbrochen“ markiert, mit „Erneut versuchen“. Codeblöcke in Antworten haben einen Button zum Kopieren, eine fehlgeschlagene Antwort zeigt „Erneut versuchen“ als Symbol neben der Nachricht, und fehlende Credits zeigen eine eigene Karte mit dem Link zum Kauf.",
+        title: "Der Assistent zeigt jeden Schritt und behält unterbrochene Antworten",
+      },
+    },
+    summary:
+      "Das Assistenten-Panel zeigt jede Abfrage als Schritt, klappt die Schritte zusammen, wenn die Antwort da ist, weist darauf hin, wenn es länger als üblich dauert, und behält eine unterbrochene Antwort mit der Möglichkeit, es erneut zu versuchen.",
+    title: "Der Assistent zeigt jeden Schritt und behält unterbrochene Antworten",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

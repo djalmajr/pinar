@@ -16,8 +16,57 @@ import type { MinuteClockScheduler } from "./AssistantProposalCard";
 // pages/releases.test.tsx): the UI package's barrel and the icon virtual
 // modules are replaced by minimal structural stand-ins, so the assertions
 // observe the assistant markup itself. t is the identity so the rendered
-// labels are the i18n keys.
+// labels are the i18n keys. The chat components the panel composes (the
+// Skia's Message, Bubble, MessageScroller, Trace, ChatMarkdown, InputGroup
+// and the tooltips) are the real ones from packages/ui: the assertions read
+// what they render, not a stand-in.
+for (const icon of [
+  "arrow-down",
+  "arrow-up",
+  "check",
+  "chevron-right",
+  "circle-alert",
+  "coins",
+  "copy",
+  "history",
+  "loader-circle",
+  "plus",
+  "rotate-ccw",
+  "sparkles",
+  "square",
+  "trash-2",
+  "x",
+]) {
+  // The icon renders its name and classes (the spinner's animate-spin).
+  mock.module(`~icons/lucide/${icon}`, () => ({
+    default: ({ className }: { className?: string }) => createElement("svg", { className, "data-icon": icon }),
+  }));
+}
+const UI = "../../../../../packages/ui/src/components";
+// The kit's ScrollArea (Base UI) is the one stand-in among the chat parts:
+// alone this file renders the real one, but in the full server run (one
+// process, one module cache shared with the other files' mocks) the real
+// ScrollArea of a code block threw "ScrollAreaRootContext is missing". The
+// markup the assertions read (a code block or a table inside a scroll
+// region) does not depend on the ScrollArea internals.
+mock.module(`${UI}/scroll-area.tsx`, () => ({
+  ScrollArea: ({ children, className }: { children?: ReactNode; className?: string }) =>
+    createElement("div", { className, "data-slot": "scroll-area" }, children),
+  ScrollBar: () => null,
+}));
+const realChatUi = {
+  ...(await import(`${UI}/bubble.tsx`)),
+  ...(await import(`${UI}/chat-markdown.tsx`)),
+  ...(await import(`${UI}/input-group.tsx`)),
+  ...(await import(`${UI}/message.tsx`)),
+  ...(await import(`${UI}/message-scroller.tsx`)),
+  ...(await import(`${UI}/spinner.tsx`)),
+  ...(await import(`${UI}/tooltip.tsx`)),
+  ...(await import(`${UI}/tooltip-button.tsx`)),
+  ...(await import(`${UI}/trace.tsx`)),
+};
 mock.module("@pinar/ui", () => ({
+  ...realChatUi,
   AlertDialog: ({ children, open }: { children?: ReactNode; open?: boolean }) =>
     open ? createElement("div", { "data-slot": "alert-dialog" }, children) : null,
   AlertDialogAction: ({ children }: { children?: ReactNode }) =>
@@ -48,9 +97,6 @@ mock.module("@pinar/ui", () => ({
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter((value): value is string => value !== undefined && value !== null && value !== false).join(" "),
 }));
-for (const icon of ["history", "loader-circle", "plus", "sparkles", "trash-2", "x"]) {
-  mock.module(`~icons/lucide/${icon}`, () => ({ default: () => null }));
-}
 mock.module("@/components/GlobalSettingsDialog", () => ({
   useGlobalSettings: () => () => undefined,
 }));
@@ -83,7 +129,8 @@ const t: Translate = (key) => key as string;
 
 // The props AssistantMessages needs besides the messages.
 const messageProps = {
-  busy: false,
+  status: "ready" as const,
+  interruptedIds: new Set<string>(),
   onAsk: () => undefined,
   onProposalAction: () => undefined,
   onRetry: () => undefined,
@@ -104,11 +151,12 @@ describe("assistant messages", () => {
     expect(markup).toContain("<pre");
     expect(markup).toContain("<code");
     expect(markup).toContain('href="https://example.com"');
-    expect(markup).toContain('rel="noreferrer noopener"');
+    // ChatMarkdown (packages/ui) writes the same pair in the other order.
+    expect(markup).toContain('rel="noopener noreferrer"');
     expect(markup).toContain('target="_blank"');
   });
 
-  test("unsafe link protocols are neutralized by the URL transform", () => {
+  test("unsafe link protocols are neutralized: the label stays as text, with no link at all", () => {
     const markup = renderToStaticMarkup(createElement(AssistantMessages, {
       messages: [{
         id: "m1",
@@ -117,7 +165,11 @@ describe("assistant messages", () => {
       }],
       ...messageProps,
     }));
-    expect(markup).toContain('href=""');
+    // ChatMarkdown allows only http:, https: and mailto: links; any other
+    // protocol leaves the label as text, without an <a> or an href.
+    expect(markup).toContain("click");
+    expect(markup).not.toMatch(/<a\b/);
+    expect(markup).not.toMatch(/\shref=/);
     expect(markup).not.toContain("javascript:");
   });
 
@@ -135,7 +187,7 @@ describe("assistant messages", () => {
     expect(markup).not.toContain('href="https://example.com"');
   });
 
-  test("an in-flight tool part shows the discreet working line, without name or arguments", () => {
+  test("an in-flight tool part shows its step label on the live Trace, without name or arguments", () => {
     const markup = renderToStaticMarkup(createElement(AssistantMessages, {
       messages: [{
         id: "m1",
@@ -150,9 +202,11 @@ describe("assistant messages", () => {
       }],
       ...messageProps,
       // The working line exists only while the chat is working.
-      busy: true,
+      status: "streaming" as const,
     }));
-    expect(markup).toContain("assistant.working");
+    expect(markup).toContain('data-testid="assistant-trace"');
+    expect(markup).toContain("assistant.step.list_sessions");
+    expect(markup).toContain("animate-spin");
     expect(markup).not.toContain("pinar_list_sessions");
     expect(markup).not.toContain('"query":"nope"');
   });
@@ -172,16 +226,18 @@ describe("assistant messages", () => {
     const stopped = renderToStaticMarkup(createElement(AssistantMessages, {
       messages: [{ id: "u1", parts: [{ text: "?", type: "text" }], role: "user" }, toolMessage],
       ...messageProps,
-      busy: false,
+      status: "ready" as const,
     }));
     expect(stopped).not.toContain("assistant.working");
+    expect(stopped).not.toContain('data-testid="assistant-trace"');
     expect(stopped).not.toContain("animate-spin");
     const working = renderToStaticMarkup(createElement(AssistantMessages, {
       messages: [{ id: "u1", parts: [{ text: "?", type: "text" }], role: "user" }, toolMessage],
       ...messageProps,
-      busy: true,
+      status: "streaming" as const,
     }));
-    expect(working).toContain("assistant.working");
+    expect(working).toContain('data-testid="assistant-trace"');
+    expect(working).toContain("assistant.step.list_sessions");
   });
 
   test("a new turn does not revive the working line of an earlier answer that stopped mid-tool", () => {
@@ -196,7 +252,7 @@ describe("assistant messages", () => {
         { id: "u2", parts: [{ text: "de novo", type: "text" }], role: "user" },
       ],
       ...messageProps,
-      busy: true,
+      status: "streaming" as const,
     }));
     expect(markup).not.toContain("assistant.working");
   });
@@ -678,7 +734,7 @@ describe("assistant messages with proposals and asks", () => {
   test("while a turn is in flight the options are disabled", () => {
     const markup = renderToStaticMarkup(createElement(AssistantMessages, {
       ...messageProps,
-      busy: true,
+      status: "streaming" as const,
       messages: [{ id: "m2", parts: [{ data: ask, type: "data-ask" }], role: "assistant" }],
     }));
     expect(markup).toMatch(button("Design", true));
@@ -694,7 +750,12 @@ describe("assistant messages with proposals and asks", () => {
       ],
     }));
     expect(markup).toContain("Which collection?");
-    expect(markup).not.toContain("<button");
+    // The only button left is the scroller's "go to the end".
+    expect(markup.match(/<button\b/g)?.length).toBe(1);
+    expect(markup).toContain('data-testid="assistant-scroll-to-end"');
+    expect(markup).not.toContain('aria-label="Which collection?"');
+    expect(markup).not.toMatch(/<button[^>]*>Design<\/button>/);
+    expect(markup).not.toMatch(/<button[^>]*>Inbox<\/button>/);
   });
 
   test("a stored question (text part plus ask) shows the question once", () => {
@@ -1225,6 +1286,451 @@ describe("assistant toggle variant", () => {
       expect(markup).toContain('variant="ghost"');
       expect(markup).toContain("aria-expanded:bg-transparent");
       expect(markup).toContain(`aria-expanded="${open}"`);
+    }
+  });
+});
+
+// The Skia's behavior on the Pinar panel (skedly skia-message-list.tsx,
+// skia-trace.tsx, skia-chat-ready.tsx and use-slow-flag.ts).
+const {
+  ASSISTANT_SLOW_WORKING_MS,
+  assistantCollapsedTraces,
+  assistantInterruptedMessageId,
+  assistantStepLabel,
+  assistantTurnProgressKey,
+  assistantWorkingState,
+  watchSlowFlag,
+} = await import("./assistant-trace");
+const { AssistantCollapsedTrace, AssistantLiveTrace } = await import("./AssistantTrace");
+
+type TestMessage = Parameters<typeof AssistantMessages>[0]["messages"][number];
+
+function userMessage(id: string, text: string): TestMessage {
+  return { id, parts: [{ text, type: "text" }], role: "user" };
+}
+
+function toolPart(toolCallId: string, toolName: string, state: string) {
+  return {
+    input: { query: "SECRET_ARGUMENT" },
+    ...(state === "output-available" ? { output: { rows: ["SECRET_OUTPUT"] } } : {}),
+    ...(state === "output-error" ? { errorText: "SECRET_ERROR_TEXT" } : {}),
+    state,
+    toolCallId,
+    toolName,
+    type: "dynamic-tool",
+  } as unknown as TestMessage["parts"][number];
+}
+
+function renderMessages(messages: TestMessage[], extra: Partial<Parameters<typeof AssistantMessages>[0]> = {}): string {
+  return renderToStaticMarkup(createElement(AssistantMessages, { ...messageProps, messages, ...extra }));
+}
+
+describe("assistant live Trace (only while the chat works)", () => {
+  const turn: TestMessage[] = [
+    userMessage("u1", "?"),
+    { id: "a1", parts: [toolPart("c1", "pinar_list_projects", "input-available")], role: "assistant" },
+  ];
+
+  // Mutation captured: assistantWorkingState without the status check shows
+  // the live Trace of a turn that already ended (ready, error).
+  test("submitted and streaming show it; ready and error never do, even with a tool part left without output", () => {
+    for (const status of ["submitted", "streaming"] as const) {
+      const markup = renderMessages(turn, { status });
+      expect(markup).toContain('data-testid="assistant-trace"');
+      expect(markup).toContain("assistant.step.list_projects");
+    }
+    for (const status of ["ready", "error"] as const) {
+      const markup = renderMessages(turn, { status });
+      expect(markup).not.toContain('data-testid="assistant-trace"');
+      expect(markup).not.toContain('data-testid="assistant-working"');
+      expect(markup).not.toContain("animate-spin");
+      expect(assistantWorkingState(status, turn)).toBeNull();
+    }
+  });
+
+  test("before any answer the Trace sits where the answer will appear, with the phase as its title", () => {
+    const waiting = renderMessages([userMessage("u1", "?")], { status: "submitted" });
+    expect(waiting).toContain('data-message-id="assistant-live-work"');
+    expect(waiting).toContain("assistant.phaseThinking");
+    expect(renderMessages([userMessage("u1", "?")], { status: "ready" })).not.toContain("assistant.phaseThinking");
+  });
+
+  test("the title follows the phase: the running step, then analyzing, then writing", () => {
+    expect(assistantWorkingState("streaming", turn)).toBe("tool");
+    const analyzing = renderMessages([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_list_projects", "output-available")], role: "assistant" },
+    ], { status: "streaming" });
+    expect(analyzing).toContain("assistant.phaseAnalyzing");
+    const writing = renderMessages([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_list_projects", "output-available"), { text: "You have", type: "text" }], role: "assistant" },
+    ], { status: "streaming" });
+    expect(writing).toContain("assistant.phaseWriting");
+  });
+
+  test("a done step has the check, a failed one the alert and \"not completed\"; never the name, arguments, output or error text", () => {
+    const markup = renderMessages([
+      userMessage("u1", "?"),
+      {
+        id: "a1",
+        parts: [
+          toolPart("c1", "pinar_list_projects", "output-available"),
+          toolPart("c2", "pinar_get_session_markdown", "output-error"),
+          toolPart("c3", "pinar_pins_search", "input-available"),
+        ],
+        role: "assistant",
+      },
+    ], { status: "streaming" });
+    expect(markup).toMatch(/data-status="done"[^>]*>(?:(?!data-status).)*data-icon="check"/);
+    expect(markup).toMatch(/data-status="error"[^>]*>(?:(?!data-status).)*data-icon="circle-alert"(?:(?!data-status).)*assistant\.stepFailed/);
+    expect(markup).toMatch(/data-status="running"[^>]*>(?:(?!data-status=").)*animate-spin(?:(?!data-status=").)*assistant\.step\.pins_search/);
+    for (const leak of ["pinar_", "SECRET_ARGUMENT", "SECRET_OUTPUT", "SECRET_ERROR_TEXT"]) {
+      expect(markup).not.toContain(leak);
+    }
+  });
+
+  test("the model's reasoning is never shown", () => {
+    const markup = renderMessages([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [{ state: "done", text: "SECRET_REASONING", type: "reasoning" }, { text: "Answer", type: "text" }], role: "assistant" },
+    ] as TestMessage[], { status: "streaming" });
+    expect(markup).toContain("Answer");
+    expect(markup).not.toContain("SECRET_REASONING");
+  });
+
+  test("each Pinar tool has its label; a write prepares a proposal; ask is no step; anything else is \"Consultando…\"", () => {
+    expect(assistantStepLabel("pinar_list_sessions")).toBe("assistant.step.list_sessions");
+    expect(assistantStepLabel("pinar_get_pin")).toBe("assistant.step.get_pin");
+    expect(assistantStepLabel("pinar_pins_search")).toBe("assistant.step.pins_search");
+    expect(assistantStepLabel("pinar_move_sessions")).toBe("assistant.step.propose");
+    expect(assistantStepLabel("pinar_delete_project")).toBe("assistant.step.propose");
+    expect(assistantStepLabel("pinar_ask")).toBeNull();
+    expect(assistantStepLabel("pinar_not_a_tool")).toBe("assistant.working");
+    const fallback = renderMessages([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_not_a_tool", "input-available")], role: "assistant" },
+    ], { status: "streaming" });
+    expect(fallback).toContain("assistant.working");
+  });
+});
+
+describe("assistant collapsed Trace (\"N passos\" of a turn that ended)", () => {
+  // Mutation captured: without `ended`, a step left in input-available when
+  // the turn died reads as still running in the collapsed Trace.
+  test("a step left without output when the turn ended is not completed, never running", () => {
+    const messages: TestMessage[] = [
+      userMessage("u1", "?"),
+      {
+        id: "a1",
+        parts: [toolPart("c1", "pinar_list_projects", "output-available"), toolPart("c2", "pinar_list_sessions", "input-available")],
+        role: "assistant",
+      },
+    ];
+    const traces = assistantCollapsedTraces(messages, false);
+    expect(traces.get("a1")).toEqual([
+      { id: "a1:c1", label: "assistant.step.list_projects", status: "done" },
+      { id: "a1:c2", label: "assistant.step.list_sessions", status: "error" },
+    ]);
+    // The collapsed line counts the steps; nothing spins after the end.
+    const markup = renderToStaticMarkup(createElement(AssistantMessages, { ...messageProps, messages, t: tv }));
+    expect(markup).toContain('data-testid="assistant-trace-collapsed"');
+    expect(markup).toContain("assistant.steps[count=2]");
+    expect(markup).not.toContain("animate-spin");
+  });
+
+  test("the turn in flight has no collapsed line (its steps are on the live Trace); earlier turns keep theirs on their last answer", () => {
+    const messages: TestMessage[] = [
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_list_projects", "output-available")], role: "assistant" },
+      { id: "a2", parts: [{ text: "One project.", type: "text" }], role: "assistant" },
+      userMessage("u2", "and sessions?"),
+      { id: "a3", parts: [toolPart("c2", "pinar_list_sessions", "input-available")], role: "assistant" },
+    ];
+    const live = assistantCollapsedTraces(messages, true);
+    expect([...live.keys()]).toEqual(["a2"]);
+    const ended = assistantCollapsedTraces(messages, false);
+    expect([...ended.keys()]).toEqual(["a2", "a3"]);
+    expect(ended.get("a3")?.[0]?.status).toBe("error");
+  });
+
+  test("a turn with only an ask or text has no collapsed line", () => {
+    const messages: TestMessage[] = [
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_ask", "output-available"), { text: "Which?", type: "text" }], role: "assistant" },
+    ];
+    expect(assistantCollapsedTraces(messages, false).size).toBe(0);
+  });
+
+  test("the collapsed line opens on a click (its trigger), the steps live in the collapsible", () => {
+    const markup = renderToStaticMarkup(createElement(AssistantCollapsedTrace, {
+      steps: [{ id: "a:c", label: "assistant.step.list_pins", status: "done" }],
+      t: tv,
+    }));
+    expect(markup).toContain('data-testid="assistant-trace-toggle"');
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain("assistant.steps[count=1]");
+  });
+});
+
+describe("assistant slow notice (20 s without visible progress)", () => {
+  function manualTimers() {
+    let now = 0;
+    let nextId = 0;
+    const pending = new Map<number, { at: number; callback: () => void; delay: number }>();
+    return {
+      advanceTo(target: number) {
+        for (const [id, timer] of [...pending].sort(([, a], [, b]) => a.at - b.at)) {
+          if (timer.at > target) continue;
+          pending.delete(id);
+          now = timer.at;
+          timer.callback();
+        }
+        now = target;
+      },
+      pending,
+      scheduler: {
+        clearTimeout: (timer: number) => {
+          pending.delete(timer);
+        },
+        setTimeout: (callback: () => void, delay: number) => {
+          nextId += 1;
+          pending.set(nextId, { at: now + delay, callback, delay });
+          return nextId;
+        },
+      },
+    };
+  }
+
+  // Mutation captured: a wait without the 20 s limit (an immediate notice,
+  // or another delay) turns slow before 20 s.
+  test("the notice comes at 20 s exactly, not before; progress restarts the count; an idle chat arms nothing", () => {
+    expect(ASSISTANT_SLOW_WORKING_MS).toBe(20_000);
+    const timers = manualTimers();
+    const changes: boolean[] = [];
+    let cancel = watchSlowFlag(true, ASSISTANT_SLOW_WORKING_MS, (slow) => changes.push(slow), timers.scheduler);
+    expect([...timers.pending.values()].map((timer) => timer.delay)).toEqual([20_000]);
+    timers.advanceTo(19_999);
+    expect(changes).toEqual([false]);
+    // Progress (a new key) cancels the wait and starts another.
+    cancel();
+    cancel = watchSlowFlag(true, ASSISTANT_SLOW_WORKING_MS, (slow) => changes.push(slow), timers.scheduler);
+    timers.advanceTo(39_998);
+    expect(changes).toEqual([false, false]);
+    timers.advanceTo(39_999);
+    expect(changes).toEqual([false, false, true]);
+    cancel();
+    const idle: boolean[] = [];
+    watchSlowFlag(false, ASSISTANT_SLOW_WORKING_MS, (slow) => idle.push(slow), timers.scheduler);
+    expect(idle).toEqual([false]);
+    expect(timers.pending.size).toBe(0);
+  });
+
+  test("the first render of a working turn has no notice; the notice is the Trace title's description", () => {
+    const working = renderMessages([userMessage("u1", "?")], { status: "streaming" });
+    expect(working).not.toContain("assistant.slowNotice");
+    const slow = renderToStaticMarkup(createElement(AssistantLiveTrace, {
+      current: "assistant.working",
+      description: "assistant.slowNotice",
+      steps: [],
+      t,
+    }));
+    expect(slow).toMatch(/data-testid="assistant-trace-current"(?:(?!<\/span><\/span>).)*assistant-trace-slow[^>]*>assistant\.slowNotice/);
+  });
+
+  test("the progress key changes with each part, its state and its text, only in the current turn", () => {
+    const base: TestMessage[] = [userMessage("u1", "?"), { id: "a1", parts: [{ text: "ab", type: "text" }], role: "assistant" }];
+    const key = assistantTurnProgressKey(base);
+    expect(assistantTurnProgressKey([base[0], { id: "a1", parts: [{ text: "abc", type: "text" }], role: "assistant" }])).not.toBe(key);
+    expect(assistantTurnProgressKey([userMessage("u0", "old"), ...base])).toBe(key);
+  });
+});
+
+describe("assistant interrupted answer (Stop or an abort)", () => {
+  test("the mark goes on the answer with text; on the question when nothing was written; nowhere when a proposal or ask is shown", () => {
+    expect(assistantInterruptedMessageId([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [{ text: "Partial", type: "text" }], role: "assistant" },
+    ])).toBe("a1");
+    expect(assistantInterruptedMessageId([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_list_projects", "input-available")], role: "assistant" },
+    ])).toBe("u1");
+    expect(assistantInterruptedMessageId([userMessage("u1", "?")])).toBe("u1");
+    expect(assistantInterruptedMessageId([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [{ data: cardProposal(), type: "data-proposal" }], role: "assistant" },
+    ])).toBeNull();
+    expect(assistantInterruptedMessageId([])).toBeNull();
+  });
+
+  // Mutation captured: the interrupted mark without its retry action.
+  test("the last interrupted message shows \"Resposta interrompida\" with the retry icon (tooltip and aria-label)", () => {
+    const messages: TestMessage[] = [
+      userMessage("u1", "?"),
+      { id: "a1", parts: [{ text: "Partial", type: "text" }], role: "assistant" },
+    ];
+    const markup = renderMessages(messages, { interruptedIds: new Set(["a1"]) });
+    expect(markup).toMatch(/data-testid="assistant-interrupted"[^>]*>(?:(?!assistant-interrupted).)*assistant\.interrupted(?:(?!assistant-interrupted).)*<button[^>]*aria-label="assistant\.retry"[^>]*data-testid="assistant-retry"/);
+    expect(markup).toContain('data-icon="rotate-ccw"');
+    // A question stopped before any answer carries the mark itself.
+    const question = renderMessages([userMessage("u1", "?")], { interruptedIds: new Set(["u1"]) });
+    expect(question).toContain("assistant.interrupted");
+    expect(question).toContain('aria-label="assistant.retry"');
+  });
+
+  test("a question stopped during a lookup keeps its retry while the tool's message follows it", () => {
+    const messages: TestMessage[] = [
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_list_projects", "input-available")], role: "assistant" },
+    ];
+    const marked = assistantInterruptedMessageId(messages);
+    expect(marked).toBe("u1");
+    const markup = renderMessages(messages, { interruptedIds: new Set([marked!]) });
+    expect(markup).toContain("assistant.interrupted");
+    expect(markup.match(/aria-label="assistant\.retry"/g)).toHaveLength(1);
+    // A later question still moves on: the old mark loses its retry.
+    const later = renderMessages([...messages, userMessage("u2", "next")], { interruptedIds: new Set(["u1"]) });
+    expect(later).toContain("assistant.interrupted");
+    expect(later).not.toContain('aria-label="assistant.retry"');
+  });
+
+  test("an interrupted answer that a later question followed keeps the mark without the retry", () => {
+    const markup = renderMessages([
+      userMessage("u1", "?"),
+      { id: "a1", parts: [{ text: "Partial", type: "text" }], role: "assistant" },
+      userMessage("u2", "next"),
+      { id: "a2", parts: [{ text: "Done.", type: "text" }], role: "assistant" },
+    ], { interruptedIds: new Set(["a1"]) });
+    expect(markup).toContain("assistant.interrupted");
+    expect(markup).not.toContain('aria-label="assistant.retry"');
+  });
+
+  test("while a turn runs the retry is disabled", () => {
+    const markup = renderMessages([userMessage("u1", "?")], { interruptedIds: new Set(["u1"]), status: "streaming" });
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="assistant\.retry"|<button[^>]*aria-label="assistant\.retry"[^>]*disabled=""/);
+  });
+});
+
+describe("assistant turn error in the Skia's shape", () => {
+  test("a timeout: the destructive text and only the retry icon, with its tooltip trigger and aria-label", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: { byok: null, credits: null, key: "assistant.errorTimeoutLimit" },
+      onRetry: () => {},
+      onRetryWithCredits: () => {},
+      t,
+    }));
+    expect(markup).toMatch(/<p class="[^"]*text-destructive[^"]*">assistant\.errorTimeoutLimit<\/p>/);
+    expect(markup).toMatch(/<button[^>]*aria-label="assistant\.retry"[^>]*data-base-ui-tooltip-trigger/);
+    // No visible retry text: the label is the tooltip's.
+    expect(markup).not.toMatch(/>assistant\.retry</);
+  });
+
+  test("BYOK: \"Usar créditos do Pinar\" stays next to the retry icon", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: { byok: { canUseCredits: true, cause: "timeout", retryAfter: null }, credits: null, key: "byok.errorGeneric" },
+      onRetry: () => {},
+      onRetryWithCredits: () => {},
+      t,
+    }));
+    expect(markup).toMatch(/>byok\.useCredits<\/button>(?:(?!<\/div>).)*aria-label="assistant\.retry"/);
+  });
+
+  test("no credits: its own card with the balance and the /pricing link", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: { byok: null, credits: { balance: 0, required: 1 }, key: "assistant.errorNoCredits" },
+      onRetry: () => {},
+      onRetryWithCredits: () => {},
+      t: tv,
+    }));
+    expect(markup).toContain('data-testid="assistant-no-credits"');
+    expect(markup).toContain("assistant.errorNoCredits[count=0;required=1]");
+    expect(markup).toContain('href="/pricing"');
+    expect(markup).not.toContain("assistant.retry");
+  });
+
+  test("stored errors of older messages look the same: the icon retry, the BYOK credits action and the no-credits card", () => {
+    const timeout = renderMessages([{ id: "m1", metadata: { errorCode: "ASSISTANT_TURN_TIMEOUT" }, parts: [], role: "assistant" }]);
+    expect(timeout).toContain('data-testid="assistant-turn-error"');
+    expect(timeout).toMatch(/<button[^>]*aria-label="assistant\.retry"/);
+    const byok = renderMessages([{ id: "m1", metadata: { errorCode: "byok_error" }, parts: [], role: "assistant" }]);
+    expect(byok).toMatch(/>byok\.useCredits<\/button>/);
+    const credits = renderMessages([{ id: "m1", metadata: { errorCode: "insufficient_ai_credits" }, parts: [], role: "assistant" }]);
+    expect(credits).toContain('data-testid="assistant-no-credits"');
+    expect(credits).toContain('href="/pricing"');
+    expect(credits).not.toContain("assistant.retry");
+  });
+});
+
+describe("assistant thread layout (Skia components)", () => {
+  test("messages: the scroller with the localized go-to-end button, user bubble at the end, Markdown answer with a code block", () => {
+    const markup = renderMessages([
+      userMessage("u1", "show code"),
+      { id: "a1", parts: [{ text: "Here:\n\n```ts\nconst x = 1;\n```", type: "text" }], role: "assistant" },
+    ]);
+    expect(markup).toContain('data-slot="message-scroller"');
+    // The thread is its own region, named apart from the panel's "Assistant".
+    expect(markup).toContain('role="region" aria-label="assistant.messagesLabel"');
+    expect(markup).not.toContain('aria-label="assistant.title"');
+    expect(markup).toMatch(/data-testid="assistant-scroll-to-end"[^>]*>(?:(?!<\/button>).)*<span class="sr-only">assistant\.scrollToEnd<\/span>/);
+    expect(markup).toContain('aria-label="assistant.scrollToEnd"');
+    expect(markup).not.toContain("Scroll to end");
+    expect(markup).toMatch(/data-slot="message" data-align="end"(?:(?!data-slot="message").)*show code/);
+    expect(markup).toContain('data-slot="code-block"');
+    expect(markup).toContain('aria-label="assistant.copyCode"');
+    expect(markup).not.toContain("Copiar");
+  });
+
+  test("composer: InputGroup with the Textarea and icon actions (send, then stop), labels from the i18n", () => {
+    const idle = renderToStaticMarkup(createElement(AssistantComposer, { busy: false, onSend: () => undefined, onStop: () => undefined, t }));
+    expect(idle).toContain('data-slot="input-group"');
+    expect(idle).toMatch(/<textarea[^>]*data-slot="input-group-control"/);
+    expect(idle).toMatch(/<button[^>]*type="submit"[^>]*aria-label="assistant\.send"|<button[^>]*aria-label="assistant\.send"[^>]*type="submit"/);
+    // An empty draft cannot be sent.
+    expect(idle).toMatch(/<button[^>]*aria-label="assistant\.send"[^>]*disabled=""|<button[^>]*disabled=""[^>]*aria-label="assistant\.send"/);
+    const busy = renderToStaticMarkup(createElement(AssistantComposer, { busy: true, onSend: () => undefined, onStop: () => undefined, t }));
+    expect(busy).toMatch(/<textarea[^>]*disabled=""/);
+    expect(busy).toMatch(/<button(?![^>]*disabled="")[^>]*aria-label="assistant\.stop"/);
+  });
+
+  test("every new assistant key has a message in the seven languages", async () => {
+    const keys = [
+      "assistant.copyCode",
+      "assistant.copyCodeFailed",
+      "assistant.interrupted",
+      "assistant.messagesLabel",
+      "assistant.phaseAnalyzing",
+      "assistant.phaseThinking",
+      "assistant.phaseWriting",
+      "assistant.scrollToEnd",
+      "assistant.slowNotice",
+      "assistant.stepFailed",
+      "assistant.steps",
+      "assistant.step.get_batch_markdown",
+      "assistant.step.get_collection_markdown",
+      "assistant.step.get_pin",
+      "assistant.step.get_project_markdown",
+      "assistant.step.get_session_markdown",
+      "assistant.step.list_batches",
+      "assistant.step.list_collections",
+      "assistant.step.list_pin_comments",
+      "assistant.step.list_pins",
+      "assistant.step.list_projects",
+      "assistant.step.list_sessions",
+      "assistant.step.pins_search",
+      "assistant.step.propose",
+    ];
+    const english = (await import("@/lib/ui-locales/en.ts")).default as Record<string, string>;
+    for (const language of ["de", "en", "es", "fr", "ja", "pt", "zh"]) {
+      const messages = (await import(`@/lib/ui-locales/${language}.ts`)).default as Record<string, string>;
+      for (const key of keys) {
+        expect(typeof messages[key]).toBe("string");
+        expect(messages[key].length).toBeGreaterThan(0);
+        if (language !== "en") expect(messages[key]).not.toBe(english[key]);
+      }
     }
   });
 });

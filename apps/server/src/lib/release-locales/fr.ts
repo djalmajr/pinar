@@ -674,6 +674,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-panel-steps": {
+        description:
+          "Pendant que l’assistant travaille, le panneau montre ce qu’il fait, avec chaque consultation comme une étape : une étape terminée reçoit une coche, et une étape qui a échoué indique « non terminé ». Quand la réponse arrive, les étapes se replient en une ligne, comme « 3 étapes », que vous pouvez ouvrir. Après 20 secondes sans progrès, le panneau indique que cela prend plus de temps que d’habitude. Arrêter une réponse garde ce qui était déjà écrit et la marque « Réponse interrompue », avec « Réessayer ». Les blocs de code des réponses ont un bouton pour copier, une réponse qui échoue montre « Réessayer » sous forme d’icône à côté du message, et le manque de crédits s’affiche dans une carte à part avec le lien pour en acheter.",
+        title: "L’assistant montre chaque étape et garde les réponses interrompues",
+      },
+    },
+    summary:
+      "Le panneau de l’assistant affiche chaque consultation comme une étape, replie les étapes quand la réponse arrive, prévient quand cela prend plus de temps que d’habitude et conserve la réponse interrompue avec la possibilité de réessayer.",
+    title: "L’assistant montre chaque étape et garde les réponses interrompues",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

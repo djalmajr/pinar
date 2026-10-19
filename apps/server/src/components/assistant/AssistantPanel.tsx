@@ -38,6 +38,8 @@ import {
 import { useAssistantPanel } from "./assistant-panel-state";
 import { AssistantComposer } from "./AssistantComposer";
 import { AssistantMessages } from "./AssistantMessages";
+import { AssistantNoCreditsCard, AssistantTurnErrorText } from "./AssistantNotices";
+import { assistantInterruptedMessageId } from "./assistant-trace";
 import { AssistantThreadList } from "./AssistantThreadList";
 
 // The note of a failed turn; a turn refused for lack of credits (402
@@ -91,53 +93,42 @@ export function assistantTurnErrorFromChatError(error: Error, byokPart?: Assista
   };
 }
 
-// Lack of credits shows the balance and a link to buy more (/pricing); a
-// BYOK failure shows the cause text and the two actions ("Tentar de novo"
-// and "Usar créditos do Pinar", F5/S4); any other failure offers to try
-// again.
-export function AssistantTurnErrorNote({ error, onRetry, onRetryWithCredits, t }: { error: AssistantTurnError; onRetry: () => void; onRetryWithCredits: () => void; t: Translate }) {
+// Lack of credits shows its own card with the balance and the link to buy
+// more (/pricing); a BYOK failure shows the cause text, the Retry-After and
+// the two actions ("Tentar de novo" and "Usar créditos do Pinar", F5/S4);
+// any other failure is the Skia's SkiaTurnError: the destructive text and
+// the retry icon.
+export function AssistantTurnErrorNote({
+  disabled = false,
+  error,
+  onRetry,
+  onRetryWithCredits,
+  t,
+}: {
+  disabled?: boolean;
+  error: AssistantTurnError;
+  onRetry: () => void;
+  onRetryWithCredits: () => void;
+  t: Translate;
+}) {
   if (error.key === "assistant.errorNoCredits") {
-    return (
-      <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
-        <p className="text-sm text-destructive">
-          {error.credits
-            ? t("assistant.errorNoCredits", { count: error.credits.balance, required: error.credits.required })
-            : t("viewer.aiNoCredits")}
-        </p>
-        <Button render={<Link to="/pricing" />} size="sm" type="button" variant="outline">
-          {t("assistant.buyCredits")}
-        </Button>
-      </div>
-    );
+    return <AssistantNoCreditsCard credits={error.credits} t={t} />;
   }
   if (error.byok !== null) {
     return (
-      <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
-        <p className="text-sm text-destructive">{t(byokCauseMessageKey(error.byok.cause))}</p>
-        {error.byok.retryAfter !== null ? (
+      <AssistantTurnErrorText
+        detail={error.byok.retryAfter !== null ? (
           <p className="text-xs text-muted-foreground">{t("byok.retryAfter", { seconds: error.byok.retryAfter })}</p>
         ) : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={onRetry} size="sm" type="button" variant="outline">
-            {t("assistant.retry")}
-          </Button>
-          {error.byok.canUseCredits ? (
-            <Button onClick={onRetryWithCredits} size="sm" type="button" variant="outline">
-              {t("byok.useCredits")}
-            </Button>
-          ) : null}
-        </div>
-      </div>
+        disabled={disabled}
+        message={t(byokCauseMessageKey(error.byok.cause))}
+        onRetry={onRetry}
+        onRetryWithCredits={error.byok.canUseCredits ? onRetryWithCredits : null}
+        t={t}
+      />
     );
   }
-  return (
-    <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
-      <p className="text-sm text-destructive">{t(error.key)}</p>
-      <Button onClick={onRetry} size="sm" type="button" variant="outline">
-        {t("assistant.retry")}
-      </Button>
-    </div>
-  );
+  return <AssistantTurnErrorText disabled={disabled} message={t(error.key)} onRetry={onRetry} t={t} />;
 }
 
 export interface AssistantPanelProps {
@@ -155,6 +146,10 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   const [historyOpen, setHistoryOpen] = useState(false);
   const [turnError, setTurnError] = useState<AssistantTurnError | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  // The answers marked "Resposta interrompida" by Stop or an abort, for as
+  // long as the conversation stays open (the Skia's interruptedMessageIds);
+  // reset on every conversation switch.
+  const [interruptedIds, setInterruptedIds] = useState<ReadonlySet<string>>(() => new Set());
   // Card state per proposal id: the most recent proposal an action answer
   // (or a 409 refetch) returned, the in-flight flag and the action note.
   // Reset on every conversation switch: a reopened thread brings its own
@@ -188,6 +183,11 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       },
       onTurnError: (error, byokPart) => {
         setTurnError(assistantTurnErrorFromChatError(error, byokPart));
+      },
+      onTurnAborted: (messages) => {
+        const id = assistantInterruptedMessageId(messages);
+        if (id === null) return;
+        setInterruptedIds((current) => (current.has(id) ? current : new Set(current).add(id)));
       },
     }),
     [],
@@ -248,6 +248,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     });
     setActiveThreadId(null);
     setTurnError(null);
+    setInterruptedIds(new Set());
     setProposalStates({});
     setHistoryOpen(false);
     setConversation(next);
@@ -269,6 +270,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     }
     setActiveThreadId(id);
     setTurnError(null);
+    setInterruptedIds(new Set());
     setProposalStates({});
     setHistoryOpen(false);
     setConversation(result.conversation);
@@ -316,6 +318,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     void sendMessage({ text }, { body: { useCredits: true } });
   }
 
+  const hasThread = status !== null && status.available && messages.length > 0;
   const body =
     status === null || (status !== null && status.reason === "disabled") ? (
       <p className="px-4 py-6 text-sm text-muted-foreground">
@@ -341,9 +344,17 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
         <p className="text-xs text-muted-foreground">{t("assistant.readOnlyNote")}</p>
       </div>
     ) : (
-      <>
-        <AssistantMessages
-          busy={busy}
+      <AssistantMessages
+          footer={turnError !== null ? (
+            <AssistantTurnErrorNote
+              disabled={busy}
+              error={turnError}
+              onRetry={handleRetry}
+              onRetryWithCredits={handleRetryWithCredits}
+              t={t}
+            />
+          ) : null}
+          interruptedIds={interruptedIds}
           messages={messages}
           onAsk={handleSend}
           onProposalAction={(kind, proposal) => {
@@ -352,10 +363,9 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
           onRetry={handleRetry}
           onRetryWithCredits={handleRetryWithCredits}
           proposalStates={proposalStates}
+          status={chatStatus}
           t={t}
         />
-        {turnError !== null ? <AssistantTurnErrorNote error={turnError} onRetry={handleRetry} onRetryWithCredits={handleRetryWithCredits} t={t} /> : null}
-      </>
     );
 
   return (
@@ -418,7 +428,9 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+      {/* The thread scrolls in its own MessageScroller; the other states
+          scroll here. */}
+      <div className={cn("flex min-h-0 flex-1 flex-col", hasThread ? null : "overflow-y-auto")}>{body}</div>
 
       {available ? (
         <AssistantComposer busy={busy} t={t} onSend={handleSend} onStop={stop} />

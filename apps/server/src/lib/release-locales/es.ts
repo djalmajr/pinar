@@ -674,6 +674,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-panel-steps": {
+        description:
+          "Mientras el asistente trabaja, el panel muestra lo que está haciendo, con cada consulta como un paso: un paso hecho lleva una marca, y uno que falló aparece como “no completado”. Cuando llega la respuesta, los pasos se pliegan en una línea, como “3 pasos”, que puedes abrir. Después de 20 segundos sin progreso, el panel avisa que está tardando más de lo normal. Detener una respuesta conserva lo que ya se escribió y la marca como “Respuesta interrumpida”, con “Intentar de nuevo”. Los bloques de código de las respuestas tienen un botón para copiar, una respuesta que falla muestra “Intentar de nuevo” como un icono junto al mensaje, y la falta de créditos aparece en una tarjeta propia con el enlace para comprar más.",
+        title: "El asistente muestra cada paso y conserva las respuestas interrumpidas",
+      },
+    },
+    summary:
+      "El panel del asistente muestra cada consulta como un paso, pliega los pasos cuando llega la respuesta, avisa cuando tarda más de lo normal y conserva la respuesta interrumpida con la opción de intentarlo de nuevo.",
+    title: "El asistente muestra cada paso y conserva las respuestas interrumpidas",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

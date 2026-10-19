@@ -691,6 +691,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-panel-steps": {
+        description:
+          "Enquanto o assistente trabalha, o painel mostra o que ele está fazendo, com cada consulta como um passo: o passo feito ganha um check, e o que falhou aparece como “não concluído”. Quando a resposta chega, os passos se recolhem numa linha, como “3 passos”, que você pode abrir. Depois de 20 segundos sem progresso, o painel avisa que está demorando mais que o normal. Parar uma resposta guarda o que já foi escrito e a marca como “Resposta interrompida”, com “Tentar de novo”. Os blocos de código das respostas têm um botão de copiar, uma resposta que falha mostra o “Tentar de novo” como um ícone ao lado da mensagem, e a falta de créditos aparece num cartão próprio com o link para comprar mais.",
+        title: "O assistente mostra cada passo e guarda a resposta interrompida",
+      },
+    },
+    summary:
+      "O painel do assistente mostra cada consulta como um passo, recolhe os passos quando a resposta chega, avisa quando demora mais que o normal e guarda a resposta interrompida com a opção de tentar de novo.",
+    title: "O assistente mostra cada passo e guarda a resposta interrompida",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

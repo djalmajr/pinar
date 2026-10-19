@@ -72,6 +72,12 @@ describe("code-block", () => {
 
   it("linguagem desconhecida cai no texto puro", async () => {
     expect(await highlightCode("ola mundo", "not-a-language")).toBeNull();
+    // Inherited names are not languages, and they leave the highlighter usable.
+    for (const inherited of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+      expect(await loadHighlighter(inherited), inherited).toBeNull();
+      expect(await highlightCode("x", inherited), inherited).toBeNull();
+    }
+    expect(await highlightCode("<b>ola</b>", "html")).not.toBeNull();
     expect(await loadHighlighter("tcl")).toBeNull();
   });
 

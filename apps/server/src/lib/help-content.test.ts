@@ -18,7 +18,7 @@ import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 const expectedArticleCounts = {
   agents: 6,
   captures: 6,
-  cloud: 5,
+  cloud: 6,
   "getting-started": 4,
   privacy: 4,
   workspace: 3,
@@ -54,11 +54,11 @@ describe("help content", () => {
     assert.equal(loadHelpContent("fr"), frenchContent);
     assert.equal((await frenchContent).language, "fr");
   });
-  test("ships the designed six-category, 28-article catalog in every locale", async () => {
+  test("ships the designed six-category, 29-article catalog in every locale", async () => {
     const contents = await loadEveryHelpLocale();
     for (const content of contents) {
       assert.equal(content.categories.length, 6, content.language);
-      assert.equal(content.articles.length, 28, content.language);
+      assert.equal(content.articles.length, 29, content.language);
       for (const category of content.categories) {
         assert.equal(
           articlesInCategory(content, category.id).length,
@@ -537,8 +537,8 @@ describe("help content", () => {
   test("gives every article its own cover file", async () => {
     for (const content of await loadEveryHelpLocale()) {
       const keys = content.articles.map((article) => article.screenshot.key);
-      assert.equal(keys.length, 28, content.language);
-      assert.equal(new Set(keys).size, 28, content.language);
+      assert.equal(keys.length, 29, content.language);
+      assert.equal(new Set(keys).size, 29, content.language);
     }
   });
 
@@ -590,6 +590,7 @@ describe("help content", () => {
       "local-security-and-recovery": "workspace-security",
       "nested-collections": "workspace-nested",
       "organize-projects": "capture-workspace",
+      "own-ai-endpoint": "own-ai-endpoint",
       "pins-and-comments": "capture-pins",
       "plans-and-billing": "pricing",
       "privacy-masks": "capture-masks",
@@ -904,14 +905,39 @@ describe("help content", () => {
       /compatível com a OpenAI/g,
       /compatible con OpenAI/g,
       /compatible OpenAI/g,
-      /OpenAI-kompatiblen/g,
+      /OpenAI-kompatible(?:r|n)?/g,
       /OpenAI 互換/g,
       /OpenAI 兼容/g,
     ];
-    const withoutProtocolPhrases = (text: string) =>
-      protocolPhrases.reduce((rest, phrase) => rest.replace(phrase, " "), text);
-    const leaks = (text: string) =>
-      internalTerms.filter((pattern) => pattern.test(withoutProtocolPhrases(text)));
+    // The BYOK settings and the own-ai-endpoint guide quote the embedding
+    // capability and model labels exactly as the UI shows them ("Embeddings",
+    // "Modelo de embedding", "嵌入", …): the scan strips those exact labels,
+    // per language, not the word in general. The boundaries keep the strip
+    // from eating a longer word that only starts with the label ("Embedding
+    // models"): the lookarounds test ASCII word characters only, so they
+    // still hold in zh and ja, where words are not space-separated.
+    const embeddingUiLabels: Record<string, string[]> = {
+      de: ["Embedding-Modell", "Embeddings"],
+      en: ["Embedding model", "Embeddings"],
+      es: ["Modelo de embedding", "Embeddings"],
+      fr: ["Modèle d’embedding", "Embeddings"],
+      ja: ["embedding モデル", "embedding"],
+      pt: ["Modelo de embedding", "Embeddings"],
+      zh: ["嵌入模型", "嵌入"],
+    };
+    const asWholeLabel = (label: string) =>
+      new RegExp(
+        `(?<![A-Za-z0-9])${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9])`,
+        "g",
+      );
+    const withoutUiLabels = (text: string, language: string) =>
+      protocolPhrases
+        .concat((embeddingUiLabels[language] ?? []).map(asWholeLabel))
+        .reduce((rest, phrase) => rest.replace(phrase, " "), text);
+    const leaks = (text: string, language = "en") =>
+      internalTerms.filter((pattern) =>
+        pattern.test(withoutUiLabels(text, language)),
+      );
 
     // The list catches each banned term and lets the allowed wording through.
     for (const sample of [
@@ -932,6 +958,7 @@ describe("help content", () => {
       "qwen3 on this computer",
       "GPT-4o",
       "an openai-compatible endpoint",
+      "Embedding models",
     ]) {
       assert.equal(leaks(sample).length, 1, sample);
     }
@@ -942,13 +969,43 @@ describe("help content", () => {
     ]) {
       assert.deepEqual(leaks(allowed), [], allowed);
     }
+    // The embedding UI labels pass the scan in their own language only,
+    // alone and embedded in the surrounding script (zh and ja have no
+    // word spaces, so the boundaries must not rely on them).
+    const embeddedLabelSamples: Record<string, string[]> = {
+      de: ["das Embedding-Modell", "Embeddings"],
+      en: ["the Embedding model", "Embeddings"],
+      es: ["el Modelo de embedding", "Embeddings"],
+      fr: ["le Modèle d’embedding", "Embeddings"],
+      ja: ["embedding モデルを指定します", "embedding"],
+      pt: ["o Modelo de embedding", "Embeddings"],
+      zh: ["使用嵌入模型进行索引", "嵌入"],
+    };
+    for (const [language, samples] of Object.entries(embeddingUiLabels)) {
+      for (const sample of samples) {
+        assert.equal(
+          leaks(sample, language).length,
+          0,
+          `${language}:${sample}`,
+        );
+      }
+    }
+    for (const [language, samples] of Object.entries(embeddedLabelSamples)) {
+      for (const sample of samples) {
+        assert.equal(
+          leaks(sample, language).length,
+          0,
+          `${language}:${sample}`,
+        );
+      }
+    }
 
     const releases = await Promise.all(
       SUPPORTED_LANGUAGES.map((language) => loadReleaseContent(language)),
     );
     for (const content of await loadEveryHelpLocale()) {
       const texts: string[] = [];
-      for (const id of ["assistant", "ai-features", "ai-credits"]) {
+      for (const id of ["assistant", "ai-features", "ai-credits", "own-ai-endpoint"]) {
         const article = content.articles.find((candidate) => candidate.id === id);
         assert.ok(article, `${content.language}:${id}`);
         texts.push(...articleTexts(article));
@@ -970,9 +1027,21 @@ describe("help content", () => {
           .filter((change) => change.id !== "legal-update")
           .flatMap((change) => [change.title, change.description]),
       );
+      // The unreleased block, when present, is published copy too and keeps
+      // the same internal-term discipline.
+      if (release.upcoming) {
+        texts.push(
+          release.upcoming.title,
+          release.upcoming.summary,
+          ...release.upcoming.changes.flatMap((change) => [
+            change.title,
+            change.description,
+          ]),
+        );
+      }
       for (const text of texts) {
         assert.deepEqual(
-          leaks(text),
+          leaks(text, content.language),
           [],
           `${content.language} shows an internal term: ${text.slice(0, 160)}`,
         );

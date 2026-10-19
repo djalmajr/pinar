@@ -286,6 +286,11 @@ export const helpScreenshotDefinitions = [
     height: 900,
     width: 1280,
   },
+  {
+    key: "own-ai-endpoint",
+    height: 900,
+    width: 1280,
+  },
 ] as const;
 
 export const helpArticleDefinitions = [
@@ -600,6 +605,19 @@ export const helpArticleDefinitions = [
       "apps/server/src/lib/entitlements.ts",
       "apps/server/src/server/cloud-api.ts",
       "apps/server/src/components/GlobalSettingsDialog.tsx",
+    ],
+  },
+  {
+    id: "own-ai-endpoint",
+    category: "cloud",
+    readMinutes: 4,
+    screenshotKey: "own-ai-endpoint",
+    sourceRefs: [
+      "apps/server/src/components/ByokSettings.tsx",
+      "apps/server/src/server/byok/api.ts",
+      "apps/server/src/server/byok/detect.ts",
+      "apps/server/src/server/byok/route.ts",
+      "apps/server/src/lib/entitlements.ts",
     ],
   },
   {

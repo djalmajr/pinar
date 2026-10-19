@@ -51,7 +51,7 @@ describe("public legal documents", () => {
     assert.doesNotMatch(termsPt, /Araújo/);
     assert.doesNotMatch(termsEn, /\("Pinar", "we", "us"\)/);
     assert.doesNotMatch(termsPt, /\("Pinar", "nós"\)/);
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-17");
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-19");
     for (const documentId of LegalDocumentIds) {
       const english = legalDocument(documentId, "en").body;
       const portuguese = legalDocument(documentId, "pt").body;
@@ -252,5 +252,49 @@ describe("public legal documents", () => {
     assert.doesNotMatch(terms, /Founder|Lifetime|500 bonus AI credits/);
     assert.match(fairSource, /active subscription/);
     assert.match(fairSource, /not OSI-approved Open Source/);
+  });
+
+  it("describes the user's own AI endpoint in the Privacy Policy, the Terms, and the Subprocessors page (S5 BYOK)", () => {
+    const body = (id: Parameters<typeof legalDocument>[0], language: "en" | "pt") => legalDocument(id, language).body;
+    for (const language of ["en", "pt"] as const) {
+      const privacy = body("privacy", language);
+      const terms = body("terms", language);
+      const subprocessors = body("subprocessors", language);
+      if (language === "en") {
+        // The endpoint's provider is the user's, Pinar only forwards, and the
+        // same content list applies to the capabilities that passed the test.
+        assert.match(privacy, /You choose and contract that provider, and its processing follows the agreement and terms between you and it, not Pinar's/);
+        assert.match(privacy, /Pinar does not instruct it and does not control how long it keeps the data/);
+        assert.match(privacy, /Pinar only forwards your requests to it, at your instruction/);
+        assert.match(privacy, /you are the controller of that sending too, and Pinar acts as a processor in the forwarding/);
+        assert.match(privacy, /The same content listed above goes to the endpoint for the capabilities that passed its connection test/);
+        assert.match(privacy, /which may be outside Brazil; that transfer is made at your request to run the features you invoke \(Article 33, IX, combined with Article 7, V, of the LGPD\)/);
+        assert.match(privacy, /is decrypted only in memory at the moment of each call, is never written to a log/);
+        assert.match(privacy, /is deleted when you remove the endpoint or delete your account/);
+        assert.match(privacy, /A feature whose capability did not pass the test keeps using the AI providers accessed through the Vercel AI Gateway/);
+        assert.match(privacy, /the search of your pins in that answer uses your endpoint's vision and embeddings when they passed, or the text alone when they did not, and nothing goes to those providers/);
+        // The Terms keep the controller burden, now with the endpoint branch.
+        assert.match(terms, /or with the AI endpoint you configure yourself when its capabilities have passed the connection test/);
+        // The endpoint's provider is not a subprocessor of Pinar.
+        assert.match(subprocessors, /the provider of that endpoint is not a subprocessor of Pinar/);
+        assert.match(subprocessors, /Pinar only forwards your requests to it, and its own terms apply to the processing/);
+      } else {
+        assert.match(privacy, /Esse provedor é escolhido e contratado por você, e o tratamento que ele faz segue o contrato e os termos entre vocês, não os do Pinar/);
+        assert.match(privacy, /o Pinar não dá instruções a ele nem controla por quanto tempo ele guarda os dados/);
+        assert.match(privacy, /O Pinar só encaminha os seus pedidos a ele, por sua instrução/);
+        assert.match(privacy, /você também é o controlador desse envio, e o Pinar atua como operador no encaminhamento/);
+        assert.match(privacy, /Os mesmos conteúdos listados acima vão ao endpoint, para as capacidades que passaram no teste de conexão/);
+        assert.match(privacy, /o que pode ser fora do Brasil; essa transferência é feita a seu pedido, para executar os recursos que você aciona \(art\. 33, IX, combinado com o art\. 7º, V, da LGPD\)/);
+        assert.match(privacy, /é decifrada só em memória na hora de cada chamada, nunca vai para log/);
+        assert.match(privacy, /é apagada quando você remove o endpoint ou apaga a conta/);
+        assert.match(privacy, /Um recurso cuja capacidade não passou no teste segue usando os provedores de IA acessados pelo Vercel AI Gateway/);
+        assert.match(privacy, /a busca nos seus pins nessa resposta usa a visão e os embeddings do seu endpoint quando eles passaram, ou só o texto quando não passaram, e nada vai a esses provedores/);
+        assert.match(terms, /ou com o endpoint de IA que você configura por sua conta, quando as capacidades dele passaram no teste de conexão/);
+        assert.match(subprocessors, /o provedor desse endpoint não é suboperador do Pinar/);
+        assert.match(subprocessors, /o Pinar só encaminha os seus pedidos a ele, e valem os termos próprios desse provedor para o tratamento/);
+      }
+    }
+    // The documents move to the BYOK version, dated by the orchestrator at merge.
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-19");
   });
 });

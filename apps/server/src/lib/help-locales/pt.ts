@@ -227,6 +227,10 @@ const locale = {
       alt: "Workspace do Pinar com o painel do assistente aberto ao lado dos cartões de sessão, mostrando uma pergunta, a resposta e um cartão de proposta com Confirmar e Recusar.",
       caption: "O assistente responde num painel lateral e propõe cada mudança num cartão; nada no workspace muda antes da sua confirmação.",
     },
+    "own-ai-endpoint": {
+      alt: "Workspace do Pinar Cloud com a caixa de configurações aberta na seção Assistente de IA, mostrando o bloco Seu próprio endpoint: os estados das capacidades com a causa, a URL do endpoint, a chave da API mascarada e os campos de modelo.",
+      caption: "O teste de conexão confere quatro capacidades, e cada uma mostra se o pedido vai ao seu endpoint ou aos créditos do Pinar Cloud.",
+    },
   },
   articles: {
     "install-pinar": {
@@ -835,7 +839,7 @@ const locale = {
         {
           heading: "No Pinar Cloud: Pro e créditos",
           paragraphs: [
-            "No Pinar Cloud, o assistente faz parte do Pro. Cada mensagem que você envia usa 3 créditos de IA, e uma resposta que falha devolve os créditos. Confirmar ou desfazer uma proposta não usa crédito.",
+            "No Pinar Cloud, o assistente faz parte do Pro. Cada mensagem que você envia usa 3 créditos de IA, e uma resposta que falha devolve os créditos. Confirmar ou desfazer uma proposta não usa crédito. Quando uma mensagem atendida pelo seu próprio endpoint falha, o painel mostra a causa e dois botões: “Tentar de novo” e “Usar créditos do Pinar”; o segundo manda só aquela mensagem pelos provedores do Pinar, com créditos.",
             "São os mesmos créditos da transcrição por voz, e os pacotes de créditos só podem ser comprados com o Pro. [Créditos de IA do Pinar Cloud para voz e assistente](/help/cloud/ai-credits) explica saldos e estornos.",
           ],
         },
@@ -1108,6 +1112,7 @@ const locale = {
             "Cada mensagem que você envia ao assistente no Pinar Cloud usa 3 créditos, e uma resposta que falha devolve os créditos. Confirmar ou desfazer uma proposta não usa crédito. No aplicativo local, o assistente usa a IA que você configurou e nenhum crédito do Pinar.",
             "No Pinar Cloud, gerar os passos escritos de reprodução usa 1 crédito de IA por geração, e uma geração que falha devolve o crédito.",
             "Com a escolha automática da coleção ligada, cada captura cuja coleção a IA escolhe usa 1 crédito, inclusive quando a escolha é a “Caixa de entrada”; a falha ou o estouro do prazo devolvem o crédito, e sem saldo a IA não é chamada e a captura vai para a “Caixa de entrada”.",
+            "Com o seu próprio endpoint, um recurso é atendido por ele, sem créditos do Pinar Cloud, quando a capacidade correspondente passou no teste de conexão; [Use o seu próprio endpoint de IA no Pinar Cloud](/help/cloud/own-ai-endpoint) explica o teste e o que cada recurso usa, com a exceção da busca nos pins de uma resposta atendida pelo seu endpoint, que não usa os créditos dos provedores do Pinar.",
           ],
         },
         {
@@ -1128,6 +1133,57 @@ const locale = {
             "Se uma resposta do assistente falhar, os créditos dela voltam; envie a mensagem de novo quando quiser.",
             "Se o workspace mostrar zero créditos, confira o saldo restante antes de comprar outro pacote de 500 créditos.",
             "Se você enviar muitos pedidos de IA dentro de um minuto, o pedido é recusado temporariamente; espere um minuto e tente de novo.",
+          ],
+        },
+      ],
+    },
+    "own-ai-endpoint": {
+      title: "Use o seu próprio endpoint de IA no Pinar Cloud",
+      summary: "Cadastre o seu endpoint no Pinar Cloud Pro, teste as capacidades dele e veja quais recursos ele atende sem créditos.",
+      sections: [
+        {
+          heading: "O que é",
+          paragraphs: [
+            "O seu próprio endpoint é um benefício do Pinar Cloud que exige o Pro. O provedor de IA é escolhido e contratado por você, valem os termos dele para esse tratamento, e o Pinar só encaminha os seus pedidos a ele. Diferente do app local, em que a IA que você configura não passa pelo Pinar, aqui o pedido passa pelo Pinar Cloud a caminho do seu endpoint.",
+            "Ele fica em Configurações → “Assistente de IA”, no bloco “Seu próprio endpoint”. Um recurso usa o seu endpoint, sem créditos do Pinar Cloud, quando a capacidade correspondente passou no teste de conexão; um recurso cuja capacidade não passou segue pelos provedores do Pinar, com créditos, como hoje, com uma exceção: a busca nos pins de uma resposta atendida pelo seu endpoint nunca vai aos provedores do Pinar. A seção “O que usa o seu endpoint e o que continua usando créditos” explica o destino de cada recurso.",
+          ],
+        },
+        {
+          heading: "Cadastrar o endpoint",
+          paragraphs: [
+            "Em Configurações → “Assistente de IA”, abra o bloco “Seu próprio endpoint”. Informe o “Endpoint” — a URL base compatível com a OpenAI, normalmente terminada em /v1 — e a “Chave da API”. Os três campos de modelo — “Modelo de chat”, “Modelo de embedding” e “Modelo de transcrição” — são opcionais: com um em branco, os recursos que dependem dele seguem como a seção “O que usa o seu endpoint e o que continua usando créditos” explica.",
+            "A URL base deve ser HTTPS, sem usuário e senha na URL e sem endereço privado ou local; o resto é recusado antes de salvar.",
+          ],
+        },
+        {
+          heading: "O teste de conexão e as capacidades",
+          paragraphs: [
+            "Salvar o endpoint roda o teste em seguida, e o botão “Testar conexão” roda o teste no endpoint salvo. O teste confere quatro capacidades: “Chat com ferramentas”, “Visão”, “Embeddings” e “Transcrição”.",
+            "Cada capacidade mostra um de três estados: “Seu endpoint”, quando passou; “Créditos do Pinar”, quando não passou, com a causa curta; ou “Não testado”. Há limite de testes em sequência; quando você atinge, aguarde um momento e tente de novo.",
+          ],
+        },
+        {
+          heading: "O que usa o seu endpoint e o que continua usando créditos",
+          paragraphs: [
+            "Cada recurso é atendido pelo seu endpoint, sem créditos do Pinar Cloud, quando a capacidade correspondente passou no teste. Um recurso cuja capacidade não passou segue pelos provedores do Pinar, com créditos, como hoje, com uma exceção: na busca nos pins de uma resposta atendida pelo seu endpoint, a busca usa a visão e os Embeddings do endpoint quando eles passaram, ou só o texto quando não passaram, e nada vai aos provedores do Pinar.",
+          ],
+          bullets: [
+            "Assistente: com o chat com ferramentas aprovado, a resposta vai ao endpoint; sem ele, vai pelos provedores do Pinar, com créditos. Na busca nos pins de uma resposta do endpoint, a busca usa a visão e os Embeddings do endpoint quando eles passaram; sem eles, a busca é só por texto, e nada vai aos provedores do Pinar.",
+            "Voz num pin: quem decide é a transcrição. Com a transcrição aprovada, a gravação vai ao endpoint, e a organização do texto vai ao chat do endpoint quando aprovado; sem ele, vai aos provedores do Pinar no Pinar Cloud, com 1 crédito. Sem a transcrição aprovada, a voz segue o caminho de hoje, com créditos.",
+            "Passos escritos de reprodução: com o chat aprovado, vão ao endpoint; sem ele, seguem o caminho de hoje, com créditos.",
+            "Escolha automática da coleção: com os Embeddings aprovados, usa o endpoint; sem eles, segue o caminho de hoje, com créditos. Quando o endpoint falha num pedido, a captura fica no destino padrão, sem créditos do Pinar Cloud.",
+          ],
+        },
+        {
+          heading: "Quando o endpoint falha num pedido",
+          paragraphs: [
+            "O assistente e os passos escritos de reprodução mostram a causa e dois botões: “Tentar de novo” e “Usar créditos do Pinar”; o segundo manda só aquele pedido pelos provedores do Pinar, com créditos. Na extensão, uma transcrição por voz que falha mostra a causa e oferece reenviar a mesma gravação com créditos.",
+          ],
+        },
+        {
+          heading: "A chave e a sua privacidade",
+          paragraphs: [
+            "A chave da API fica cifrada no Pinar Cloud, e a tela mostra só os quatro últimos caracteres; ela é decifrada em memória só na hora de cada chamada, nunca vai para log e some quando você remove o endpoint ou apaga a conta. [Onde seus dados ficam](/help/privacy/where-data-lives) tem os detalhes.",
           ],
         },
       ],

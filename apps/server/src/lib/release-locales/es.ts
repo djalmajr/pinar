@@ -635,6 +635,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "own-ai-endpoint": {
+        description:
+          "En Pinar Cloud, las cuentas Pro pueden registrar su propio endpoint en Configuración → Asistente de IA: URL base HTTPS, clave API y modelos opcionales de chat, Embeddings y transcripción. Una función es atendida por ese endpoint, sin créditos de Pinar Cloud, cuando su capacidad pasa la prueba de conexión; una función cuya capacidad no pasó sigue usando los proveedores de Pinar, con créditos, con la excepción de la búsqueda en los pins de una respuesta atendida por ese endpoint, que usa la visión y los Embeddings del endpoint cuando pasan, o solo el texto cuando no pasan. Cuando el endpoint falla, el asistente y los pasos escritos de reproducción muestran la causa con “Intentar de nuevo” y “Usar créditos de Pinar”, y la extensión ofrece reenviar la misma grabación de voz con créditos.",
+        title: "Tu propio endpoint en Pinar Cloud (Pro)",
+      },
+    },
+    summary:
+      "Las cuentas Pro en Pinar Cloud pueden registrar su propio endpoint, y los errores de IA del asistente, la reproducción y la voz ahora muestran la causa con una opción.",
+    title: "Tu propio endpoint en Pinar Cloud",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

@@ -88,35 +88,9 @@ export interface AssistantTransitionProposalInput {
   to: AssistantProposalStatus;
 }
 
-/**
- * The turn a write belongs to (http.ts, deadline.ts): once the turn is over
- * (its budget ran out and it answered 504) the write is refused, so a write
- * that was still pending never enters a later turn of the thread. Each
- * store checks it in the write itself: the memory and local stores read
- * `signal` in the same synchronous step that inserts; D1 reads it before
- * sending the batch and compares `notAfter` with the database's clock
- * inside the batch's transaction (the window left is the skew between the
- * server's clock and the database's).
- */
-export interface AssistantWriteFence {
-  notAfter: string; // ISO, the turn's deadline
-  signal: AbortSignal; // aborted once the turn is over
-}
-
-/** A fenced write refused because its turn was over: nothing was written. */
-export class AssistantWriteFencedError extends Error {
-  constructor() {
-    super("assistant write fenced");
-    this.name = "AssistantWriteFencedError";
-  }
-}
-
 export interface AssistantStore {
-  /**
-   * Inserts the message (including its `ask`) and stamps `thread.updatedAt = message.createdAt`.
-   * With a fence whose turn is over, writes nothing and rejects with AssistantWriteFencedError.
-   */
-  appendMessage(message: AssistantMessage, options?: { fence?: AssistantWriteFence }): Promise<void>;
+  /** Inserts the message (including its `ask`) and stamps `thread.updatedAt = message.createdAt`. */
+  appendMessage(message: AssistantMessage): Promise<void>;
   createThread(input: { id: string; now: string; title: string }): Promise<AssistantThread>;
   /** Deletes the messages and proposals with it; resolves to false when the thread did not exist. */
   deleteThread(id: string): Promise<boolean>;

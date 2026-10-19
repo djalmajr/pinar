@@ -58,7 +58,8 @@ export class AssistantTurnTimeoutError extends Error {
  * The turn's 240 s budget, created on entry (the start of the HTTP request).
  * The signal aborts at the deadline: the awaits before the model race it
  * (withinAssistantTurnBudget), so a hung wait before the stream ends with
- * the `turn` timeout instead of holding the request open. `dispose` disarms
+ * the `turn` timeout instead of holding the request open; a write a later
+ * turn would see never races it (afterAssistantTurnWrite). `dispose` disarms
  * the timer when whoever created the budget is done with it.
  */
 export interface AssistantTurnBudget {
@@ -152,4 +153,27 @@ export function withinAssistantTurnBudget<T>(
       },
     );
   });
+}
+
+/**
+ * Runs a write a later turn would see (the thread, the user's question)
+ * without racing the turn's budget: the turn waits for it to settle, with
+ * success or an error, and only then reads the budget. With the budget
+ * spent by then it rejects with the `turn` timeout (an error of the write
+ * included), so the caller answers 504 and frees what it holds only once
+ * nothing of the write is still pending. With the budget already spent the
+ * write never starts. A hung write holds the turn (and its thread) for as
+ * long as it hangs: no 504 leaves before it.
+ */
+export async function afterAssistantTurnWrite<T>(budget: AssistantTurnBudget, work: () => Promise<T>): Promise<T> {
+  if (budget.signal.aborted) throw new AssistantTurnTimeoutError("turn");
+  let value: T;
+  try {
+    value = await work();
+  } catch (error) {
+    if (budget.signal.aborted) throw new AssistantTurnTimeoutError("turn");
+    throw error;
+  }
+  if (budget.signal.aborted) throw new AssistantTurnTimeoutError("turn");
+  return value;
 }

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import { AssistantWriteFencedError, assistantThreadTitle, newAssistantMessageId, newAssistantThreadId, newAssistantProposalId, type AssistantMessage, type AssistantProposalRecord } from "./store";
+import { assistantThreadTitle, newAssistantMessageId, newAssistantThreadId, newAssistantProposalId, type AssistantMessage, type AssistantProposalRecord } from "./store";
 import { localAssistantStore, type LocalAssistantDatabase } from "./store-local";
 
 describe("localAssistantStore", () => {
@@ -16,25 +16,6 @@ describe("localAssistantStore", () => {
 
   afterEach(async () => {
     await rm(tempDir, { force: true, recursive: true });
-  });
-
-  test("refuses a fenced write whose turn is over, and writes a live one", async () => {
-    const db = openHistoryDb(tempDir) as unknown as LocalAssistantDatabase & { close(): void };
-    try {
-      const store = localAssistantStore(db);
-      const thread = await store.createThread({ id: newAssistantThreadId(), now: "2026-10-01T00:00:00.000Z", title: "Fence" });
-      const message = (text: string, createdAt: string): AssistantMessage => ({ ask: null, createdAt, errorCode: null, id: newAssistantMessageId(), role: "user", status: "final", text, threadId: thread.id });
-      const over = new AbortController();
-      over.abort();
-      const notAfter = "2026-10-01T00:04:00.000Z";
-      await assert.rejects(store.appendMessage(message("fenced", "2026-10-01T00:01:00.000Z"), { fence: { notAfter, signal: over.signal } }), AssistantWriteFencedError);
-      assert.deepEqual(await store.listMessages(thread.id, { limit: 10 }), []);
-      assert.equal((await store.getThread(thread.id))?.updatedAt, "2026-10-01T00:00:00.000Z");
-      await store.appendMessage(message("live", "2026-10-01T00:02:00.000Z"), { fence: { notAfter, signal: new AbortController().signal } });
-      assert.deepEqual((await store.listMessages(thread.id, { limit: 10 })).map((item) => item.text), ["live"]);
-    } finally {
-      db.close();
-    }
   });
 
   test("adapts the synchronous history db to the promise store", async () => {

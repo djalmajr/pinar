@@ -1,10 +1,9 @@
-import {
-  AssistantWriteFencedError,
-  type AssistantMessage,
-  type AssistantProposalRecord,
-  type AssistantStore,
-  type AssistantThread,
-  type AssistantTransitionProposalInput,
+import type {
+  AssistantMessage,
+  AssistantProposalRecord,
+  AssistantStore,
+  AssistantThread,
+  AssistantTransitionProposalInput,
 } from "./store";
 
 /**
@@ -28,9 +27,7 @@ export interface LocalAssistantDatabase {
 /** Adapts the synchronous local history db to the `AssistantStore` promise interface. */
 export function localAssistantStore(db: LocalAssistantDatabase): AssistantStore {
   return {
-    async appendMessage(message, options) {
-      // The db is synchronous: the fence is read in the same step as the insert.
-      if (options?.fence?.signal.aborted) throw new AssistantWriteFencedError();
+    async appendMessage(message) {
       db.appendAssistantMessage(message);
     },
     async createProposal(record) {

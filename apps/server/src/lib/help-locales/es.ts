@@ -1160,7 +1160,7 @@ const locale = {
         {
           heading: "La prueba de conexión y las capacidades",
           paragraphs: [
-            "Al guardar el endpoint se ejecuta la prueba enseguida, y el botón “Probar conexión” la vuelve a ejecutar en el endpoint guardado. La prueba verifica cuatro capacidades: “Chat con herramientas”, “Visión”, “Embeddings” y “Transcripción”.",
+            "“Probar y guardar” prueba los valores que escribiste y solo guarda el endpoint cuando al menos una capacidad pasa; si ninguna pasa, no se guarda nada, la configuración anterior sigue vigente y la lista muestra el resultado de la prueba como sin guardar. Con el endpoint guardado y sin cambios, el botón “Probar conexión” vuelve a probar el endpoint guardado. La prueba verifica cuatro capacidades: “Chat con herramientas”, “Visión”, “Embeddings” y “Transcripción”.",
             "Cada capacidad muestra uno de tres estados: “Tu endpoint”, cuando pasó; “Créditos de Pinar”, cuando no pasó, con la causa breve; o “Sin probar”. Hay un límite de pruebas en secuencia; cuando lo alcanzas, espera un momento e inténtalo de nuevo.",
           ],
         },

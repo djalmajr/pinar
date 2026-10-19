@@ -659,6 +659,11 @@ const locale = {
   },
   upcoming: {
     changes: {
+      "byok-test-before-save": {
+        description:
+          "En Configuración → Asistente de IA, “Probar y guardar” prueba la URL, la clave y los modelos que escribiste antes de guardar tu endpoint en Pinar Cloud, y solo guarda cuando al menos una capacidad pasa; si ninguna pasa, no se guarda nada y la configuración anterior sigue vigente. “Probar conexión” vuelve a probar el endpoint guardado, y solo el botón que pulsaste muestra el progreso.",
+        title: "Tu propio endpoint se prueba antes de guardarse",
+      },
       "assistant-slow-models": {
         description:
           "El asistente ya no termina una respuesta después de 60 segundos fijos: espera mientras el modelo sigue respondiendo y se detiene después de 1 minuto sin ninguna respuesta, 3 minutos en el mismo intento o 4 minutos en total y ofrece “Intentar de nuevo”. Después de un error, “Consultando…” ya no queda en la conversación. El botón del asistente en el encabezado ahora es solo el icono, sin fondo.",
@@ -666,8 +671,8 @@ const locale = {
       },
     },
     summary:
-      "El asistente espera a un modelo lento mientras sigue respondiendo, deja de mostrar “Consultando…” después de un error y el botón del asistente en el encabezado ahora es solo el icono.",
-    title: "El asistente espera a los modelos lentos",
+      "Tu propio endpoint de Pinar Cloud se prueba antes de guardarse, y solo el botón que pulsaste muestra el progreso. El asistente espera a un modelo lento mientras sigue respondiendo, deja de mostrar “Consultando…” después de un error y el botón del asistente en el encabezado ahora es solo el icono.",
+    title: "Endpoint propio probado antes de guardar y un asistente que espera a los modelos lentos",
   },
 } satisfies ReleaseLocale;
 

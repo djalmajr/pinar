@@ -309,11 +309,13 @@ const messages = {
   "byok.apiKeyDescription":
     "Encrypted in Pinar Cloud; only the last four characters are shown.",
   "byok.changeKey": "Change key",
+  "byok.testAndSave": "Test and save",
   "byok.chatModel": "Chat model",
   "byok.embeddingModel": "Embedding model",
   "byok.modelDescription":
     "Optional. Leave empty to use Pinar credits for this capability.",
   "byok.remove": "Remove endpoint",
+  "byok.removing": "Removing…",
   "byok.removeTitle": "Remove the endpoint?",
   "byok.removeDescription":
     "The saved key and the tested capabilities are removed. Until you save a new endpoint, Pinar credits answer every AI operation.",
@@ -327,6 +329,7 @@ const messages = {
   "byok.sourceEndpoint": "Your endpoint",
   "byok.sourceCredits": "Pinar credits",
   "byok.sourceUntested": "Not tested",
+  "byok.unsavedResult": "Test result, not saved",
   "byok.lastTested": "Last tested {date}",
   "byok.errorGeneric": "Your own endpoint failed on this request.",
   "byok.useCredits": "Use Pinar credits",
@@ -337,8 +340,9 @@ const messages = {
   "byok.errorNotConfigured": "Save the endpoint before testing the connection.",
   "byok.errorChanged": "The endpoint changed while the test was running.",
   "byok.errorTestLimited": "Connection tests are limited. Wait a moment and try again.",
+  "byok.errorTestFailed": "Nothing was saved: no capability passed the connection test. Check the values and try again.",
   "byok.errorInvalidBaseUrl": "The base URL is not a valid HTTPS address.",
-  "byok.errorInvalidApiKey": "The API key is too long.",
+  "byok.errorInvalidApiKey": "The API key is not valid.",
   "byok.errorInvalidModel": "A model name is too long.",
   "byok.errorApiKeyRequired": "Enter the API key to save a new endpoint.",
   "byok.cause.key_rejected": "The endpoint rejected the API key.",

@@ -676,6 +676,11 @@ const locale = {
   },
   upcoming: {
     changes: {
+      "byok-test-before-save": {
+        description:
+          "Em Configurações → Assistente de IA, “Testar e salvar” testa a URL, a chave e os modelos digitados antes de gravar o seu endpoint no Pinar Cloud, e só grava quando ao menos uma capacidade passa; se nenhuma passar, nada é salvo e a configuração anterior continua valendo. “Testar conexão” testa de novo o endpoint salvo, e só o botão clicado mostra o andamento.",
+        title: "Endpoint próprio testado antes de salvar",
+      },
       "assistant-slow-models": {
         description:
           "O assistente não encerra mais a resposta depois de 60 segundos fixos: ele espera enquanto o modelo continua respondendo e para depois de 1 minuto sem nenhuma resposta, de 3 minutos na mesma tentativa ou de 4 minutos no total e oferece “Tentar de novo”. Depois de um erro, “Consultando…” não fica mais na conversa. O botão do assistente no cabeçalho ficou só com o ícone, sem fundo.",
@@ -683,8 +688,8 @@ const locale = {
       },
     },
     summary:
-      "O assistente espera um modelo lento enquanto ele continua respondendo, para de mostrar “Consultando…” depois de um erro e o botão do assistente no cabeçalho ficou só com o ícone.",
-    title: "O assistente espera modelos lentos",
+      "O endpoint próprio do Pinar Cloud é testado antes de ser salvo, e só o botão clicado mostra o andamento. O assistente espera um modelo lento enquanto ele continua respondendo, para de mostrar “Consultando…” depois de um erro e o botão do assistente no cabeçalho ficou só com o ícone.",
+    title: "Endpoint próprio testado antes de salvar e um assistente que espera modelos lentos",
   },
 } satisfies ReleaseLocale;
 

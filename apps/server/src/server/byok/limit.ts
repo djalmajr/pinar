@@ -1,5 +1,6 @@
-// F5/S2: the per-user limit of POST /api/byok/test (F5 contract §2): at most
-// one test in flight (the in-flight set of byok/api.ts) and at most
+// F5/S2: the per-user limit of the connection tests (F5 contract §2), shared
+// by POST /api/byok/test and the PUT that tests before it saves: at most one
+// test in flight (the in-flight set of byok/api.ts) and at most
 // BYOK_TEST_MAX_PER_HOUR tests per hour, answered 429 byok_test_limited.
 //
 // The window follows the Cloud's existing limiter (consumeRateLimit in

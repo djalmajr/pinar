@@ -22,7 +22,7 @@ import {
 } from "./chain";
 import { encodeAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
 import { createAssistantTurnBudget } from "./deadline";
-import { fakeTurnClock } from "./deadline.test-helpers";
+import { fakeTurnClock, settleIo } from "./deadline.test-helpers";
 import { runAssistantTurn, type AssistantTurnOutcome } from "./turn";
 
 // ---------- fakes ----------
@@ -930,6 +930,110 @@ describe("the chain under the turn's budget", () => {
     const { body, outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: fake.fetch }));
     assert.equal(outcome.kind === "error" && outcome.code, "ASSISTANT_STREAM_FAILED");
     assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_STREAM_FAILED", phase: "model", retryable: true })]);
+  });
+
+  // Each call of the gateway fake is an SSE body the test feeds by hand:
+  // the first goes to the first model, the second to the fallback.
+  function heldSseFetch(clock: ReturnType<typeof fakeTurnClock>) {
+    const encoder = new TextEncoder();
+    const calls: Array<{ at: number; model: string }> = [];
+    const bodies: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const fetchFn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ at: clock.now(), model: new Headers(init?.headers).get("ai-language-model-id") ?? "" });
+      const body = new ReadableStream<Uint8Array>({ start: (controller) => void bodies.push(controller) });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    const emit = (call: number, part: unknown) => bodies[call]!.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`));
+    return { bodies, calls, emit, fetch: fetchFn };
+  }
+
+  // After `before` of the budget spent before the stream, the first model
+  // keeps progressing (raw chunks every 50 s, held before the commit) and
+  // breaks `breakAt` into its attempt; the fallback starts then.
+  async function fallbackAfterProgress(breakAt: number, before = 0) {
+    const clock = fakeTurnClock();
+    const budget = createAssistantTurnBudget(clock);
+    await clock.advance(before);
+    const sse = heldSseFetch(clock);
+    const model = assistantChainModel({
+      appliance: null,
+      breaker: createAssistantCircuitBreaker(),
+      chain: gatewayChain(HAIKU, DEEPSEEK),
+      context: { conversationId: "thread-1", requestId: "request-1", turnBudget: budget },
+      fetch: sse.fetch,
+      gateway: { apiKey: GATEWAY_KEY },
+    });
+    const { outcome, response } = runAssistantTurn({ budget, history: [{ role: "user", text: "oi" }], model, system: "s", thread: { id: "thread-1", title: "T" }, tools: {} });
+    const reading = response.text();
+    let settled: AssistantTurnOutcome | null = null;
+    void outcome.then((value) => {
+      settled = value;
+    });
+    await settleIo();
+    sse.emit(0, { type: "stream-start", warnings: [] });
+    let at = 0;
+    while (at + 50_000 < breakAt) {
+      await clock.advance(50_000);
+      at += 50_000;
+      sse.emit(0, { rawValue: { reasoning: "working" }, type: "raw" });
+    }
+    await clock.advance(breakAt - at);
+    sse.bodies[0]!.error(new TypeError("fixture broken response"));
+    await settleIo();
+    return { budget, clock, done: () => settled, outcome, reading, sse };
+  }
+
+  const finishPart = { finishReason: { raw: "stop", unified: "stop" }, type: "finish", usage: { inputTokens: { total: 3 }, outputTokens: { total: 4 } } };
+  const answerParts = (text: string) => [{ id: "txt", type: "text-start" }, { delta: text, id: "txt", type: "text-delta" }, { id: "txt", type: "text-end" }, finishPart];
+
+  test("a fallback started at 170 s gets its own attempt cap: it answers at 200 s, within the 240 s budget", async () => {
+    const run = await fallbackAfterProgress(170_000);
+    assert.deepEqual(run.sse.calls, [{ at: 1_000_000, model: HAIKU }, { at: 1_170_000, model: DEEPSEEK }]);
+    run.sse.emit(1, { type: "stream-start", warnings: [] });
+    await run.clock.advance(10_000);
+    assert.equal(run.done(), null, "the first model's cap (180 s) does not cut the fallback");
+    await run.clock.advance(20_000);
+    for (const part of answerParts("da reserva")) run.sse.emit(1, part);
+    run.sse.bodies[1]!.close();
+    const body = await run.reading;
+    const result = await run.outcome;
+    run.budget.dispose();
+    assert.equal(result.kind, "final");
+    assert.deepEqual(errorTexts(body), []);
+    assert.equal(run.clock.pending(), 0);
+  });
+
+  test("a fallback that passes its own 180 s ends with the attempt phase, not at the first model's cap", async () => {
+    const run = await fallbackAfterProgress(10_000);
+    assert.equal(run.sse.calls.length, 2);
+    run.sse.emit(1, { type: "stream-start", warnings: [] });
+    // Progress every 50 s keeps the inactivity clock off the cut.
+    for (let i = 0; i < 3; i += 1) {
+      await run.clock.advance(50_000);
+      run.sse.emit(1, { rawValue: { reasoning: "working" }, type: "raw" });
+    }
+    // 160 s of the turn, 150 s of the fallback: past the first model's
+    // 180 s at 180 s of the turn, still alive until 190 s.
+    await run.clock.advance(29_999);
+    assert.equal(run.done(), null, "alive at 189.999 s: the first model's cap was disarmed");
+    await run.clock.advance(1);
+    const body = await run.reading;
+    const result = await run.outcome;
+    run.budget.dispose();
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "attempt", retryable: true })]);
+    assert.equal(run.clock.pending(), 0);
+  });
+
+  test("a first model that breaks with less than 30 s left gets no fallback: the turn phase", async () => {
+    // 60 s before the stream, 150.001 s of the first model: 29.999 s left.
+    const run = await fallbackAfterProgress(150_001, 60_000);
+    const body = await run.reading;
+    const result = await run.outcome;
+    run.budget.dispose();
+    assert.deepEqual(run.sse.calls.map((call) => call.model), [HAIKU], "the second link is never called");
+    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(errorTexts(body), [encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "turn", retryable: true })]);
   });
 
   test("held parts before the commit rearm the turn's inactivity clock", async () => {

@@ -7,7 +7,7 @@ import {
   cloudAssistantStore,
   resetCloudAssistantMemoryForTests,
 } from "./store-cloud";
-import type { AssistantStore } from "./store";
+import { AssistantWriteFencedError, type AssistantMessage, type AssistantStore } from "./store";
 import { ASSISTANT_CHAIN_METADATA_KEY } from "./chain";
 import {
   ASSISTANT_TURN_CLIENT_CANCELLED,
@@ -19,7 +19,7 @@ import {
 } from "./http";
 import { ASSISTANT_PROPOSAL_TTL_MS } from "./proposals";
 import { encodeAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
-import { fakeTurnClock, pushableStream } from "./deadline.test-helpers";
+import { fakeTurnClock, pushableStream, settleIo } from "./deadline.test-helpers";
 import {
   FIXTURE_ID_PREFIX,
   fixtureHost,
@@ -1662,6 +1662,78 @@ describe("assistant turn deadlines over http", () => {
     const threadId = threadIdFromTurn(body);
     const messages = await waitFor(() => store.listMessages(threadId, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
     assert.equal(messages[1].errorCode, "ASSISTANT_TURN_TIMEOUT");
+  });
+
+  // The first user-message write of the store hangs until released; the
+  // write goes on to the real store with the options the route passed.
+  function heldFirstUserWrite(store: AssistantStore) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    let late: Promise<void> | null = null;
+    const heldStore: AssistantStore = {
+      ...store,
+      appendMessage: (message: AssistantMessage, options) => {
+        if (held || message.role !== "user") return store.appendMessage(message, options);
+        held = true;
+        late = gate.then(() => store.appendMessage(message, options));
+        return late;
+      },
+    };
+    return { late: () => late, release, store: heldStore };
+  }
+
+  test("504 during the user-message write: the late write never enters the next turn nor rolls its updatedAt back", async () => {
+    const clock = fakeTurnClock();
+    const prompts: string[] = [];
+    const { deps, store } = makeDeps({
+      model: () =>
+        new MockLanguageModelV4({
+          doStream: (async (options: { prompt: unknown }) => {
+            prompts.push(JSON.stringify(options.prompt));
+            return { stream: modelStream([...textParts("resposta"), finish("stop")]) };
+          }) as unknown as MockLanguageModelV4["doStream"],
+          modelId: "mock",
+        }),
+    });
+    await store.createThread({ id: T1, now: ISO(0), title: "T" });
+    const held = heldFirstUserWrite(store);
+    const pending = postTurn({ ...deps, clock, store: held.store }, { text: "pergunta antiga", threadId: T1 });
+    await clock.advance(240_000);
+    assert.equal((await pending).status, 504);
+    // The thread is free: a second turn runs to the end on the same thread.
+    const retry = await postTurn({ ...deps, clock, store: held.store }, { text: "pergunta nova", threadId: T1 });
+    assert.equal(retry.status, 200);
+    await readSse(retry);
+    const before = await waitFor(() => store.listMessages(T1, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    const updatedAt = (await store.getThread(T1))!.updatedAt;
+    assert.equal(updatedAt, before[1].createdAt);
+    // Only now the old write reaches the store: it is refused.
+    held.release();
+    await assert.rejects(held.late()!, AssistantWriteFencedError);
+    await settleIo();
+    const after = await store.listMessages(T1, { limit: 10 });
+    assert.deepEqual(after.map((message) => [message.role, message.text]), [["user", "pergunta nova"], ["assistant", "resposta"]]);
+    assert.equal((await store.getThread(T1))!.updatedAt, updatedAt, "the second turn's updatedAt is intact");
+    assert.equal(prompts.length, 1);
+    assert.ok(!prompts[0].includes("pergunta antiga") && prompts[0].includes("pergunta nova"));
+  });
+
+  test("504 during the user-message write: released with no turn in between, the old question still never lands", async () => {
+    const clock = fakeTurnClock();
+    const { deps, store } = makeDeps({ model: () => textModel("ok") });
+    await store.createThread({ id: T1, now: ISO(0), title: "T" });
+    const held = heldFirstUserWrite(store);
+    const pending = postTurn({ ...deps, clock, store: held.store }, { text: "pergunta antiga", threadId: T1 });
+    await clock.advance(240_000);
+    assert.equal((await pending).status, 504);
+    held.release();
+    await assert.rejects(held.late()!, AssistantWriteFencedError);
+    assert.deepEqual(await store.listMessages(T1, { limit: 10 }), []);
+    assert.equal((await store.getThread(T1))!.updatedAt, ISO(0));
+    assert.equal(clock.pending(), 0);
   });
 
   test("the chain's model receives the turn's budget in its context", async () => {

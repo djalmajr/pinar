@@ -1,13 +1,14 @@
-import type {
-  AssistantMessage,
-  AssistantMessageStatus,
-  AssistantProposalErrorCode,
-  AssistantProposalRecord,
-  AssistantProposalRisk,
-  AssistantProposalStatus,
-  AssistantRole,
-  AssistantStore,
-  AssistantThread,
+import {
+  AssistantWriteFencedError,
+  type AssistantMessage,
+  type AssistantMessageStatus,
+  type AssistantProposalErrorCode,
+  type AssistantProposalRecord,
+  type AssistantProposalRisk,
+  type AssistantProposalStatus,
+  type AssistantRole,
+  type AssistantStore,
+  type AssistantThread,
 } from "./store";
 
 /** Structural D1/libSQL statement shape, as used by `cloud-api.ts`. */
@@ -123,12 +124,27 @@ export function cloudAssistantStore(env: { DB?: AssistantD1Database }, ownerId: 
 
 function cloudDbAssistantStore(db: AssistantD1Database, ownerId: string): AssistantStore {
   return {
-    async appendMessage(message) {
+    async appendMessage(message, options) {
       const thread = await db
         .prepare("SELECT id FROM assistant_threads WHERE id = ? AND owner_id = ?")
         .bind(message.threadId, ownerId)
         .first();
       if (!thread) throw new Error("assistant thread not found");
+      const fence = options?.fence;
+      if (fence) {
+        if (fence.signal.aborted) throw new AssistantWriteFencedError();
+        // The deadline is checked again inside the transaction, on the
+        // database's clock; the update follows only the inserted row.
+        const results = (await db.batch([
+          db.prepare(
+            "INSERT INTO assistant_messages (id, thread_id, owner_id, role, text, status, error_code, created_at, ask_json) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE strftime('%Y-%m-%dT%H:%M:%fZ', 'now') <= ?",
+          ).bind(message.id, message.threadId, ownerId, message.role, message.text, message.status, message.errorCode, message.createdAt, message.ask ? JSON.stringify(message.ask) : null, fence.notAfter),
+          db.prepare("UPDATE assistant_threads SET updated_at = ? WHERE id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM assistant_messages WHERE id = ? AND owner_id = ?)")
+            .bind(message.createdAt, message.threadId, ownerId, message.id, ownerId),
+        ])) as { meta?: { changes?: number } }[];
+        if (Number(results[0]?.meta?.changes ?? 0) === 0) throw new AssistantWriteFencedError();
+        return;
+      }
       await db.batch([
         db.prepare(
           "INSERT INTO assistant_messages (id, thread_id, owner_id, role, text, status, error_code, created_at, ask_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -275,9 +291,11 @@ function memoryOwner(id: string, ownerId: string): MemoryAssistantThread | null 
 
 function cloudMemoryAssistantStore(ownerId: string): AssistantStore {
   return {
-    async appendMessage(message) {
+    async appendMessage(message, options) {
       const thread = memoryOwner(message.threadId, ownerId);
       if (!thread) throw new Error("assistant thread not found");
+      // Read in the same synchronous step as the insert.
+      if (options?.fence?.signal.aborted) throw new AssistantWriteFencedError();
       memoryAssistantMessages.set(message.id, {
         ask: message.ask,
         createdAt: message.createdAt,

@@ -360,7 +360,7 @@ function callBilling(index: number, link: AssistantChainLink, finish: FinishPart
 export interface AssistantChainContext {
   conversationId: string;
   requestId: string;
-  turnBudget?: Pick<AssistantTurnBudget, "markProgress" | "remainingMs">;
+  turnBudget?: Pick<AssistantTurnBudget, "markAttempt" | "markProgress" | "remainingMs">;
 }
 
 /**
@@ -429,6 +429,9 @@ export function assistantChainModel(input: {
     }
   };
 
+  // The link the turn's last call started: a step that starts another
+  // model begins a new attempt.
+  let startedLink: number | null = null;
   const stream = async (params: ChainCallOptions): Promise<ChainStreamResult> => {
     const signal = params.abortSignal;
     const turnBudget = context.turnBudget;
@@ -446,6 +449,9 @@ export function assistantChainModel(input: {
         throw new AssistantTurnTimeoutError("turn");
       }
       attempted += 1;
+      // Another model than the one running: its own attempt cap (turn.ts).
+      if (startedLink !== null && startedLink !== index) turnBudget?.markAttempt();
+      startedLink = index;
       let failure: unknown;
       let failed = false;
       let result: ChainStreamResult | undefined;

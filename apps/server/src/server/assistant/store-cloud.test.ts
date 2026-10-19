@@ -8,7 +8,7 @@ import {
   resetCloudAssistantMemoryForTests,
   type AssistantD1Database,
 } from "./store-cloud";
-import { newAssistantMessageId, newAssistantThreadId, type AssistantMessage, type AssistantProposalRecord, type AssistantStore } from "./store";
+import { AssistantWriteFencedError, newAssistantMessageId, newAssistantThreadId, type AssistantMessage, type AssistantProposalRecord, type AssistantStore } from "./store";
 
 const NOW = "2026-10-01T00:00:00.000Z";
 
@@ -150,6 +150,25 @@ const messageFor = (threadId: string): AssistantMessage => ({
   text: "Body",
   threadId,
 });
+
+/** The write fence (http.ts): a turn that is over writes nothing, a live one writes. */
+async function assertWriteFence(store: AssistantStore) {
+  await store.createThread({ id: "ath_fence", now: "2026-10-01T00:00:00.000Z", title: "Fence" });
+  const message = (id: string, createdAt: string): AssistantMessage => ({ ask: null, createdAt, errorCode: null, id, role: "user", status: "final", text: id, threadId: "ath_fence" });
+  const over = new AbortController();
+  over.abort();
+  const future = new Date(Date.now() + 60_000).toISOString();
+  await assert.rejects(
+    store.appendMessage(message("amg_fenced", "2026-10-02T00:00:00.000Z"), { fence: { notAfter: future, signal: over.signal } }),
+    AssistantWriteFencedError,
+  );
+  assert.deepEqual(await store.listMessages("ath_fence", { limit: 10 }), []);
+  assert.equal((await store.getThread("ath_fence"))?.updatedAt, "2026-10-01T00:00:00.000Z", "a fenced write leaves updatedAt alone");
+  // Control: the live turn's write lands and stamps the thread.
+  await store.appendMessage(message("amg_live", "2026-10-03T00:00:00.000Z"), { fence: { notAfter: future, signal: new AbortController().signal } });
+  assert.deepEqual((await store.listMessages("ath_fence", { limit: 10 })).map((item) => item.id), ["amg_live"]);
+  assert.equal((await store.getThread("ath_fence"))?.updatedAt, "2026-10-03T00:00:00.000Z");
+}
 
 /** The store interface cases shared by the D1 and memory branches. */
 async function assertStoreInterface(store: AssistantStore) {
@@ -398,6 +417,24 @@ describe("cloudAssistantStore over D1", () => {
     env = { DB: sqliteD1(db) };
   });
 
+  test("refuses a fenced write whose turn is over, signal or deadline, inside the batch", async () => {
+    seedUser(db, "usr_a", "a@example.test");
+    const store = cloudAssistantStore(env, "usr_a");
+    await assertWriteFence(store);
+    // A live signal whose deadline already passed on the database's clock:
+    // the transaction itself refuses the row and the thread's stamp.
+    const past = new Date(Date.now() - 1_000).toISOString();
+    await assert.rejects(
+      store.appendMessage(
+        { ask: null, createdAt: "2026-10-04T00:00:00.000Z", errorCode: null, id: "amg_late", role: "user", status: "final", text: "late", threadId: "ath_fence" },
+        { fence: { notAfter: past, signal: new AbortController().signal } },
+      ),
+      AssistantWriteFencedError,
+    );
+    assert.deepEqual((await store.listMessages("ath_fence", { limit: 10 })).map((item) => item.id), ["amg_live"]);
+    assert.equal((await store.getThread("ath_fence"))?.updatedAt, "2026-10-03T00:00:00.000Z");
+  });
+
   test("keeps threads ordered, limited, appended, and deleted", async () => {
     seedUser(db, "usr_a", "a@example.test");
     await assertStoreInterface(cloudAssistantStore(env, "usr_a"));
@@ -567,6 +604,10 @@ describe("cloudAssistantStore in memory", () => {
 
   beforeEach(() => {
     resetCloudAssistantMemoryForTests();
+  });
+
+  test("refuses a fenced write whose turn is over", async () => {
+    await assertWriteFence(cloudAssistantStore(env, "usr_a"));
   });
 
   test("keeps proposals stored, ordered, and transitioned atomically", async () => {

@@ -672,6 +672,11 @@ async function budgetedTurnRoute(
     // 6. The user message is persisted before the model, then the history
     //    (final messages, the new question included, plus each assistant
     //    message's proposal notes) is cut to the turn window.
+    //    The write is fenced to this turn (store.ts): once the budget runs
+    //    out and the route answers 504 the thread is free again, and a
+    //    write still pending then is refused by the store instead of
+    //    entering a later turn's history (or rolling its updatedAt back).
+    const fence = { notAfter: new Date(budget.deadlineAt).toISOString(), signal: budget.signal };
     await within(() => deps.store.appendMessage({
       ask: null,
       createdAt: stamp(),
@@ -681,7 +686,7 @@ async function budgetedTurnRoute(
       status: "final",
       text,
       threadId: thread.id,
-    }));
+    }, { fence }));
     const recent = await within(() => deps.store.listMessages(thread.id, { limit: TURN_HISTORY_LIMIT }));
     const historyAt = now();
     const notesByMessage = new Map<string, string[]>();

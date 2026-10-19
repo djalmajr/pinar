@@ -55,6 +55,7 @@ import { byokCrypto } from "./crypto";
 import type { ByokEgress } from "./fetch";
 import { byokEgressFor } from "./fetch";
 import { byokRow, type ByokStoredRow } from "./store";
+import { isPinarPublicHost } from "./url";
 
 export type ByokCapabilityName = "chat" | "tools" | "vision" | "embeddings" | "transcription";
 
@@ -119,13 +120,18 @@ function capabilityModel(capability: ByokCapabilityName, row: ByokStoredRow): st
   return row.chatModel;
 }
 
-// The route without the concurrency: the five null cases and the decrypt.
+// The route without the concurrency: the five null cases, the stored row
+// that names the Pinar, and the decrypt.
 async function byokRouteOf(env: CloudEnv, principal: Principal, capability: ByokCapabilityName): Promise<ByokRoute | null> {
   if (!planIncludesAi(principal.plan)) return null;
   const crypto = await byokCrypto(env.BYOK_MASTER_KEY);
   if (crypto === null) return null;
   const row = await byokRow(env, principal.id);
   if (row === null) return null;
+  // A row stored before the own-host refusal (PUT /api/byok) may still name
+  // the Pinar: a BYOK key never goes there, so it has no route, before the
+  // decrypt and the slot. The row itself is left as it is.
+  if (isPinarPublicHost(row.baseUrl)) return null;
   if (capabilitiesOf(row.capabilitiesJson)[capability].ok !== true) return null;
   const model = capabilityModel(capability, row);
   if (model === "") return null;
@@ -194,6 +200,9 @@ async function byokAssistantBaseOf(env: CloudEnv, principal: Principal): Promise
   if (crypto === null) return null;
   const row = await byokRow(env, principal.id);
   if (row === null) return null;
+  // The stored row that names the Pinar: no route, before the decrypt and
+  // the slot (as in byokRouteOf).
+  if (isPinarPublicHost(row.baseUrl)) return null;
   const capabilities = capabilitiesOf(row.capabilitiesJson);
   // tools, chat and vision all run on the chat model.
   if (row.chatModel === "") return null;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { BYOK_BASE_URL_MAX, type ByokUrlError, isPinarOwnHost, PINAR_PUBLIC_HOSTS, validateByokUrl } from "./url";
+import { BYOK_BASE_URL_MAX, type ByokUrlError, isPinarOwnHost, isPinarPublicHost, PINAR_PUBLIC_HOSTS, validateByokUrl } from "./url";
 
 function allowed(input: string): string {
   const result = validateByokUrl(input);
@@ -277,5 +277,34 @@ describe("isPinarOwnHost", () => {
     assert.equal(isPinarOwnHost("not a url", REQUEST), false);
     assert.equal(isPinarOwnHost("https://pinar.dev/v1", "not a url"), true);
     assert.equal(isPinarOwnHost("https://pinar.test/v1", "not a url"), false);
+  });
+});
+
+describe("isPinarPublicHost", () => {
+  test("the public hosts, in any case, with the DNS trailing dot, the port and a path", () => {
+    for (const baseUrl of [
+      "https://pinar.dev",
+      "https://www.pinar.dev",
+      "https://PINAR.DEV",
+      "https://pinar.dev.",
+      "https://pinar.dev:443",
+      "https://pinar.dev:8443/v1",
+      "https://www.pinar.dev/v1",
+    ]) {
+      assert.equal(isPinarPublicHost(baseUrl), true, baseUrl);
+    }
+  });
+
+  test("a neighbor host, another route's host or an unparseable URL is not a public host", () => {
+    for (const baseUrl of [
+      "https://api.pinar.dev.example",
+      "https://pinar.dev.example",
+      "https://stg.pinar.dev/v1",
+      "https://notpinar.dev",
+      "https://pinar.dev..",
+      "not a url",
+    ]) {
+      assert.equal(isPinarPublicHost(baseUrl), false, baseUrl);
+    }
   });
 });

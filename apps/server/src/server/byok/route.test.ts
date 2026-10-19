@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
-import { afterEach, describe, test } from "node:test";
+import { afterEach, describe, mock, test } from "node:test";
 import { jsonSchema, streamText, tool } from "ai";
 import { ByokAssistantTurnError, ByokCallError } from "./cause";
 import { byokChat } from "./call";
@@ -124,6 +124,7 @@ async function seedByokRow(
   db: Database,
   ownerId: string,
   options: {
+    baseUrl?: string;
     capabilitiesJson?: string;
     chatModel?: string;
     embeddingModel?: string;
@@ -138,7 +139,7 @@ async function seedByokRow(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     ownerId,
-    BASE_URL,
+    options.baseUrl ?? BASE_URL,
     ciphertext,
     "1234",
     crypto.keyId,
@@ -367,6 +368,135 @@ describe("byokAssistantRoute", () => {
     // The status read did not consume the cap: two more calls still fit.
     assert.ok(isRoute(await cloudByokRoute(env, pro, "chat")));
     assert.ok(isRoute(await cloudByokRoute(env, pro, "chat")));
+  });
+});
+
+// ---------- a stored row that names the Pinar ----------
+
+// The rows stored before PUT /api/byok refused the Pinar's own host: every
+// capability tested ok and every model configured, so only the host keeps
+// them from routing.
+const PINAR_OWN_BASE_URLS = [
+  "https://pinar.dev",
+  "https://www.pinar.dev",
+  "https://PINAR.DEV",
+  "https://pinar.dev.",
+  "https://pinar.dev:443",
+  "https://www.pinar.dev/v1",
+];
+
+const ALL_OK = capabilitiesJson({ chat: true, embeddings: true, tools: true, transcription: true, vision: true });
+
+// The decryptions (crypto.subtle.decrypt, under byokCrypto's decrypt) and
+// the egress calls the block makes, counted from after the row is seeded.
+async function countingByokCalls<T>(block: (egress: ByokEgress) => Promise<T>) {
+  let egressCalls = 0;
+  const egress: ByokEgress = async () => {
+    egressCalls += 1;
+    return new Response("{}", { status: 200 });
+  };
+  setByokEgressForTests(egress);
+  const decrypt = mock.method(crypto.subtle, "decrypt");
+  try {
+    const result = await block(egress);
+    return { decrypts: decrypt.mock.callCount(), egressCalls, result };
+  } finally {
+    decrypt.mock.restore();
+  }
+}
+
+describe("a stored row that names the Pinar", () => {
+  for (const baseUrl of PINAR_OWN_BASE_URLS) {
+    test(`${baseUrl}: no route on any path, no decrypt, no egress, no slot`, async () => {
+      const db = migratedDatabase();
+      await insertUser(db, "usr_a", "a@example.test", "pro");
+      await seedByokRow(db, "usr_a", { baseUrl, capabilitiesJson: ALL_OK });
+      const env = envFor(db);
+      const pro = principal("usr_a", "pro");
+
+      const counted = await countingByokCalls(async () => ({
+        assistant: await byokAssistantRoute(env, pro),
+        assistantAgain: await byokAssistantRoute(env, pro),
+        embeddings: await cloudByokRoute(env, pro, "embeddings"),
+        embeddingsAgain: await cloudByokRoute(env, pro, "embeddings"),
+        exists: await byokAssistantRouteExists(env, pro),
+        transcription: await cloudByokRoute(env, pro, "transcription"),
+        transcriptionAgain: await cloudByokRoute(env, pro, "transcription"),
+      }));
+      // null, never rate_limited: the second call right after the first
+      // finds no slot taken (the refusal is the not-ok capability's result).
+      assert.deepEqual(counted.result, {
+        assistant: null,
+        assistantAgain: null,
+        embeddings: null,
+        embeddingsAgain: null,
+        exists: false,
+        transcription: null,
+        transcriptionAgain: null,
+      });
+      assert.equal(counted.decrypts, 0, "the key is never decrypted");
+      assert.equal(counted.egressCalls, 0, "nothing leaves");
+
+      // The refusals took no slot: with the row on a third-party host, the
+      // two in-flight slots are still both free.
+      db.query("UPDATE byok_endpoints SET base_url = ? WHERE owner_id = 'usr_a'").run(BASE_URL);
+      const first = await cloudByokRoute(env, pro, "embeddings");
+      const second = await byokAssistantRoute(env, pro);
+      assert.ok(isRoute(first));
+      assert.ok(isRoute(second));
+      first.release();
+      second.release();
+    });
+  }
+
+  test("the row is left as it is", async () => {
+    const db = migratedDatabase();
+    await insertUser(db, "usr_a", "a@example.test", "pro");
+    await seedByokRow(db, "usr_a", { baseUrl: "https://PINAR.DEV", capabilitiesJson: ALL_OK });
+    const before = db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_a'").get();
+    assert.equal(await cloudByokRoute(envFor(db), principal("usr_a", "pro"), "embeddings"), null);
+    assert.equal(await byokAssistantRoute(envFor(db), principal("usr_a", "pro")), null);
+    assert.deepEqual(db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_a'").get(), before);
+  });
+
+  test("control: a neighbor host still routes, with one decrypt per route", async () => {
+    const control = "https://api.pinar.dev.example";
+    const db = migratedDatabase();
+    await insertUser(db, "usr_a", "a@example.test", "pro");
+    await seedByokRow(db, "usr_a", { baseUrl: control, capabilitiesJson: ALL_OK });
+    const env = envFor(db);
+    const pro = principal("usr_a", "pro");
+
+    const embeddings = await countingByokCalls(async (egress) => {
+      const route = await cloudByokRoute(env, pro, "embeddings");
+      assert.ok(isRoute(route));
+      assert.equal(route.baseUrl, control);
+      assert.equal(route.apiKey, TEST_KEY);
+      assert.equal(route.egress, egress);
+      await route.egress(`${route.baseUrl}/embeddings`, { method: "POST" });
+      route.release();
+    });
+    assert.equal(embeddings.decrypts, 1);
+    assert.equal(embeddings.egressCalls, 1, "the counting egress is the route's");
+
+    const transcription = await countingByokCalls(async () => {
+      const route = await cloudByokRoute(env, pro, "transcription");
+      assert.ok(isRoute(route));
+      route.release();
+    });
+    assert.equal(transcription.decrypts, 1);
+
+    const assistant = await countingByokCalls(async () => {
+      const route = await byokAssistantRoute(env, pro);
+      assert.ok(isRoute(route));
+      assert.equal(route.baseUrl, control);
+      route.release();
+    });
+    assert.equal(assistant.decrypts, 1);
+
+    const exists = await countingByokCalls(() => byokAssistantRouteExists(env, pro));
+    assert.equal(exists.result, true);
+    assert.equal(exists.decrypts, 1);
   });
 });
 

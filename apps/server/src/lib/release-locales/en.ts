@@ -21,6 +21,23 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.9.1": {
+      changes: {
+        "byok-test-before-save": {
+          description:
+            "In Settings → AI Assistant, “Test and save” tests the URL, key, and models you typed before it saves your Pinar Cloud endpoint, and saves only when at least one capability passes; when none passes, nothing is saved and the previous setup stays in place. “Test connection” tests the saved endpoint again, and only the button you clicked shows the progress.",
+          title: "Your own endpoint is tested before it is saved",
+        },
+        "assistant-slow-models": {
+          description:
+            "The assistant no longer ends an answer after a fixed 60 seconds: it waits while the model keeps answering and stops after 1 minute without any response, 3 minutes in the same attempt, or 4 minutes in total and offers “Try again”. After an error, “Looking it up…” no longer stays in the conversation. The assistant button in the header is now just the icon, without a background.",
+          title: "The assistant waits for a slow model that keeps answering",
+        },
+      },
+      summary:
+        "Your own Pinar Cloud endpoint is tested before it is saved, and only the button you clicked shows the progress. The assistant waits for a slow model while it keeps answering, stops showing “Looking it up…” after an error, and the assistant button in the header is now just the icon.",
+      title: "Own endpoint tested before saving, and an assistant that waits for slow models",
+    },
     "v0.9.0": {
       title: "Your own AI endpoint in Pinar Cloud",
       summary:
@@ -671,23 +688,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "byok-test-before-save": {
-        description:
-          "In Settings → AI Assistant, “Test and save” tests the URL, key, and models you typed before it saves your Pinar Cloud endpoint, and saves only when at least one capability passes; when none passes, nothing is saved and the previous setup stays in place. “Test connection” tests the saved endpoint again, and only the button you clicked shows the progress.",
-        title: "Your own endpoint is tested before it is saved",
-      },
-      "assistant-slow-models": {
-        description:
-          "The assistant no longer ends an answer after a fixed 60 seconds: it waits while the model keeps answering and stops after 1 minute without any response, 3 minutes in the same attempt, or 4 minutes in total and offers “Try again”. After an error, “Looking it up…” no longer stays in the conversation. The assistant button in the header is now just the icon, without a background.",
-        title: "The assistant waits for a slow model that keeps answering",
-      },
-    },
-    summary:
-      "Your own Pinar Cloud endpoint is tested before it is saved, and only the button you clicked shows the progress. The assistant waits for a slow model while it keeps answering, stops showing “Looking it up…” after an error, and the assistant button in the header is now just the icon.",
-    title: "Own endpoint tested before saving, and an assistant that waits for slow models",
   },
 } satisfies ReleaseLocale;
 

@@ -23,6 +23,23 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.9.1": {
+      changes: {
+        "byok-test-before-save": {
+          description:
+            "In Einstellungen → KI-Assistent testet „Testen und speichern“ die eingegebene URL, den Schlüssel und die Modelle, bevor dein Endpoint in Pinar Cloud gespeichert wird, und speichert nur, wenn mindestens eine Fähigkeit besteht; besteht keine, wird nichts gespeichert und die vorherige Konfiguration bleibt bestehen. „Verbindung testen“ testet den gespeicherten Endpoint erneut, und nur der angeklickte Button zeigt den Fortschritt.",
+          title: "Dein eigener Endpoint wird vor dem Speichern getestet",
+        },
+        "assistant-slow-models": {
+          description:
+            "Der Assistent beendet eine Antwort nicht mehr nach festen 60 Sekunden: Er wartet, solange das Modell weiter antwortet, und hört nach 1 Minute ohne jede Antwort, nach 3 Minuten im selben Versuch oder nach 4 Minuten insgesamt auf und bietet „Erneut versuchen“ an. Nach einem Fehler bleibt „Wird nachgesehen…“ nicht mehr im Gespräch stehen. Die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol, ohne Hintergrund.",
+          title: "Der Assistent wartet auf ein langsames Modell, das weiter antwortet",
+        },
+      },
+      summary:
+        "Dein eigener Pinar-Cloud-Endpoint wird vor dem Speichern getestet, und nur der angeklickte Button zeigt den Fortschritt. Der Assistent wartet auf ein langsames Modell, solange es weiter antwortet, zeigt nach einem Fehler nicht mehr „Wird nachgesehen…“ an, und die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol.",
+      title: "Eigener Endpoint vor dem Speichern getestet und ein Assistent, der auf langsame Modelle wartet",
+    },
     "v0.9.0": {
       title: "Dein eigener KI-Endpoint in Pinar Cloud",
       summary:
@@ -656,23 +673,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "byok-test-before-save": {
-        description:
-          "In Einstellungen → KI-Assistent testet „Testen und speichern“ die eingegebene URL, den Schlüssel und die Modelle, bevor dein Endpoint in Pinar Cloud gespeichert wird, und speichert nur, wenn mindestens eine Fähigkeit besteht; besteht keine, wird nichts gespeichert und die vorherige Konfiguration bleibt bestehen. „Verbindung testen“ testet den gespeicherten Endpoint erneut, und nur der angeklickte Button zeigt den Fortschritt.",
-        title: "Dein eigener Endpoint wird vor dem Speichern getestet",
-      },
-      "assistant-slow-models": {
-        description:
-          "Der Assistent beendet eine Antwort nicht mehr nach festen 60 Sekunden: Er wartet, solange das Modell weiter antwortet, und hört nach 1 Minute ohne jede Antwort, nach 3 Minuten im selben Versuch oder nach 4 Minuten insgesamt auf und bietet „Erneut versuchen“ an. Nach einem Fehler bleibt „Wird nachgesehen…“ nicht mehr im Gespräch stehen. Die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol, ohne Hintergrund.",
-        title: "Der Assistent wartet auf ein langsames Modell, das weiter antwortet",
-      },
-    },
-    summary:
-      "Dein eigener Pinar-Cloud-Endpoint wird vor dem Speichern getestet, und nur der angeklickte Button zeigt den Fortschritt. Der Assistent wartet auf ein langsames Modell, solange es weiter antwortet, zeigt nach einem Fehler nicht mehr „Wird nachgesehen…“ an, und die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol.",
-    title: "Eigener Endpoint vor dem Speichern getestet und ein Assistent, der auf langsame Modelle wartet",
   },
 } satisfies ReleaseLocale;
 

@@ -28,7 +28,11 @@ function sourceFiles(dir: string): string[] {
   });
 }
 for (const spec of new Set(ROOTS.flatMap(sourceFiles).flatMap((file) => readFileSync(file, "utf8").match(/~icons\/[a-z0-9-]+\/[a-z0-9-]+/g) ?? []))) {
-  mock.module(spec, () => ({ default: () => null }));
+  // The loader renders a marker so a test can see which button spins;
+  // every other icon renders nothing.
+  mock.module(spec, () => ({
+    default: spec === "~icons/lucide/loader-circle" ? () => createElement("i", { "data-spinner": "" }) : () => null,
+  }));
 }
 
 // bun test shares the module registry across the files of one process, so
@@ -144,11 +148,16 @@ function renderPanel(overrides: Record<string, unknown> = {}) {
 }
 
 /** The buttons of the markup: their attributes and their text (the spinner icon is mocked to nothing). */
-function buttons(markup: string): Array<{ attributes: string; text: string }> {
+function buttons(markup: string): Array<{ attributes: string; spinners: number; text: string }> {
   return [...markup.matchAll(/<button([^>]*)>(.*?)<\/button>/g)].map((match) => ({
     attributes: match[1] ?? "",
+    spinners: spinnerCount(match[2] ?? ""),
     text: (match[2] ?? "").replace(/<[^>]*>/g, ""),
   }));
+}
+
+function spinnerCount(markup: string): number {
+  return markup.match(/data-spinner/g)?.length ?? 0;
 }
 
 function button(markup: string, text: string) {
@@ -342,10 +351,13 @@ describe("ByokSettingsPanel states (headless)", () => {
     expect(busySave.attributes).toContain('data-action="testSave"');
     expect(busySave.attributes).toContain('aria-busy="true"');
     expect(busySave.attributes).toContain("disabled");
+    expect(busySave.spinners).toBe(1);
+    expect(spinnerCount(saving)).toBe(1);
     for (const label of ["byok.remove", "byok.changeKey"]) {
       const idle = button(saving, label);
       expect(idle.attributes, label).toContain("disabled");
       expect(idle.attributes, label).not.toContain("aria-busy");
+      expect(idle.spinners, label).toBe(0);
     }
 
     // Test connection (saved, unchanged): the same rule.
@@ -354,16 +366,22 @@ describe("ByokSettingsPanel states (headless)", () => {
     const busyTest = button(testing, "settings.aiTesting");
     expect(busyTest.attributes).toContain('data-action="test"');
     expect(busyTest.attributes).toContain('aria-busy="true"');
+    expect(busyTest.spinners).toBe(1);
+    expect(spinnerCount(testing)).toBe(1);
     expect(button(testing, "byok.remove").attributes).toContain("disabled");
     expect(button(testing, "byok.remove").attributes).not.toContain("aria-busy");
+    expect(button(testing, "byok.remove").spinners).toBe(0);
 
     // Remove: its own in-progress label; the test action keeps its label, disabled.
     const removing = renderPanel({ busy: "remove" });
     expect(removing).not.toContain("settings.aiTesting");
     expect(button(removing, "byok.removing").attributes).toContain('aria-busy="true"');
+    expect(button(removing, "byok.removing").spinners).toBe(1);
+    expect(spinnerCount(removing)).toBe(1);
     const idleTest = button(removing, "settings.aiTestConnection");
     expect(idleTest.attributes).toContain("disabled");
     expect(idleTest.attributes).not.toContain("aria-busy");
+    expect(idleTest.spinners).toBe(0);
 
     // Remove with unsaved edits: "Test and save" keeps its own label, disabled.
     const removingDirty = renderPanel({ busy: "remove", drafts: { ...drafts, chatModel: "gpt-y" } });
@@ -371,11 +389,14 @@ describe("ByokSettingsPanel states (headless)", () => {
     const idleSave = button(removingDirty, "byok.testAndSave");
     expect(idleSave.attributes).toContain("disabled");
     expect(idleSave.attributes).not.toContain("aria-busy");
+    expect(idleSave.spinners).toBe(0);
     expect(button(removingDirty, "byok.removing").attributes).toContain('aria-busy="true"');
+    expect(spinnerCount(removingDirty)).toBe(1);
 
     // Idle: nothing is busy and nothing is disabled.
     const idle = renderPanel();
     expect(idle).not.toContain("aria-busy");
+    expect(spinnerCount(idle)).toBe(0);
     expect(button(idle, "settings.aiTestConnection").attributes).not.toContain("disabled");
   });
 
@@ -389,12 +410,15 @@ describe("ByokSettingsPanel states (headless)", () => {
     }));
     const removing = render("remove");
     expect(removing).toContain("byok.removing");
-    expect(removing).toMatch(/<button data-slot="alert-dialog-action"[^>]*aria-busy="true"[^>]*disabled=""[^>]*>byok\.removing/);
-    expect(removing).toMatch(/<button[^>]*data-slot="alert-dialog-cancel"[^>]*disabled=""[^>]*>common\.cancel/);
+    // The action spins (its loader comes first); the cancel is only disabled.
+    expect(removing).toMatch(/<button data-slot="alert-dialog-action"[^>]*aria-busy="true"[^>]*disabled=""[^>]*><i data-spinner=""><\/i>byok\.removing/);
+    expect(removing).toMatch(/<button[^>]*data-slot="alert-dialog-cancel"[^>]*disabled=""[^>]*>common\.cancel<\/button>/);
+    expect(spinnerCount(removing)).toBe(1);
     const idle = render(null);
     expect(idle).toContain("byok.remove");
     expect(idle).not.toContain("byok.removing");
     expect(idle).not.toContain("disabled");
+    expect(spinnerCount(idle)).toBe(0);
   });
 
   test("an unsaved test result (422): the tested capabilities in the same list, marked as not saved", () => {

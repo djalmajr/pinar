@@ -1579,6 +1579,22 @@ describe("assistant interrupted answer (Stop or an abort)", () => {
     expect(question).toContain('aria-label="assistant.retry"');
   });
 
+  test("a question stopped during a lookup keeps its retry while the tool's message follows it", () => {
+    const messages: TestMessage[] = [
+      userMessage("u1", "?"),
+      { id: "a1", parts: [toolPart("c1", "pinar_list_projects", "input-available")], role: "assistant" },
+    ];
+    const marked = assistantInterruptedMessageId(messages);
+    expect(marked).toBe("u1");
+    const markup = renderMessages(messages, { interruptedIds: new Set([marked!]) });
+    expect(markup).toContain("assistant.interrupted");
+    expect(markup.match(/aria-label="assistant\.retry"/g)).toHaveLength(1);
+    // A later question still moves on: the old mark loses its retry.
+    const later = renderMessages([...messages, userMessage("u2", "next")], { interruptedIds: new Set(["u1"]) });
+    expect(later).toContain("assistant.interrupted");
+    expect(later).not.toContain('aria-label="assistant.retry"');
+  });
+
   test("an interrupted answer that a later question followed keeps the mark without the retry", () => {
     const markup = renderMessages([
       userMessage("u1", "?"),

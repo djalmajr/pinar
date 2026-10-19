@@ -251,15 +251,16 @@ export function AssistantMessages({
     </div>
   ) : null;
   const collapsedTraces = assistantCollapsedTraces(messages, working !== null);
-  const lastMessageId = messages.at(-1)?.id ?? null;
 
   function renderMessage(message: AssistantUIMessage, index: number) {
     const fromUser = message.role === "user";
     const text = messageText(message);
     const interrupted = interruptedIds.has(message.id);
-    // The retry of an interrupted turn only on the last one: a later
-    // question already moved on.
-    const interruptedRetry = interrupted && message.id === lastMessageId ? onRetry : null;
+    // The retry of an interrupted turn only in the current turn (the last
+    // question or what came after it): a later question already moved on.
+    // A question stopped during a lookup carries the mark while the tool's
+    // message still follows it.
+    const interruptedRetry = interrupted && index >= lastUserIndex ? onRetry : null;
     const errorCode = fromUser ? undefined : message.metadata?.errorCode;
     const collapsed = fromUser ? undefined : collapsedTraces.get(message.id);
     return (

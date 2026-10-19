@@ -23,6 +23,23 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.9.2": {
+      changes: {
+        "assistant-panel-steps": {
+          description:
+            "Enquanto o assistente trabalha, o painel mostra o que ele está fazendo, com cada consulta como um passo: o passo feito ganha um check, e o que falhou aparece como “não concluído”. Quando a resposta chega, os passos se recolhem numa linha, como “3 passos”, que você pode abrir. Depois de 20 segundos sem progresso, o painel avisa que está demorando mais que o normal. Parar uma resposta guarda o que já foi escrito e a marca como “Resposta interrompida”, com “Tentar de novo”. Os blocos de código das respostas têm um botão de copiar, uma resposta que falha mostra o “Tentar de novo” como um ícone ao lado da mensagem, e a falta de créditos aparece num cartão próprio com o link para comprar mais.",
+          title: "O assistente mostra cada passo e guarda a resposta interrompida",
+        },
+        "sidebar-count-cap": {
+          description:
+            "Na barra lateral do workspace, uma contagem de sessões acima de 999 agora aparece como “999+” e não cobre mais o nome nem o botão de ações, no celular e em telas maiores. Os leitores de tela continuam anunciando o número inteiro.",
+          title: "Contagens acima de 999 aparecem como 999+ na barra lateral",
+        },
+      },
+      summary:
+        "O painel do assistente mostra cada consulta como um passo, recolhe os passos quando a resposta chega, avisa quando demora mais que o normal e guarda a resposta interrompida com a opção de tentar de novo. Na barra lateral, contagens acima de 999 aparecem como “999+”.",
+      title: "O assistente mostra cada passo e guarda a resposta interrompida",
+    },
     "v0.9.1": {
       changes: {
         "byok-test-before-save": {
@@ -690,18 +707,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "assistant-panel-steps": {
-        description:
-          "Enquanto o assistente trabalha, o painel mostra o que ele está fazendo, com cada consulta como um passo: o passo feito ganha um check, e o que falhou aparece como “não concluído”. Quando a resposta chega, os passos se recolhem numa linha, como “3 passos”, que você pode abrir. Depois de 20 segundos sem progresso, o painel avisa que está demorando mais que o normal. Parar uma resposta guarda o que já foi escrito e a marca como “Resposta interrompida”, com “Tentar de novo”. Os blocos de código das respostas têm um botão de copiar, uma resposta que falha mostra o “Tentar de novo” como um ícone ao lado da mensagem, e a falta de créditos aparece num cartão próprio com o link para comprar mais.",
-        title: "O assistente mostra cada passo e guarda a resposta interrompida",
-      },
-    },
-    summary:
-      "O painel do assistente mostra cada consulta como um passo, recolhe os passos quando a resposta chega, avisa quando demora mais que o normal e guarda a resposta interrompida com a opção de tentar de novo.",
-    title: "O assistente mostra cada passo e guarda a resposta interrompida",
   },
 } satisfies ReleaseLocale;
 

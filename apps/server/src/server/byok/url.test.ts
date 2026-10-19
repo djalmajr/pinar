@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { BYOK_BASE_URL_MAX, type ByokUrlError, validateByokUrl } from "./url";
+import { BYOK_BASE_URL_MAX, type ByokUrlError, isPinarOwnHost, PINAR_PUBLIC_HOSTS, validateByokUrl } from "./url";
 
 function allowed(input: string): string {
   const result = validateByokUrl(input);
@@ -227,5 +227,55 @@ describe("validateByokUrl", () => {
     const longHost = "a".repeat(200) + ".example.com";
     refused(`https://${longHost}/` + "p".repeat(BYOK_BASE_URL_MAX - longHost.length + 20), "too_long");
     allowed(`https://${longHost}/`);
+  });
+});
+
+describe("isPinarOwnHost", () => {
+  const REQUEST = "https://pinar.test/api/byok";
+
+  test("the public hosts, in any case, with the DNS trailing dot and the default port", () => {
+    assert.deepEqual(PINAR_PUBLIC_HOSTS, ["pinar.dev", "www.pinar.dev"]);
+    for (const baseUrl of [
+      "https://pinar.dev",
+      "https://pinar.dev/v1",
+      "https://www.pinar.dev/v1",
+      "https://PINAR.DEV/v1",
+      "https://Www.Pinar.Dev",
+      "https://pinar.dev./v1",
+      "https://www.pinar.dev.",
+      "https://pinar.dev:443/v1",
+      "https://PINAR.DEV.:443/v1",
+    ]) {
+      assert.equal(isPinarOwnHost(baseUrl, REQUEST), true, baseUrl);
+    }
+  });
+
+  test("the host of the request, normalized on both sides", () => {
+    assert.equal(isPinarOwnHost("https://pinar.test/v1", REQUEST), true);
+    assert.equal(isPinarOwnHost("https://PINAR.TEST./v1", REQUEST), true);
+    assert.equal(isPinarOwnHost("https://stg.pinar.dev/v1", "https://STG.PINAR.DEV./api/byok"), true);
+    assert.equal(isPinarOwnHost("https://stg.pinar.dev:443/v1", "https://stg.pinar.dev/api/byok/test"), true);
+    // Another request host does not make the staging host the Pinar.
+    assert.equal(isPinarOwnHost("https://stg.pinar.dev/v1", REQUEST), false);
+  });
+
+  test("a neighbor host is not the Pinar", () => {
+    for (const baseUrl of [
+      "https://api.pinar.dev.example/v1",
+      "https://pinar.dev.example",
+      "https://notpinar.dev",
+      "https://pinar.devs/v1",
+      "https://api.pinar.dev/v1",
+      "https://pinar.test.example/v1",
+      "https://example.com/pinar.dev",
+    ]) {
+      assert.equal(isPinarOwnHost(baseUrl, REQUEST), false, baseUrl);
+    }
+  });
+
+  test("an unparseable URL is not a host; an unparseable request leaves the public hosts", () => {
+    assert.equal(isPinarOwnHost("not a url", REQUEST), false);
+    assert.equal(isPinarOwnHost("https://pinar.dev/v1", "not a url"), true);
+    assert.equal(isPinarOwnHost("https://pinar.test/v1", "not a url"), false);
   });
 });

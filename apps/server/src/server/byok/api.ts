@@ -41,7 +41,7 @@ import { byokEgressFor } from "./fetch";
 export { setByokEgressForTests } from "./fetch";
 import { BYOK_TEST_MAX_PER_HOUR, byokTestConsume } from "./limit";
 import { byokRow, deleteByokRow, recordByokCapabilities, saveByokRowIfUnchanged, type ByokStoredRow } from "./store";
-import { BYOK_BASE_URL_MAX, validateByokUrl } from "./url";
+import { BYOK_BASE_URL_MAX, isPinarOwnHost, validateByokUrl } from "./url";
 
 const MAX_API_KEY_LENGTH = 4096;
 const MAX_MODEL_LENGTH = 200;
@@ -242,6 +242,10 @@ function badRequest(code: string, error: string) {
   return json({ code, error }, 400);
 }
 
+function notAllowedBaseUrl() {
+  return badRequest("invalid_base_url", "The base URL is not allowed");
+}
+
 function modelValue(value: unknown): string | undefined | "invalid" {
   if (value === undefined) return undefined; // omitted: keep the stored one
   if (typeof value !== "string" || value.length > MAX_MODEL_LENGTH) return "invalid";
@@ -266,7 +270,11 @@ async function updateByok(request: Request, env: CloudEnv): Promise<Response> {
     return badRequest("invalid_base_url", "The base URL is missing or too long");
   }
   const checked = validateByokUrl(baseUrl);
-  if (!("normalized" in checked)) return badRequest("invalid_base_url", "The base URL is not allowed");
+  if (!("normalized" in checked)) return notAllowedBaseUrl();
+  // The Pinar is never the destination of a BYOK key: its own host is
+  // refused like any other forbidden URL, before the limit, the decryption
+  // and any egress.
+  if (isPinarOwnHost(checked.normalized, request.url)) return notAllowedBaseUrl();
 
   // An empty or missing apiKey keeps the stored key; a new endpoint needs
   // one. A pasted key loses the whitespace at its ends first (one that is
@@ -445,6 +453,10 @@ async function testByok(request: Request, env: CloudEnv): Promise<Response> {
   if (row === null) {
     return json({ code: "byok_not_configured", error: "The BYOK endpoint is not configured" }, 404);
   }
+  // A row saved before the PUT refused the Pinar's own host is refused the
+  // same way: no limit consumed, no decryption, no egress, and the row
+  // stays as it is.
+  if (isPinarOwnHost(row.baseUrl, request.url)) return notAllowedBaseUrl();
   // One test in flight per account: the check and the mark are one
   // synchronous step, so a concurrent request always sees the first one's.
   if (byokTestsInFlight.has(ownerId)) return testLimited();

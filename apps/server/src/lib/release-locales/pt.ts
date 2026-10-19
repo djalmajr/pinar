@@ -674,6 +674,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-slow-models": {
+        description:
+          "O assistente não encerra mais a resposta depois de 60 segundos fixos: ele espera enquanto o modelo continua respondendo e para depois de 1 minuto sem nenhuma resposta, de 3 minutos na mesma tentativa ou de 4 minutos no total e oferece “Tentar de novo”. Depois de um erro, “Consultando…” não fica mais na conversa. O botão do assistente no cabeçalho ficou só com o ícone, sem fundo.",
+        title: "O assistente espera um modelo lento que continua respondendo",
+      },
+    },
+    summary:
+      "O assistente espera um modelo lento enquanto ele continua respondendo, para de mostrar “Consultando…” depois de um erro e o botão do assistente no cabeçalho ficou só com o ícone.",
+    title: "O assistente espera modelos lentos",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

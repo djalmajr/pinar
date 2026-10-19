@@ -64,6 +64,8 @@ const messages = {
   "assistant.retry": "Try again",
   "assistant.errorTimeout": "The assistant took too long to answer. Try again.",
   "assistant.errorIncomplete": "The assistant could not finish this answer. Try again.",
+  "assistant.errorTimeoutInactivity": "The model went a minute without answering. Try again.",
+  "assistant.errorTimeoutLimit": "The answer took longer than the assistant allows. Try again.",
   "assistant.errorFailed": "The assistant is unavailable right now. Try again in a moment.",
   "assistant.errorRateLimited": "Too many questions in a short time. Wait a moment.",
   "assistant.errorNoCredits": "Not enough AI credits: a message uses {required} and you have {count, plural, one {# credit} other {# credits}} left.",

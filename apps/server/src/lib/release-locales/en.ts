@@ -672,6 +672,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-slow-models": {
+        description:
+          "The assistant no longer ends an answer after a fixed 60 seconds: it waits while the model keeps answering and stops after 1 minute without any response, 3 minutes in the same attempt, or 4 minutes in total and offers “Try again”. After an error, “Looking it up…” no longer stays in the conversation. The assistant button in the header is now just the icon, without a background.",
+        title: "The assistant waits for a slow model that keeps answering",
+      },
+    },
+    summary:
+      "The assistant waits for a slow model while it keeps answering, stops showing “Looking it up…” after an error, and the assistant button in the header is now just the icon.",
+    title: "The assistant waits for slow models",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

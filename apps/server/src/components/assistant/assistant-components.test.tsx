@@ -149,10 +149,56 @@ describe("assistant messages", () => {
         role: "assistant",
       }],
       ...messageProps,
+      // The working line exists only while the chat is working.
+      busy: true,
     }));
     expect(markup).toContain("assistant.working");
     expect(markup).not.toContain("pinar_list_sessions");
     expect(markup).not.toContain('"query":"nope"');
+  });
+
+  test("after an error or an abort (chat not working) a tool part left in progress shows no working line", () => {
+    const toolMessage = {
+      id: "m1",
+      parts: [{
+        input: {},
+        state: "input-available" as const,
+        toolCallId: "call_1",
+        toolName: "pinar_list_sessions",
+        type: "dynamic-tool" as const,
+      }],
+      role: "assistant" as const,
+    };
+    const stopped = renderToStaticMarkup(createElement(AssistantMessages, {
+      messages: [{ id: "u1", parts: [{ text: "?", type: "text" }], role: "user" }, toolMessage],
+      ...messageProps,
+      busy: false,
+    }));
+    expect(stopped).not.toContain("assistant.working");
+    expect(stopped).not.toContain("animate-spin");
+    const working = renderToStaticMarkup(createElement(AssistantMessages, {
+      messages: [{ id: "u1", parts: [{ text: "?", type: "text" }], role: "user" }, toolMessage],
+      ...messageProps,
+      busy: true,
+    }));
+    expect(working).toContain("assistant.working");
+  });
+
+  test("a new turn does not revive the working line of an earlier answer that stopped mid-tool", () => {
+    const markup = renderToStaticMarkup(createElement(AssistantMessages, {
+      messages: [
+        { id: "u1", parts: [{ text: "?", type: "text" }], role: "user" },
+        {
+          id: "m1",
+          parts: [{ input: {}, state: "input-available", toolCallId: "call_1", toolName: "pinar_list_sessions", type: "dynamic-tool" }],
+          role: "assistant",
+        },
+        { id: "u2", parts: [{ text: "de novo", type: "text" }], role: "user" },
+      ],
+      ...messageProps,
+      busy: true,
+    }));
+    expect(markup).not.toContain("assistant.working");
   });
 
   test("a stored error message renders the mapped error note and the retry action", () => {
@@ -1104,5 +1150,81 @@ describe("assistant panel states", () => {
     expect(markup).toContain("assistant.newThread");
     expect(markup).toContain("assistant.history");
     expect(markup).toContain("assistant.close");
+  });
+});
+
+describe("assistant turn error note (typed final error)", () => {
+  const terminal = (code: string, phase: string) => new Error(JSON.stringify({ code, phase, retryable: true }));
+
+  test("each code and phase of the terminal has its own message key", async () => {
+    const { assistantTurnErrorFromChatError } = await import("./AssistantPanel");
+    const cases: Array<[Error, string]> = [
+      [terminal("ASSISTANT_TURN_TIMEOUT", "inactivity"), "assistant.errorTimeoutInactivity"],
+      [terminal("ASSISTANT_TURN_TIMEOUT", "attempt"), "assistant.errorTimeoutLimit"],
+      [terminal("ASSISTANT_TURN_TIMEOUT", "turn"), "assistant.errorTimeoutLimit"],
+      [terminal("ASSISTANT_TURN_INCOMPLETE", "model"), "assistant.errorIncomplete"],
+      [terminal("ASSISTANT_STREAM_FAILED", "model"), "assistant.errorFailed"],
+      [terminal("ASSISTANT_STREAM_FAILED", "tool"), "assistant.errorFailed"],
+      // The 504 before the stream: the transport puts the JSON body in the message.
+      [new Error(JSON.stringify({ code: "ASSISTANT_TURN_TIMEOUT", error: "The assistant took too long to answer", phase: "turn", retryable: true })), "assistant.errorTimeoutLimit"],
+      // The older plain codes still map as before.
+      [new Error("ASSISTANT_TURN_TIMEOUT"), "assistant.errorTimeout"],
+    ];
+    for (const [error, key] of cases) {
+      expect(assistantTurnErrorFromChatError(error, null)).toEqual({ byok: null, credits: null, key: key as never });
+    }
+  });
+
+  test("a BYOK failure keeps its cause and the credits offer", async () => {
+    const { assistantTurnErrorFromChatError } = await import("./AssistantPanel");
+    expect(assistantTurnErrorFromChatError(new Error("byok_error"), { canUseCredits: true, cause: "timeout", retryAfter: null })).toEqual({
+      byok: { canUseCredits: true, cause: "timeout", retryAfter: null },
+      credits: null,
+      key: "byok.errorGeneric",
+    });
+  });
+
+  test("a timeout note shows its message and the retry action", async () => {
+    const { AssistantTurnErrorNote, assistantTurnErrorFromChatError } = await import("./AssistantPanel");
+    let retried = 0;
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: assistantTurnErrorFromChatError(terminal("ASSISTANT_TURN_TIMEOUT", "inactivity"), null),
+      onRetry: () => {
+        retried += 1;
+      },
+      onRetryWithCredits: () => {},
+      t,
+    }));
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("assistant.errorTimeoutInactivity");
+    expect(markup).toContain("assistant.retry");
+    expect(markup).not.toContain("byok.useCredits");
+    expect(retried).toBe(0);
+  });
+
+  test("every new key has a message in the seven languages", async () => {
+    for (const language of ["de", "en", "es", "fr", "ja", "pt", "zh"]) {
+      const messages = (await import(`@/lib/ui-locales/${language}.ts`)).default as Record<string, string>;
+      for (const key of ["assistant.errorTimeoutInactivity", "assistant.errorTimeoutLimit"]) {
+        expect(typeof messages[key]).toBe("string");
+        expect(messages[key].length).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("assistant toggle variant", () => {
+  test("the header button is the ghost variant (only the icon, no background)", () => {
+    const base = { setOpen: () => undefined, toggle: () => undefined };
+    for (const open of [false, true]) {
+      const markup = renderToStaticMarkup(createElement(
+        AssistantPanelContext.Provider,
+        { value: { open, ...base } },
+        createElement(AssistantToggle),
+      ));
+      expect(markup).toContain('variant="ghost"');
+      expect(markup).toContain("aria-expanded:bg-transparent");
+      expect(markup).toContain(`aria-expanded="${open}"`);
+    }
   });
 });

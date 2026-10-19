@@ -66,6 +66,8 @@ const messages: UiMessages = {
   "assistant.retry": "もう一度試す",
   "assistant.errorTimeout": "アシスタントの回答に時間がかかりすぎました。もう一度試してください。",
   "assistant.errorIncomplete": "アシスタントがこの回答を完了できませんでした。もう一度試してください。",
+  "assistant.errorTimeoutInactivity": "モデルが1分間応答しませんでした。もう一度試してください。",
+  "assistant.errorTimeoutLimit": "回答がアシスタントの制限時間を超えました。もう一度試してください。",
   "assistant.errorFailed": "アシスタントは現在利用できません。しばらくしてから試してください。",
   "assistant.errorRateLimited": "短時間に多くの質問がありました。しばらくお待ちください。",
   "assistant.errorNoCredits": "AIクレジットが不足しています。メッセージ1件に {required} 点使用しますが、残りは {count} 点です。",

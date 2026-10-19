@@ -5,7 +5,14 @@
 // pieces (store, status, endpoint, toolHost, optional model and rate
 // limit) arrive via AssistantRequestDeps. Errors outside the stream are
 // JSON { error, code }; inside the stream the client only ever sees the
-// AssistantErrorCode (runAssistantTurn keeps the boundary clean).
+// typed final error (the AssistantErrorCode with its phase) or the BYOK
+// cause (runAssistantTurn keeps the boundary clean).
+//
+// Deadlines (deadline.ts): the turn's 240 s budget starts when the request
+// enters the turn route. Every wait before the stream races it; a budget
+// spent before the stream answers 504 JSON { code: ASSISTANT_TURN_TIMEOUT,
+// phase: "turn" } and gives back what the turn held (the thread, the BYOK
+// slot, the credits). The stream gets what is left of it.
 //
 // Turn order (contract section 5): status → body validation → rate limit
 // → thread (create or fetch) → one-turn-per-thread gate → persist the user
@@ -25,6 +32,14 @@
 import { randomUUID } from "node:crypto";
 import type { LanguageModel } from "ai";
 import { byokStreamErrorPart } from "../byok/route";
+import { encodeAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
+import {
+  AssistantTurnTimeoutError,
+  createAssistantTurnBudget,
+  withinAssistantTurnBudget,
+  type AssistantTurnBudget,
+  type AssistantTurnClock,
+} from "./deadline";
 import { ASSISTANT_SYSTEM_PROMPT } from "./prompt";
 import {
   assistantLanguageModel,
@@ -119,12 +134,18 @@ export type AssistantTurnReservation =
   | { consume(charge: AssistantTurnCharge): Promise<unknown>; refund(errorCode: string): Promise<unknown>; reserved: true };
 
 export interface AssistantRequestDeps {
+  // the turn deadlines' clock (tests); the system clock by default
+  clock?: AssistantTurnClock;
   // null → 503 assistant_unavailable
   endpoint(): Promise<AssistantEndpoint | null>;
   // passed through to assistantLanguageModel (tests)
   fetch?: typeof fetch;
-  // test substitute for the real language model
-  model?: (endpoint: AssistantEndpoint, context: { conversationId: string; requestId: string }) => LanguageModel;
+  // the turn's model (the Cloud's chain; a test substitute); the context
+  // carries the turn's budget for the chain's fallback (chain.ts)
+  model?: (
+    endpoint: AssistantEndpoint,
+    context: { conversationId: string; requestId: string; turnBudget?: AssistantTurnBudget },
+  ) => LanguageModel;
   now?: () => Date;
   // the runtime's pin search; without it pinar_pins_search is not offered
   pinSearch?: PinSearchService;
@@ -523,18 +544,49 @@ function byokRateLimitedResponse(): Response {
   return assistantJson({ canUseCredits: true, cause: "rate_limited", code: "byok_error" }, 429);
 }
 
+// The turn's budget ran out before the stream started (the Skia's 504,
+// ZOM-184): the typed terminal's code and phase as a JSON body.
+export function assistantTurnTimeoutResponse(): Response {
+  const terminal = JSON.parse(encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "turn", retryable: true })) as Record<string, unknown>;
+  return assistantJson({ ...terminal, error: "The assistant took too long to answer" }, 504);
+}
+
 async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<Response> {
+  // The turn's budget starts now; the stream takes it over, and every
+  // answer before it disposes of it.
+  const budget = createAssistantTurnBudget(deps.clock);
+  let handedOver = false;
+  try {
+    const response = await budgetedTurnRoute(request, deps, budget, () => {
+      handedOver = true;
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof AssistantTurnTimeoutError) return assistantTurnTimeoutResponse();
+    throw error;
+  } finally {
+    if (!handedOver) budget.dispose();
+  }
+}
+
+async function budgetedTurnRoute(
+  request: Request,
+  deps: AssistantRequestDeps,
+  budget: AssistantTurnBudget,
+  handOver: () => void,
+): Promise<Response> {
   const now = deps.now ?? (() => new Date());
   const stamp = () => now().toISOString();
+  const within = <T>(work: () => Promise<T>, onLate?: (value: T) => void) => withinAssistantTurnBudget(budget, work, onLate);
 
   // 1. Unavailable status: requires_pro → 403, the rest → 503.
-  const unavailable = await unavailableResponse(deps);
+  const unavailable = await within(() => unavailableResponse(deps));
   if (unavailable) return unavailable;
 
   // 2. Body validation: 64 KB ceiling (read with the limit), an object with
   //    a trimmed text of 1..8,000 characters, and a threadId (when present)
   //    that matches ASSISTANT_THREAD_ID_PATTERN.
-  const raw = await readLimitedBody(request, TURN_BODY_MAX_BYTES);
+  const raw = await within(() => readLimitedBody(request, TURN_BODY_MAX_BYTES));
   if (raw === null) return assistantError(400, "invalid_request", "Request body too large");
   let parsed: unknown;
   try {
@@ -565,7 +617,8 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
   }
 
   // 3. Rate limit (absent on the local app).
-  if (deps.rateLimitTurn && !(await deps.rateLimitTurn())) {
+  const rateLimitTurn = deps.rateLimitTurn;
+  if (rateLimitTurn && !(await within(() => rateLimitTurn()))) {
     return assistantError(429, "assistant_rate_limited", "Too many questions in a short time");
   }
 
@@ -573,15 +626,16 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
   //    derived from the question.
   let thread: AssistantThread;
   if (threadId) {
-    const existing = await deps.store.getThread(threadId);
+    const id = threadId;
+    const existing = await within(() => deps.store.getThread(id));
     if (!existing) return assistantError(404, "thread_not_found", "Thread not found");
     thread = existing;
   } else {
-    thread = await deps.store.createThread({
+    thread = await within(() => deps.store.createThread({
       id: newAssistantThreadId(),
       now: stamp(),
       title: assistantThreadTitle(text),
-    });
+    }));
   }
 
   // 5. One turn per thread at a time.
@@ -618,7 +672,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     // 6. The user message is persisted before the model, then the history
     //    (final messages, the new question included, plus each assistant
     //    message's proposal notes) is cut to the turn window.
-    await deps.store.appendMessage({
+    await within(() => deps.store.appendMessage({
       ask: null,
       createdAt: stamp(),
       errorCode: null,
@@ -627,11 +681,11 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
       status: "final",
       text,
       threadId: thread.id,
-    });
-    const recent = await deps.store.listMessages(thread.id, { limit: TURN_HISTORY_LIMIT });
+    }));
+    const recent = await within(() => deps.store.listMessages(thread.id, { limit: TURN_HISTORY_LIMIT }));
     const historyAt = now();
     const notesByMessage = new Map<string, string[]>();
-    for (const record of await deps.store.listProposals(thread.id)) {
+    for (const record of await within(() => deps.store.listProposals(thread.id))) {
       const notes = notesByMessage.get(record.messageId) ?? [];
       notes.push(proposalHistoryNote(record, historyAt));
       notesByMessage.set(record.messageId, notes);
@@ -654,17 +708,24 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     //     gateway, no credits.
     let byok: Extract<AssistantByokTurn, { kind: "route" }> | null = null;
     let endpoint: AssistantEndpoint | null;
-    if (deps.byokTurn) {
-      const byokTurn = await deps.byokTurn({ conversationId, requestId, useCredits });
+    const byokTurnOf = deps.byokTurn;
+    if (byokTurnOf) {
+      // A route that arrives after the budget ran out frees its slot.
+      const byokTurn = await within(
+        () => byokTurnOf({ conversationId, requestId, useCredits }),
+        (late) => {
+          if (late.kind === "route") late.release();
+        },
+      );
       if (byokTurn.kind === "rate_limited") {
         releaseThread();
         return byokRateLimitedResponse();
       }
       if (byokTurn.kind === "route") byok = byokTurn;
-      endpoint = byok !== null ? byok.endpoint : await deps.endpoint();
       if (byok !== null) byokRelease = byok.release;
+      endpoint = byok !== null ? byok.endpoint : await within(() => deps.endpoint());
     } else {
-      endpoint = await deps.endpoint();
+      endpoint = await within(() => deps.endpoint());
     }
     if (!endpoint) {
       releaseThread();
@@ -676,8 +737,15 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     //     already was) and the model is never called. A reservation that
     //     already existed belongs to another run of this message: that run
     //     answers and settles it, this one does neither.
-    if (deps.meterTurn && byok === null) {
-      const reserved = await deps.meterTurn({ messageId: assistantMessageId, threadId: thread.id });
+    const meterTurn = deps.meterTurn;
+    if (meterTurn && byok === null) {
+      // A reservation that arrives after the budget ran out is refunded.
+      const reserved = await within(
+        () => meterTurn({ messageId: assistantMessageId, threadId: thread.id }),
+        (late) => {
+          if (late.reserved) void late.refund("ASSISTANT_TURN_TIMEOUT").catch(() => {});
+        },
+      );
       if (!reserved.reserved) {
         releaseThread();
         if ("inProgress" in reserved) {
@@ -695,7 +763,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     const model = byok !== null
       ? byok.model
       : deps.model
-        ? deps.model(endpoint, { conversationId, requestId })
+        ? deps.model(endpoint, { conversationId, requestId, turnBudget: budget })
         : assistantLanguageModel(endpoint, { conversationId, fetch: deps.fetch, requestId });
     // The turn's proposal sink: prepare over the state reader, store the
     // full record under this turn's assistant message, stream it as a
@@ -742,7 +810,10 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     // own text-only search — the BYOK turn makes no gateway call; the
     // gateway's search (deps.pinSearch) serves the other turns.
     const turnPinSearch = byok !== null ? byok.pinSearch : deps.pinSearch;
+    // The stream takes the budget over: what is left of it caps the
+    // attempt, and the outcome's end disposes of it.
     const { outcome, response } = runAssistantTurn({
+      budget,
       history: buildTurnWindow(history),
       model,
       ...(byok !== null ? { onStreamError: byokStreamErrorPart } : {}),
@@ -767,6 +838,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     //    A persistence or settlement failure is swallowed; nothing is
     //    logged, so no provider content can leak (a reservation left open is
     //    settled by the sweeper from the stored answer).
+    handOver();
     const turnReservation = reservation;
     reservation = null;
     const watched = turnReservation ? watchDelivery(response) : null;
@@ -793,6 +865,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
       })
       .catch(() => {})
       .finally(() => {
+        budget.dispose();
         releaseThread();
         // The BYOK call is over once the outcome settles (the stream was
         // drained to the end): the concurrency slot frees here.
@@ -800,9 +873,15 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
       });
 
     return withNoStore(watched ? watched.response : response);
-  } catch {
+  } catch (error) {
     releaseThread();
     releaseByok();
+    // The budget ran out before the stream: the credits go back with the
+    // timeout's code, and the route answers 504.
+    if (error instanceof AssistantTurnTimeoutError) {
+      if (reservation) await reservation.refund("ASSISTANT_TURN_TIMEOUT").catch(() => {});
+      throw error;
+    }
     // A failure after the reservation and before the turn took it over
     // gives the credits back.
     if (reservation) await reservation.refund("assistant_unavailable").catch(() => {});

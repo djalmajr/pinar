@@ -657,6 +657,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-slow-models": {
+        description:
+          "L’assistant ne termine plus une réponse après 60 secondes fixes : il attend tant que le modèle continue de répondre et s’arrête après 1 minute sans aucune réponse, 3 minutes dans la même tentative ou 4 minutes au total et propose « Réessayer ». Après une erreur, « Consultation en cours… » ne reste plus dans la conversation. Le bouton de l’assistant dans l’en-tête n’est plus que l’icône, sans fond.",
+        title: "L’assistant attend un modèle lent qui continue de répondre",
+      },
+    },
+    summary:
+      "L’assistant attend un modèle lent tant qu’il continue de répondre, n’affiche plus « Consultation en cours… » après une erreur, et le bouton de l’assistant dans l’en-tête n’est plus que l’icône.",
+    title: "L’assistant attend les modèles lents",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

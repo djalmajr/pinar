@@ -657,6 +657,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-slow-models": {
+        description:
+          "Der Assistent beendet eine Antwort nicht mehr nach festen 60 Sekunden: Er wartet, solange das Modell weiter antwortet, und hört nach 1 Minute ohne jede Antwort, nach 3 Minuten im selben Versuch oder nach 4 Minuten insgesamt auf und bietet „Erneut versuchen“ an. Nach einem Fehler bleibt „Wird nachgesehen…“ nicht mehr im Gespräch stehen. Die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol, ohne Hintergrund.",
+        title: "Der Assistent wartet auf ein langsames Modell, das weiter antwortet",
+      },
+    },
+    summary:
+      "Der Assistent wartet auf ein langsames Modell, solange es weiter antwortet, zeigt nach einem Fehler nicht mehr „Wird nachgesehen…“ an, und die Assistent-Schaltfläche in der Kopfzeile ist jetzt nur noch das Symbol.",
+    title: "Der Assistent wartet auf langsame Modelle",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

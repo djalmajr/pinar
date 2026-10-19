@@ -66,6 +66,8 @@ const messages: UiMessages = {
   "assistant.retry": "Erneut versuchen",
   "assistant.errorTimeout": "Der Assistent hat zu lange für die Antwort gebraucht. Versuche es erneut.",
   "assistant.errorIncomplete": "Der Assistent konnte diese Antwort nicht abschließen. Versuche es erneut.",
+  "assistant.errorTimeoutInactivity": "Das Modell hat eine Minute lang nicht geantwortet. Versuche es erneut.",
+  "assistant.errorTimeoutLimit": "Die Antwort hat die maximale Zeit des Assistenten überschritten. Versuche es erneut.",
   "assistant.errorFailed": "Der Assistent ist gerade nicht verfügbar. Versuche es in einem Moment erneut.",
   "assistant.errorRateLimited": "Zu viele Fragen in kurzer Zeit. Warte einen Moment.",
   "assistant.errorNoCredits": "Nicht genügend KI-Guthaben: Eine Nachricht verbraucht {required}, du hast noch {count, plural, one {# Credit} other {# Credits}}.",

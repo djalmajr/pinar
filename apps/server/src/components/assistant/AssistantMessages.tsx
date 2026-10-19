@@ -45,7 +45,10 @@ const assistantMarkdownComponents: Components = {
 };
 
 // A tool call still running shows one discreet line: no tool name, no
-// arguments (internal detail the UI must not expose).
+// arguments (internal detail the UI must not expose). Only while the chat
+// is working (submitted or streaming) and only in the current turn: after an
+// error or an abort the part stays "input-available" forever, and the line
+// goes (as the Skia's getSkiaWorkingState).
 function toolPartInProgress(part: AssistantPart): part is Extract<AssistantPart, { toolCallId: string; state: string }> {
   if (!isToolUIPart(part)) return false;
   return part.state === "input-available" || part.state === "input-streaming";
@@ -79,11 +82,14 @@ function AssistantAnswer({
   onRetry,
   onRetryWithCredits,
   t,
+  working,
 }: {
   message: AssistantUIMessage;
   onRetry: () => void;
   onRetryWithCredits: () => void;
   t: Translate;
+  /** The chat is working on this message's turn. */
+  working: boolean;
 }) {
   const errorCode = message.metadata?.errorCode;
   if (errorCode === "byok_error") {
@@ -129,7 +135,7 @@ function AssistantAnswer({
             </ReactMarkdown>
           );
         }
-        if (toolPartInProgress(part)) {
+        if (working && toolPartInProgress(part)) {
           return (
             <p key={`tool-${part.toolCallId ?? index}`} className="flex items-center gap-2 text-xs text-muted-foreground">
               <IconLoader aria-hidden="true" className="size-3 animate-spin" />
@@ -232,6 +238,9 @@ export function AssistantMessages({
   proposalStates,
   t,
 }: AssistantMessagesProps) {
+  // The current turn starts at the last user message: an earlier answer has
+  // already ended.
+  const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
   return (
     <ol className="flex min-w-0 flex-col gap-3 px-4 py-3">
       {messages.map((message, index) => (
@@ -248,7 +257,13 @@ export function AssistantMessages({
             </div>
           ) : (
             <>
-              <AssistantAnswer message={message} onRetry={onRetry} onRetryWithCredits={onRetryWithCredits} t={t} />
+              <AssistantAnswer
+                message={message}
+                onRetry={onRetry}
+                onRetryWithCredits={onRetryWithCredits}
+                t={t}
+                working={busy && index > lastUserIndex}
+              />
               <AssistantAskOptions
                 busy={busy}
                 message={message}

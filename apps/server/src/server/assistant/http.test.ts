@@ -18,6 +18,8 @@ import {
   type AssistantTurnReservation,
 } from "./http";
 import { ASSISTANT_PROPOSAL_TTL_MS } from "./proposals";
+import { encodeAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
+import { fakeTurnClock, pushableStream } from "./deadline.test-helpers";
 import {
   FIXTURE_ID_PREFIX,
   fixtureHost,
@@ -344,7 +346,7 @@ describe("assistant http handler", () => {
     const parts = sseDataParts(body);
     const errorPart = parts.find((part) => part.type === "error");
     assert.ok(errorPart, "the stream carries an error part");
-    assert.equal(errorPart.errorText, "ASSISTANT_STREAM_FAILED");
+    assert.equal(errorPart.errorText, JSON.stringify({ code: "ASSISTANT_STREAM_FAILED", phase: "model", retryable: true }));
     assert.ok(!body.includes("provider down"), "the provider message never crosses the stream");
     const id = threadIdFromTurn(body);
 
@@ -1522,5 +1524,156 @@ describe("assistant turn credits (meterTurn)", () => {
     assert.equal((await proposalAction(deps, proposal.id, "confirm")).status, 200);
     assert.equal((await proposalAction(deps, proposal.id, "undo")).status, 200);
     assert.deepEqual(meter.log.events, ["reserve", "consume"]);
+  });
+});
+
+// ---------- the turn's budget over http (deadline.ts), on a fake clock ----------
+
+describe("assistant turn deadlines over http", () => {
+  const timeoutBody = { code: "ASSISTANT_TURN_TIMEOUT", error: "The assistant took too long to answer", phase: "turn", retryable: true };
+
+  test("a budget spent before the stream answers 504 with the typed code, and the model never runs", async () => {
+    const clock = fakeTurnClock();
+    let modelCalls = 0;
+    const { deps } = makeDeps({
+      model: () => {
+        modelCalls += 1;
+        return textModel("nunca");
+      },
+      status: () => new Promise<AssistantStatus>(() => {}),
+    });
+    const pending = postTurn({ ...deps, clock }, { text: "oi" });
+    await clock.advance(239_999);
+    let answered = false;
+    void pending.then(() => {
+      answered = true;
+    });
+    await clock.advance(0);
+    assert.equal(answered, false, "under 240 s the request still waits");
+    await clock.advance(1);
+    const response = await pending;
+    assert.equal(response.status, 504);
+    assert.deepEqual(await response.json(), timeoutBody);
+    assert.equal(modelCalls, 0);
+    assert.equal(clock.pending(), 0, "the budget's timer is disposed");
+  });
+
+  test("a reservation that arrives after the budget ran out is refunded, and the thread is free again", async () => {
+    const clock = fakeTurnClock();
+    const { deps } = makeDeps({ model: () => textModel("ok") });
+    const log: string[] = [];
+    let resolveReservation!: (reservation: AssistantTurnReservation) => void;
+    const meterTurn: NonNullable<AssistantRequestDeps["meterTurn"]> = () =>
+      new Promise((resolve) => {
+        resolveReservation = resolve;
+      });
+    const pending = postTurn({ ...deps, clock, meterTurn }, { text: "oi" });
+    await clock.advance(240_000);
+    const response = await pending;
+    assert.equal(response.status, 504);
+    assert.deepEqual(await response.json(), timeoutBody);
+    resolveReservation({
+      consume: async () => {
+        log.push("consume");
+      },
+      refund: async (code) => {
+        log.push(`refund ${code}`);
+      },
+      reserved: true,
+    });
+    await waitFor(() => (log.length > 0 ? log : null));
+    assert.deepEqual(log, ["refund ASSISTANT_TURN_TIMEOUT"]);
+    // The thread lock went with the 504: the next turn of that thread runs.
+    const threads = await deps.store.listThreads({ limit: 10, offset: 0 });
+    assert.equal(threads.length, 1);
+    const next = await postTurn({ ...deps, clock }, { text: "de novo", threadId: threads[0].id });
+    assert.equal(next.status, 200);
+    await readSse(next);
+  });
+
+  test("a BYOK route that arrives after the budget ran out frees its slot", async () => {
+    const clock = fakeTurnClock();
+    const { deps } = makeDeps();
+    let released = 0;
+    let resolveRoute!: (route: Awaited<ReturnType<NonNullable<AssistantRequestDeps["byokTurn"]>>>) => void;
+    const byokTurn: NonNullable<AssistantRequestDeps["byokTurn"]> = () =>
+      new Promise((resolve) => {
+        resolveRoute = resolve;
+      });
+    const pending = postTurn({ ...deps, byokTurn, clock }, { text: "oi" });
+    await clock.advance(240_000);
+    assert.equal((await pending).status, 504);
+    resolveRoute({
+      endpoint: FAKE_ENDPOINT,
+      kind: "route",
+      model: textModel("nunca"),
+      pinSearch: { search: async () => [] },
+      release: () => {
+        released += 1;
+      },
+    });
+    await waitFor(() => (released > 0 ? released : null));
+    assert.equal(released, 1);
+  });
+
+  test("the budget starts with the request: 100 s before the stream leave 140 s to the attempt (turn phase)", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { deps } = makeDeps({ model: () => mockModel(() => ({ stream: feed.stream })) });
+    const slowStore: AssistantStore = {
+      ...deps.store,
+      listMessages: async (threadId, options) => {
+        await new Promise((resolve) => clock.setTimeout(() => resolve(undefined), 100_000));
+        return deps.store.listMessages(threadId, options);
+      },
+    };
+    const pending = postTurn({ ...deps, clock, store: slowStore }, { text: "oi" });
+    await clock.advance(100_000);
+    const response = await pending;
+    assert.equal(response.status, 200);
+    const reading = readSse(response);
+    feed.push({ id: "t1", type: "text-start" });
+    for (let index = 0; index < 4; index++) {
+      await clock.advance(30_000);
+      feed.push({ delta: ".", id: "t1", type: "text-delta" });
+    }
+    await clock.advance(20_000);
+    const body = await reading;
+    const errors = sseDataParts(body).filter((part) => part.type === "error");
+    assert.deepEqual(errors, [{ errorText: encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "turn", retryable: true }), type: "error" }]);
+  });
+
+  test("a turn that times out mid-stream refunds its credits with ASSISTANT_TURN_TIMEOUT and stores the code", async () => {
+    const clock = fakeTurnClock();
+    const feed = pushableStream();
+    const { deps, store } = makeDeps({ model: () => mockModel(() => ({ stream: feed.stream })) });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, clock, meterTurn: meter.meterTurn }, { text: "oi" });
+    assert.equal(response.status, 200);
+    const reading = readSse(response);
+    feed.push({ id: "t1", type: "text-start" });
+    await clock.advance(60_000);
+    const body = await reading;
+    await settled(meter.log);
+    assert.deepEqual(meter.log.refunded, ["ASSISTANT_TURN_TIMEOUT"]);
+    assert.deepEqual(meter.log.consumed, []);
+    const errors = sseDataParts(body).filter((part) => part.type === "error");
+    assert.deepEqual(errors, [{ errorText: encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase: "inactivity", retryable: true }), type: "error" }]);
+    const threadId = threadIdFromTurn(body);
+    const messages = await waitFor(() => store.listMessages(threadId, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    assert.equal(messages[1].errorCode, "ASSISTANT_TURN_TIMEOUT");
+  });
+
+  test("the chain's model receives the turn's budget in its context", async () => {
+    let budgetLeft: number | null = null;
+    const { deps } = makeDeps({
+      model: (_endpoint, context) => {
+        budgetLeft = context.turnBudget?.remainingMs() ?? null;
+        return textModel("ok");
+      },
+    });
+    const clock = fakeTurnClock();
+    await readSse(await postTurn({ ...deps, clock }, { text: "oi" }));
+    assert.equal(budgetLeft, 240_000);
   });
 });

@@ -654,6 +654,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "assistant-slow-models": {
+        description:
+          "助手不再在固定的 60 秒后结束回答：只要模型仍在回应就会等待，并在 1 分钟没有任何回应、同一次尝试达到 3 分钟或总计达到 4 分钟时停止，并提供“重试”。出错后，“查询中…”不再留在对话中。页头的助手按钮现在只显示图标，没有背景。",
+        title: "助手会等待仍在回应的较慢模型",
+      },
+    },
+    summary:
+      "只要较慢的模型仍在回应，助手就会等待；出错后不再显示“查询中…”；页头的助手按钮现在只显示图标。",
+    title: "助手会等待较慢的模型",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

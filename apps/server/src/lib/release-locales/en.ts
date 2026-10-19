@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.9.0": {
+      title: "Your own AI endpoint in Pinar Cloud",
+      summary:
+        "Pro accounts in Pinar Cloud can register their own AI endpoint, the AI errors of the assistant, the reproduction, and the voice now show the cause with a choice, the legal documents describe that endpoint, with renewed acceptance for Pinar Cloud, and the sidebar count no longer covers the actions button on phones.",
+      changes: {
+        "own-ai-endpoint": {
+          title: "Your own endpoint in Pinar Cloud (Pro)",
+          description:
+            "In Pinar Cloud, Pro accounts can register their own endpoint in Settings → AI Assistant: an HTTPS base URL, an API key, and optional models for chat, Embeddings, and transcription. A feature is answered by that endpoint, without Pinar Cloud credits, when its capability passes the connection test; a feature whose capability did not pass keeps using Pinar's providers, with credits, with the exception of the pin search of an answer served by that endpoint, which uses the endpoint's vision and Embeddings when they passed, or the text alone when they did not. When the endpoint fails, the assistant and the written reproduction steps show the cause with “Try again” and “Use Pinar credits”, and the extension offers to resend the same voice recording with credits.",
+        },
+        "own-endpoint-legal-update": {
+          title: "Legal documents updated for your own endpoint",
+          description:
+            "The Privacy Policy, the Terms of Service, and the Service Providers and Subprocessors page now describe your own AI endpoint: you choose and contract its provider, its processing follows the terms between you and that provider, and Pinar only forwards your requests to it. The processing takes place where that provider processes the data, which may be outside Brazil. The provider of that endpoint is not a subprocessor of Pinar. If you use Pinar Cloud, you accept the updated documents again.",
+        },
+        "sidebar-count-on-phones": {
+          title: "The sidebar count no longer covers the actions button on phones",
+          description:
+            "On phones, the actions button (⋮) of the Inbox and collection rows in the workspace sidebar is always visible, and the session count sat on top of it. The count now sits beside the button, and a long name is cut before it. On larger screens nothing changes.",
+        },
+      },
+    },
     "v0.8.1": {
       title: "Voice and written steps work again in Pinar Cloud",
       summary:
@@ -649,18 +671,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "own-ai-endpoint": {
-        description:
-          "In Pinar Cloud, Pro accounts can register their own endpoint in Settings → AI Assistant: an HTTPS base URL, an API key, and optional models for chat, Embeddings, and transcription. A feature is answered by that endpoint, without Pinar Cloud credits, when its capability passes the connection test; a feature whose capability did not pass keeps using Pinar's providers, with credits, with the exception of the pin search of an answer served by that endpoint, which uses the endpoint's vision and Embeddings when they passed, or the text alone when they did not. When the endpoint fails, the assistant and the written reproduction steps show the cause with “Try again” and “Use Pinar credits”, and the extension offers to resend the same voice recording with credits.",
-        title: "Your own endpoint in Pinar Cloud (Pro)",
-      },
-    },
-    summary:
-      "Pro accounts in Pinar Cloud can register their own endpoint, and the AI errors of the assistant, the reproduction, and the voice now show the cause with a choice.",
-    title: "Your own endpoint in Pinar Cloud",
   },
 } satisfies ReleaseLocale;
 

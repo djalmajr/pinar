@@ -23,6 +23,28 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.9.0": {
+      title: "Seu próprio endpoint de IA no Pinar Cloud",
+      summary:
+        "Contas Pro no Pinar Cloud podem cadastrar o próprio endpoint de IA, os erros de IA do assistente, da reprodução e da voz agora mostram a causa com escolha, os documentos legais descrevem esse endpoint, com novo aceite para o Pinar Cloud, e a contagem da barra lateral não cobre mais o botão de ações no celular.",
+      changes: {
+        "own-ai-endpoint": {
+          title: "Seu próprio endpoint no Pinar Cloud (Pro)",
+          description:
+            "No Pinar Cloud, contas Pro podem cadastrar o próprio endpoint em Configurações → Assistente de IA: URL base HTTPS, chave da API e modelos opcionais de chat, Embeddings e transcrição. Um recurso é atendido por esse endpoint, sem créditos do Pinar Cloud, quando a capacidade correspondente passa no teste de conexão; um recurso cuja capacidade não passou segue pelos provedores do Pinar, com créditos, com a exceção da busca nos pins de uma resposta atendida por esse endpoint, que usa a visão e os Embeddings do endpoint quando passam, ou só o texto quando não passam. Quando o endpoint falha, o assistente e os passos escritos de reprodução mostram a causa com “Tentar de novo” e “Usar créditos do Pinar”, e a extensão oferece reenviar a mesma gravação de voz com créditos.",
+        },
+        "own-endpoint-legal-update": {
+          title: "Documentos legais atualizados para o seu endpoint",
+          description:
+            "A Política de Privacidade, os Termos de Serviço e a página Provedores de Serviço e Suboperadores agora descrevem o seu próprio endpoint de IA: você escolhe e contrata o provedor, o tratamento que ele faz segue os termos entre você e ele, e o Pinar só encaminha os seus pedidos a ele. O tratamento ocorre onde esse provedor trata os dados, o que pode ser fora do Brasil. O provedor desse endpoint não é suboperador do Pinar. Se você usa o Pinar Cloud, aceita os documentos atualizados de novo.",
+        },
+        "sidebar-count-on-phones": {
+          title: "A contagem da barra lateral não cobre mais o botão de ações no celular",
+          description:
+            "No celular, o botão de ações (⋮) das linhas da Caixa de entrada e das coleções na barra lateral do workspace fica sempre visível, e a contagem de sessões ficava em cima dele. Agora a contagem fica ao lado do botão, e um nome longo é cortado antes dela. Em telas maiores, nada muda.",
+        },
+      },
+    },
     "v0.8.1": {
       title: "Voz e passos escritos voltam a funcionar no Pinar Cloud",
       summary:
@@ -651,18 +673,6 @@ const locale = {
         },
       },
     },
-  },
-  upcoming: {
-    changes: {
-      "own-ai-endpoint": {
-        description:
-          "No Pinar Cloud, contas Pro podem cadastrar o próprio endpoint em Configurações → Assistente de IA: URL base HTTPS, chave da API e modelos opcionais de chat, Embeddings e transcrição. Um recurso é atendido por esse endpoint, sem créditos do Pinar Cloud, quando a capacidade correspondente passa no teste de conexão; um recurso cuja capacidade não passou segue pelos provedores do Pinar, com créditos, com a exceção da busca nos pins de uma resposta atendida por esse endpoint, que usa a visão e os Embeddings do endpoint quando passam, ou só o texto quando não passam. Quando o endpoint falha, o assistente e os passos escritos de reprodução mostram a causa com “Tentar de novo” e “Usar créditos do Pinar”, e a extensão oferece reenviar a mesma gravação de voz com créditos.",
-        title: "Seu próprio endpoint no Pinar Cloud (Pro)",
-      },
-    },
-    summary:
-      "Contas Pro no Pinar Cloud podem cadastrar o próprio endpoint, e os erros de IA do assistente, da reprodução e da voz agora mostram a causa com escolha.",
-    title: "Seu próprio endpoint no Pinar Cloud",
   },
 } satisfies ReleaseLocale;
 

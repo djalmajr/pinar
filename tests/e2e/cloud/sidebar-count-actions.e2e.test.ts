@@ -1,4 +1,4 @@
-import { devices, expect, type Locator, type Page, test } from "@playwright/test";
+import { devices, expect, type Locator, type Page, test, type TestInfo } from "@playwright/test";
 import { signInCloudPro } from "../helpers/cloud-signin";
 import { chooseButtonMenuItem, closeWorkspaceSidebar, isMobileViewport, openWorkspaceSidebar } from "../helpers/ui";
 
@@ -6,6 +6,13 @@ const LONG_NAME = "Quarterly design system review for the mobile onboarding flow
 
 // The sidebar rows that carry both a count and the ⋮ actions button.
 const COLLECTION_ACTIONS = `${LONG_NAME}: Collection actions`;
+
+// The long collection reports this many sessions, past the three digits the
+// row reserves room for: the badge shows "999+", the title and the screen
+// reader keep the full count.
+const PADDED_COUNT = 1234;
+const CAPPED_TEXT = "999+";
+const PADDED_LABEL = "1,234 sessions";
 
 // The chromium project runs these; the device only supplies the phone's
 // viewport, touch and scale, never its default (webkit) browser.
@@ -57,6 +64,42 @@ async function openPhoneSidebar(page: Page) {
   });
 }
 
+// Pads the long collection in every tree response, so the sidebar counts 1234
+// sessions without writing them to the store.
+async function padLongCollection(page: Page) {
+  await page.route("**/api/project-tree", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const project of body.tree?.projects ?? []) {
+      for (const collection of project.collections ?? []) {
+        if (collection.name !== LONG_NAME) continue;
+        collection.sessions = Array.from({ length: PADDED_COUNT }, (_, index) => ({
+          collectionId: collection.id,
+          createdAt: "2026-10-19T12:00:00.000Z",
+          id: `padded-${index}`,
+          page: { title: `Padded capture ${index}`, url: `https://example.test/${index}` },
+          pins: [],
+          shotUrl: null,
+        }));
+      }
+    }
+    await route.fulfill({ json: body, response });
+  });
+}
+
+async function expectCappedCount(row: Locator) {
+  const count = countOf(row);
+  await expect(count.locator('[aria-hidden="true"]')).toHaveText(CAPPED_TEXT);
+  await expect(count).toHaveAttribute("title", PADDED_LABEL);
+  await expect(count.locator(".sr-only")).toHaveText(PADDED_LABEL);
+}
+
+async function snapshot(page: Page, testInfo: TestInfo, name: string) {
+  const path = testInfo.outputPath(`${name}.png`);
+  await page.screenshot({ path });
+  await testInfo.attach(name, { contentType: "image/png", path });
+}
+
 async function createLongCollection(page: Page) {
   await openWorkspaceSidebar(page, "New collection");
   const dialog = page.getByRole("dialog", { name: "New collection" });
@@ -81,6 +124,7 @@ async function deleteLongCollection(page: Page) {
 
 async function withLongCollection(page: Page, body: () => Promise<void>) {
   await signInCloudPro(page);
+  await padLongCollection(page);
   await page.goto("/app");
   await createLongCollection(page);
   try {
@@ -103,6 +147,7 @@ async function expectPhoneRows(page: Page) {
     expect(count.right, "count sits left of the ⋮ button").toBeLessThanOrEqual(actions.left);
   }
   const row = collectionRow(page);
+  await expectCappedCount(row);
   const name = await box(nameOf(row));
   const count = await box(countOf(row));
   const actions = await box(actionsOf(row));
@@ -116,28 +161,46 @@ async function expectPhoneRows(page: Page) {
 
 // Mutation captured: dropping collectionBadgeClass from either row, or
 // returning the label reservation to the base pr-9, makes the phone row
-// overlap or the desktop hover swap fail.
-test.describe("phone", () => {
-  test.use({ ...phone });
+// overlap or the desktop hover swap fail. Dropping the "999+" cap shows the
+// four digits and fails the capped-count check.
+for (const colorScheme of ["light", "dark"] as const) {
+  test.describe(`phone (${colorScheme})`, () => {
+    test.use({ ...phone, colorScheme });
 
-  test("the count sits beside the ⋮ button and clear of a long truncated name", async ({ page }) => {
-    await withLongCollection(page, async () => {
-      // A tree refresh can remount the sheet mid-way: reopen and measure again.
-      await expect(async () => {
-        await openPhoneSidebar(page);
-        await expectPhoneRows(page);
-      }).toPass({ timeout: 30_000 });
+    test("the count sits beside the ⋮ button and clear of a long truncated name", async ({ page }, testInfo) => {
+      await withLongCollection(page, async () => {
+        // A tree refresh can remount the sheet mid-way: reopen and measure again.
+        await expect(async () => {
+          await openPhoneSidebar(page);
+          await expectPhoneRows(page);
+        }).toPass({ timeout: 30_000 });
+        await snapshot(page, testInfo, `phone-${colorScheme}`);
+      });
     });
   });
-});
+}
 
 test.describe("desktop", () => {
   test.use({ viewport: { height: 900, width: 1440 } });
 
-  test("at rest the count shows at the edge; on hover the ⋮ button takes its place", async ({ page }) => {
+  test("at rest the count shows at the edge; on hover the ⋮ button takes its place", async ({ page }, testInfo) => {
     await withLongCollection(page, async () => {
       await expect(collectionRow(page)).toBeVisible();
-      for (const row of [inboxRow(page), collectionRow(page)]) {
+      await expectCappedCount(collectionRow(page));
+      await page.mouse.move(0, 0);
+      // From md up the "999+" row widens its label reservation: the truncated
+      // name ends before the wider count. The button animates its padding once
+      // the padded tree lands, so measure until it settles.
+      await expect(async () => {
+        const name = await box(nameOf(collectionRow(page)));
+        const capped = await box(countOf(collectionRow(page)));
+        expect(await nameOf(collectionRow(page)).evaluate((el) => el.scrollWidth > el.clientWidth), "name is truncated").toBe(true);
+        expect(name.right, "name ends before the 999+ count").toBeLessThanOrEqual(capped.left);
+      }).toPass({ timeout: 5_000 });
+      await snapshot(page, testInfo, "desktop-rest");
+      await collectionRow(page).hover();
+      await snapshot(page, testInfo, "desktop-hover");
+      for (const [row, capped] of [[inboxRow(page), false], [collectionRow(page), true]] as const) {
         await page.mouse.move(0, 0);
         await expect(countOf(row)).toHaveCSS("opacity", "1");
         await expect(actionsOf(row)).toHaveCSS("opacity", "0");
@@ -145,7 +208,10 @@ test.describe("desktop", () => {
         const actions = await box(actionsOf(row));
         // The count keeps the right edge: it ends where the ⋮ button ends.
         expect(Math.abs(count.right - actions.right), "count at the row's right edge").toBeLessThanOrEqual(4);
-        expect(count.left, "count over the button's slot").toBeGreaterThanOrEqual(actions.left - 8);
+        // "999+" is wider than the ⋮ button, so it reaches past the button's
+        // slot; the name check below keeps it clear of the label instead.
+        if (!capped)
+          expect(count.left, "count over the button's slot").toBeGreaterThanOrEqual(actions.left - 8);
 
         await row.hover();
         await expect(countOf(row)).toHaveCSS("opacity", "0");

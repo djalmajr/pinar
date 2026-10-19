@@ -755,10 +755,6 @@ const messages: UiMessages = {
   "viewer.noAgentResult": "エージェント結果はまだありません",
   "viewer.reviewTimeline": "レビュー履歴",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.aiSummary": "AI 要約",
-  "viewer.aiSummaryTitle": "注釈の要約",
-  "viewer.aiSummaryDescription":
-    "Pinar はページタイトル、URL、ピンのコメントのみを分析します。",
   "viewer.aiSummarizing": "要約中…",
   "viewer.aiHighlights": "要点",
   "viewer.aiCloudCreditCost": "Pinar Cloud の AI クレジットを {count} 点使用します。",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collectionBadgeClass, collectionButtonClass } from "./history-sidebar-badge";
+import { collectionBadgeClass, collectionButtonClass, sidebarCountText } from "./history-sidebar-badge";
 
 const idle = { menuActionFocused: false, menuOpen: false };
 
@@ -39,7 +39,33 @@ describe("sidebar row count next to the actions button", () => {
   });
 
   test("the row label reserves room for the shifted count only below md, with actions", () => {
-    expect(collectionButtonClass({ hasActions: true })).toBe("max-md:group-has-data-[sidebar=menu-badge]/menu-item:pr-16");
-    expect(collectionButtonClass({ hasActions: false })).toBe("");
+    for (const count of [0, 7, 999]) {
+      expect(collectionButtonClass({ count, hasActions: true })).toBe("max-md:group-has-data-[sidebar=menu-badge]/menu-item:pr-18");
+      expect(collectionButtonClass({ count, hasActions: false })).toBe("");
+    }
+  });
+
+  test("a 999+ count widens the reservation from md up, or always on a row without actions", () => {
+    for (const count of [1000, 1234]) {
+      expect(collectionButtonClass({ count, hasActions: true }).split(" ")).toEqual([
+        "max-md:group-has-data-[sidebar=menu-badge]/menu-item:pr-18",
+        "md:group-has-data-[sidebar=menu-badge]/menu-item:pr-12",
+      ]);
+      expect(collectionButtonClass({ count, hasActions: false })).toBe("group-has-data-[sidebar=menu-badge]/menu-item:pr-12");
+    }
+  });
+});
+
+describe("sidebar row count text", () => {
+  test("up to three digits the count shows as is", () => {
+    expect(sidebarCountText(0)).toBe("0");
+    expect(sidebarCountText(7)).toBe("7");
+    expect(sidebarCountText(999)).toBe("999");
+  });
+
+  test("past three digits the count caps at 999+", () => {
+    expect(sidebarCountText(1000)).toBe("999+");
+    expect(sidebarCountText(1234)).toBe("999+");
+    expect(sidebarCountText(250_000)).toBe("999+");
   });
 });

@@ -654,6 +654,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "byok-test-before-save": {
+        description:
+          "在「设置 → AI 助手」中，「测试并保存」会在把你的端点保存到 Pinar Cloud 之前测试你填写的 URL、密钥和模型，只有至少一项能力通过时才保存；如果都没有通过，则不会保存任何内容，之前的配置保持不变。「测试连接」会对已保存的端点再次测试，并且只有你点击的按钮会显示进度。",
+        title: "你自己的端点在保存前先测试",
+      },
+    },
+    summary:
+      "你在 Pinar Cloud 的自有端点会在保存前先测试，并且只有你点击的按钮会显示进度。",
+    title: "自有端点保存前先测试",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

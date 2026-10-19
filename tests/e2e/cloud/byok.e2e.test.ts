@@ -8,7 +8,8 @@ import { signInCloudPro } from "../helpers/cloud-signin";
 //
 // The Cloud Pro fixture is signed in through the shared helper (which
 // re-arms its one-shot email challenge), so the file is order-independent:
-// save + connection test, then remove, then the 503 unavailable state.
+// test and save (a failed test first, then a passing one), the connection
+// test of the saved endpoint, then remove, then the 503 unavailable state.
 
 const UNTESTED = { error: null, ok: null, testedAt: null };
 
@@ -27,20 +28,17 @@ const UNCONFIGURED = {
   updatedAt: null,
 };
 
-// Save zeroes the capabilities (the test that follows records the results).
-const SAVED_ZEROED = {
-  baseUrl: "https://provider.example.test/v1",
+// The PUT tests before it saves: no capability passed, nothing was saved.
+const TEST_FAILED = {
   capabilities: {
-    chat: UNTESTED,
-    embeddings: { ...UNTESTED, dims: null },
-    tools: UNTESTED,
-    transcription: UNTESTED,
-    vision: UNTESTED,
+    chat: { error: "key_rejected", ok: false, testedAt: "2026-10-18T00:00:01.000Z" },
+    embeddings: { dims: null, error: "model_not_configured", ok: false, testedAt: "2026-10-18T00:00:01.000Z" },
+    tools: { error: "key_rejected", ok: false, testedAt: "2026-10-18T00:00:01.000Z" },
+    transcription: { error: "model_not_configured", ok: false, testedAt: "2026-10-18T00:00:01.000Z" },
+    vision: { error: "key_rejected", ok: false, testedAt: "2026-10-18T00:00:01.000Z" },
   },
-  configured: true,
-  keyLast4: "abcd",
-  models: { chat: "gpt-e2e", embedding: null, transcription: null },
-  updatedAt: "2026-10-18T00:00:00.000Z",
+  code: "byok_test_failed",
+  error: "No capability passed the connection test; nothing was saved",
 };
 
 // Mixed: chat with tools and vision ride the endpoint; embeddings fail with
@@ -105,7 +103,7 @@ function capabilityRow(card: Locator, name: string): Locator {
   return card.locator("div.py-2", { hasText: name });
 }
 
-test("Cloud Pro BYOK endpoint: save + test, capability origins, masked key, remove, and 503 hides the panel", async ({ page }) => {
+test("Cloud Pro BYOK endpoint: test and save, capability origins, masked key, remove, and 503 hides the panel", async ({ page }) => {
   const rawKey = "sk-e2e-byok-raw-key";
   const puts: Array<Record<string, unknown>> = [];
   let testCalls = 0;
@@ -113,14 +111,17 @@ test("Cloud Pro BYOK endpoint: save + test, capability origins, masked key, remo
   await page.route("**/api/byok", (route) => {
     if (route.request().method() === "PUT") {
       puts.push(route.request().postDataJSON() as Record<string, unknown>);
-      return route.fulfill({ json: SAVED_ZEROED });
+      // The first test fails (nothing saved); the second passes and saves.
+      return puts.length === 1
+        ? route.fulfill({ json: TEST_FAILED, status: 422 })
+        : route.fulfill({ json: MIXED });
     }
     if (route.request().method() === "DELETE") {
       deletes += 1;
       return route.fulfill({ json: UNCONFIGURED });
     }
-    // The initial read is the unconfigured view; the save + test answers
-    // below (and the 503 re-registration in the last phase) take over.
+    // The initial read is the unconfigured view; the test-and-save answers
+    // above (and the 503 re-registration in the last phase) take over.
     return route.fulfill({ json: UNCONFIGURED });
   });
   await page.route("**/api/byok/test", (route) => {
@@ -130,7 +131,7 @@ test("Cloud Pro BYOK endpoint: save + test, capability origins, masked key, remo
 
   await signInPro(page);
 
-  // --- Phase 1: save the endpoint; the connection test runs right after ---
+  // --- Phase 1: Test and save; a failed test saves nothing, a passing one saves ---
   const dialog = await openAiSettings(page);
   const byok = dialog.getByText("Your own endpoint", { exact: true });
   await expect(byok).toBeVisible();
@@ -142,21 +143,49 @@ test("Cloud Pro BYOK endpoint: save + test, capability origins, masked key, remo
   await dialog.getByLabel("Endpoint", { exact: true }).fill("https://provider.example.test/v1");
   await dialog.getByLabel("API key", { exact: true }).fill(rawKey);
   await dialog.getByLabel("Chat model", { exact: true }).fill("gpt-e2e");
-  await dialog.getByRole("button", { exact: true, name: "Save" }).click();
+  // Without a saved endpoint the only action is "Test and save".
+  await expect(dialog.getByRole("button", { exact: true, name: "Test connection" })).toHaveCount(0);
+  await dialog.getByRole("button", { exact: true, name: "Test and save" }).click();
 
-  // The save PUTs (sending the key once) and the test POSTs right after;
-  // the mixed view below is the test's answer.
+  // The 422: the tested capabilities show as an unsaved result, nothing was
+  // saved, and the drafts and the typed key stay for the retry.
   const card = dialog.locator("div.rounded-lg.border.bg-card.p-3", { hasText: "Capabilities" });
+  await expect(card.getByText("Test result, not saved", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Nothing was saved: no capability passed the connection test. Check the values and try again.", { exact: true })).toBeVisible();
+  await expect(capabilityRow(card, "Chat with tools").getByText("The endpoint rejected the API key.", { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel("API key", { exact: true })).toHaveValue(rawKey);
+  await expect(dialog.getByLabel("Chat model", { exact: true })).toHaveValue("gpt-e2e");
+  await expect(dialog.getByRole("button", { exact: true, name: "Remove endpoint" })).toHaveCount(0);
+  expect(testCalls).toBe(0);
+
+  await dialog.getByRole("button", { exact: true, name: "Test and save" }).click();
+
+  // The second PUT passed and saved the tested view; no POST follows it.
   await expect(capabilityRow(card, "Chat with tools").getByText("Your endpoint", { exact: true })).toBeVisible();
-  expect(puts).toHaveLength(1);
-  expect(puts[0]).toMatchObject({
-    apiKey: rawKey,
-    baseUrl: "https://provider.example.test/v1",
-    chatModel: "gpt-e2e",
-    embeddingModel: "",
-    transcriptionModel: "",
-  });
-  expect(testCalls).toBe(1);
+  await expect(card.getByText("Test result, not saved", { exact: true })).toHaveCount(0);
+  expect(puts).toHaveLength(2);
+  for (const put of puts) {
+    expect(put).toMatchObject({
+      apiKey: rawKey,
+      baseUrl: "https://provider.example.test/v1",
+      chatModel: "gpt-e2e",
+      embeddingModel: "",
+      transcriptionModel: "",
+    });
+  }
+  expect(testCalls).toBe(0);
+
+  // Saved and unchanged: the only action is "Test connection" (the POST).
+  await expect(dialog.getByRole("button", { exact: true, name: "Test and save" })).toHaveCount(0);
+  await dialog.getByRole("button", { exact: true, name: "Test connection" }).click();
+  await expect.poll(() => testCalls).toBe(1);
+  await expect(dialog.getByRole("button", { exact: true, name: "Test connection" })).toBeEnabled();
+  // An edit brings "Test and save" back.
+  await dialog.getByLabel("Chat model", { exact: true }).fill("gpt-e2e-2");
+  await expect(dialog.getByRole("button", { exact: true, name: "Test and save" })).toBeVisible();
+  await expect(dialog.getByRole("button", { exact: true, name: "Test connection" })).toHaveCount(0);
+  await dialog.getByLabel("Chat model", { exact: true }).fill("gpt-e2e");
+  await expect(dialog.getByRole("button", { exact: true, name: "Test connection" })).toBeVisible();
 
   // Mixed capabilities: the endpoint where the parts passed, the credits
   // with the cause where they failed, untested where nothing ran yet.
@@ -198,6 +227,6 @@ test("Cloud Pro BYOK endpoint: save + test, capability origins, masked key, remo
   await expect(reopened.getByText("Your own endpoint", { exact: true })).toHaveCount(0);
   await expect(reopened.getByText("Capabilities that pass the connection test use your endpoint with no credits; the rest uses Pinar credits.", { exact: true })).toHaveCount(0);
   await expect(reopened.getByRole("button", { exact: true, name: "Test connection" })).toHaveCount(0);
-  await expect(reopened.getByRole("button", { exact: true, name: "Save" })).toHaveCount(0);
+  await expect(reopened.getByRole("button", { exact: true, name: "Test and save" })).toHaveCount(0);
   await expect(reopened.getByLabel("Endpoint", { exact: true })).toHaveCount(0);
 });

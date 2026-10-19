@@ -657,6 +657,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "byok-test-before-save": {
+        description:
+          "In Einstellungen → KI-Assistent testet „Testen und speichern“ die eingegebene URL, den Schlüssel und die Modelle, bevor dein Endpoint in Pinar Cloud gespeichert wird, und speichert nur, wenn mindestens eine Fähigkeit besteht; besteht keine, wird nichts gespeichert und die vorherige Konfiguration bleibt bestehen. „Verbindung testen“ testet den gespeicherten Endpoint erneut, und nur der angeklickte Button zeigt den Fortschritt.",
+        title: "Dein eigener Endpoint wird vor dem Speichern getestet",
+      },
+    },
+    summary:
+      "Dein eigener Pinar-Cloud-Endpoint wird vor dem Speichern getestet, und nur der angeklickte Button zeigt den Fortschritt.",
+    title: "Eigener Endpoint vor dem Speichern getestet",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

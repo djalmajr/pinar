@@ -672,6 +672,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "byok-test-before-save": {
+        description:
+          "In Settings → AI Assistant, “Test and save” tests the URL, key, and models you typed before it saves your Pinar Cloud endpoint, and saves only when at least one capability passes; when none passes, nothing is saved and the previous setup stays in place. “Test connection” tests the saved endpoint again, and only the button you clicked shows the progress.",
+        title: "Your own endpoint is tested before it is saved",
+      },
+    },
+    summary:
+      "Your own Pinar Cloud endpoint is tested before it is saved, and only the button you clicked shows the progress.",
+    title: "Own endpoint tested before saving",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

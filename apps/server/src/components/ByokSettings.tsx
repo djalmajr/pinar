@@ -1,10 +1,15 @@
 // F5/S4: the BYOK endpoint subpanel of the Cloud AI section (F5 contract
 // §0, §2 and §5). It is self-contained, like AgentAccessSettings: it reads
-// GET /api/byok when open, drives the form (PUT and the POST /api/byok/test
-// the save triggers) and the delete (DELETE after an AlertDialog), and
-// shows the origin of every capability — the user's endpoint when it
-// passed the test (no credits), Pinar credits with the cause when it did
-// not, and untested while there is no result.
+// GET /api/byok when open, drives the form and the delete (DELETE after an
+// AlertDialog), and shows the origin of every capability — the user's
+// endpoint when it passed the test (no credits), Pinar credits with the
+// cause when it did not, and untested while there is no result.
+//
+// One action button at a time: "Test and save" (the PUT, which tests the
+// typed values and saves only when a capability passed) while there is no
+// saved endpoint or the form differs from it, "Test connection" (POST
+// /api/byok/test on the saved endpoint) otherwise. Only the button of the
+// running action shows the spinner; the other controls are just disabled.
 //
 // Availability (S4): with a 503 byok_unavailable the subpanel does not
 // appear, not even with a "coming soon" — the BYOK is an add-on and the
@@ -85,25 +90,28 @@ function byokNullableString(value: unknown): string | null {
  * or malformed answer) is null, so the subpanel degrades to hidden/empty
  * instead of rendering a wrong state.
  */
-export function byokViewFrom(value: unknown): ByokView | null {
-  if (!isRecord(value)) return null;
-  if (value.configured !== true && value.configured !== false) return null;
-  if (!isRecord(value.capabilities) || !isRecord(value.models)) return null;
-  const capabilities = value.capabilities;
+function byokCapabilitiesFrom(capabilities: Record<string, unknown>): ByokCapabilities {
   const embeddings = byokCapabilityFrom(capabilities.embeddings);
   const dims = isRecord(capabilities.embeddings) && typeof capabilities.embeddings.dims === "number"
     ? capabilities.embeddings.dims
     : null;
+  return {
+    chat: byokCapabilityFrom(capabilities.chat),
+    embeddings: { ...embeddings, dims },
+    tools: byokCapabilityFrom(capabilities.tools),
+    transcription: byokCapabilityFrom(capabilities.transcription),
+    vision: byokCapabilityFrom(capabilities.vision),
+  };
+}
+
+export function byokViewFrom(value: unknown): ByokView | null {
+  if (!isRecord(value)) return null;
+  if (value.configured !== true && value.configured !== false) return null;
+  if (!isRecord(value.capabilities) || !isRecord(value.models)) return null;
   const models = value.models;
   return {
     baseUrl: byokNullableString(value.baseUrl),
-    capabilities: {
-      chat: byokCapabilityFrom(capabilities.chat),
-      embeddings: { ...embeddings, dims },
-      tools: byokCapabilityFrom(capabilities.tools),
-      transcription: byokCapabilityFrom(capabilities.transcription),
-      vision: byokCapabilityFrom(capabilities.vision),
-    },
+    capabilities: byokCapabilitiesFrom(value.capabilities),
     configured: value.configured === true,
     keyLast4: byokNullableString(value.keyLast4),
     models: {
@@ -157,6 +165,15 @@ export function byokHidden(response: Response, value: unknown): boolean {
   return byokViewFrom(value) === null;
 }
 
+/**
+ * The capabilities a 422 byok_test_failed answer carries: the result of a
+ * test that was not saved (no capability passed). null for anything else.
+ */
+export function byokTestFailedCapabilities(value: unknown): ByokCapabilities | null {
+  if (!isRecord(value) || value.code !== "byok_test_failed" || !isRecord(value.capabilities)) return null;
+  return byokCapabilitiesFrom(value.capabilities);
+}
+
 /** The current view a 409 byok_changed answer carries (it reloads the subpanel). */
 export function byokChangedView(value: unknown): ByokView | null {
   if (!isRecord(value) || value.code !== "byok_changed") return null;
@@ -174,6 +191,8 @@ export function byokApiErrorKey(code: string | null | undefined): ServerMessageK
       return "byok.errorNotConfigured";
     case "byok_requires_pro":
       return "byok.errorRequiresPro";
+    case "byok_test_failed":
+      return "byok.errorTestFailed";
     case "byok_test_limited":
       return "byok.errorTestLimited";
     case "byok_unavailable":
@@ -202,10 +221,25 @@ function byokDraftsOf(view: ByokView): ByokDrafts {
   };
 }
 
-export type ByokBusy = "idle" | "removing" | "saving" | "testing";
+/**
+ * Whether the form differs from the saved endpoint: no saved endpoint yet,
+ * a draft that is not the saved value, a new key typed or "Change key"
+ * active. Then the action is "Test and save"; otherwise "Test connection".
+ */
+export function byokFormDirty(view: ByokView | null, drafts: ByokDrafts, keyDraft: string, keyEditing: boolean): boolean {
+  if (view === null || keyEditing || keyDraft !== "") return true;
+  const saved = byokDraftsOf(view);
+  return saved.baseUrl !== drafts.baseUrl
+    || saved.chatModel !== drafts.chatModel
+    || saved.embeddingModel !== drafts.embeddingModel
+    || saved.transcriptionModel !== drafts.transcriptionModel;
+}
+
+/** The action in progress: only its own button shows the spinner. */
+export type ByokAction = "remove" | "test" | "testSave";
 
 export interface ByokSettingsPanelProps {
-  busy: ByokBusy;
+  busy: ByokAction | null;
   drafts: ByokDrafts;
   /** The translated error to show (null while there is none). */
   error: string | null;
@@ -214,6 +248,8 @@ export interface ByokSettingsPanelProps {
   keyEditing: boolean;
   language: string;
   t: Translate;
+  /** The capabilities of the last test that was not saved (a 422); null otherwise. */
+  unsavedCapabilities: ByokCapabilities | null;
   /** null = not configured yet. */
   view: ByokView | null;
   onChangeKey: () => void;
@@ -245,23 +281,31 @@ export function ByokSettingsPanel({
   onSave,
   onTest,
   t,
+  unsavedCapabilities,
   view,
 }: ByokSettingsPanelProps) {
-  const writeBusy = busy !== "idle";
+  const writeBusy = busy !== null;
+  const dirty = byokFormDirty(view, drafts, keyDraft, keyEditing);
   const maskedKey = `••••${view?.keyLast4 ?? ""}`;
   const keyShown = view !== null && !keyEditing;
-  const capabilities = view === null ? null : (() => {
+  // A 422 shows the result of the test that was not saved in the same list,
+  // marked as such; otherwise the list is the saved endpoint's.
+  const shown = unsavedCapabilities ?? view?.capabilities ?? null;
+  const capabilities = shown === null ? null : (() => {
     const rows: Array<{ id: string; label: string; row: ByokCapabilityRow }> = [
-      { id: "chat-tools", label: t("byok.capabilityChatTools"), row: byokCapabilityRow([view.capabilities.tools, view.capabilities.chat]) },
-      { id: "vision", label: t("byok.capabilityVision"), row: byokCapabilityRow([view.capabilities.vision]) },
-      { id: "embeddings", label: t("byok.capabilityEmbeddings"), row: byokCapabilityRow([view.capabilities.embeddings]) },
-      { id: "transcription", label: t("byok.capabilityTranscription"), row: byokCapabilityRow([view.capabilities.transcription]) },
+      { id: "chat-tools", label: t("byok.capabilityChatTools"), row: byokCapabilityRow([shown.tools, shown.chat]) },
+      { id: "vision", label: t("byok.capabilityVision"), row: byokCapabilityRow([shown.vision]) },
+      { id: "embeddings", label: t("byok.capabilityEmbeddings"), row: byokCapabilityRow([shown.embeddings]) },
+      { id: "transcription", label: t("byok.capabilityTranscription"), row: byokCapabilityRow([shown.transcription]) },
     ];
     const testedAt = rows.map((item) => item.row.testedAt).find((date) => date !== null);
     return (
-      <div className="flex flex-col gap-2 rounded-lg border bg-card p-3">
+      <div className="flex flex-col gap-2 rounded-lg border bg-card p-3" data-unsaved={unsavedCapabilities !== null || undefined}>
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <SectionHeading>{t("byok.capabilities")}</SectionHeading>
+          <div className="flex flex-wrap items-center gap-2">
+            <SectionHeading>{t("byok.capabilities")}</SectionHeading>
+            {unsavedCapabilities !== null ? <Badge variant="outline">{t("byok.unsavedResult")}</Badge> : null}
+          </div>
           {testedAt !== undefined ? (
             <span className="text-xs text-muted-foreground">
               {t("byok.lastTested", { date: new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(testedAt)) })}
@@ -306,7 +350,8 @@ export function ByokSettingsPanel({
         className="flex flex-col gap-3 rounded-lg border bg-card p-4"
         onSubmit={(event) => {
           event.preventDefault();
-          onSave();
+          if (dirty) onSave();
+          else onTest();
         }}
       >
         <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">
@@ -375,20 +420,23 @@ export function ByokSettingsPanel({
         <p className="text-xs text-muted-foreground">{t("byok.modelDescription")}</p>
         <div className="flex flex-wrap items-center justify-between gap-2">
           {view !== null ? (
-            <Button disabled={writeBusy} size="sm" type="button" variant="destructiveOutline" onClick={onRemove}>
-              <Trash2Icon />
-              {t("byok.remove")}
+            <Button aria-busy={busy === "remove" || undefined} disabled={writeBusy} size="sm" type="button" variant="destructiveOutline" onClick={onRemove}>
+              {busy === "remove" ? <LoaderCircleIcon className="animate-spin" /> : <Trash2Icon />}
+              {busy === "remove" ? t("byok.removing") : t("byok.remove")}
             </Button>
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
-            <Button disabled={writeBusy || view === null} type="button" variant="outline" onClick={onTest}>
-              {busy === "testing" ? <LoaderCircleIcon className="animate-spin" /> : null}
-              {busy === "testing" ? t("settings.aiTesting") : t("settings.aiTestConnection")}
-            </Button>
-            <Button disabled={writeBusy} type="submit">
-              {busy === "saving" || busy === "testing" ? <LoaderCircleIcon className="animate-spin" /> : null}
-              {busy === "saving" || busy === "testing" ? t("settings.aiTesting") : t("settings.aiSave")}
-            </Button>
+            {dirty ? (
+              <Button aria-busy={busy === "testSave" || undefined} data-action="testSave" disabled={writeBusy} type="submit">
+                {busy === "testSave" ? <LoaderCircleIcon className="animate-spin" /> : null}
+                {busy === "testSave" ? t("settings.aiTesting") : t("byok.testAndSave")}
+              </Button>
+            ) : (
+              <Button aria-busy={busy === "test" || undefined} data-action="test" disabled={writeBusy} type="submit" variant="outline">
+                {busy === "test" ? <LoaderCircleIcon className="animate-spin" /> : null}
+                {busy === "test" ? t("settings.aiTesting") : t("settings.aiTestConnection")}
+              </Button>
+            )}
           </div>
         </div>
       </form>
@@ -410,7 +458,8 @@ export function ByokSettings({ open }: { open: boolean }) {
   const [drafts, setDrafts] = useState<ByokDrafts>(BYOK_DRAFTS_EMPTY);
   const [keyDraft, setKeyDraft] = useState("");
   const [keyEditing, setKeyEditing] = useState(false);
-  const [busy, setBusy] = useState<ByokBusy>("idle");
+  const [busy, setBusy] = useState<ByokAction | null>(null);
+  const [unsavedCapabilities, setUnsavedCapabilities] = useState<ByokCapabilities | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   // Every open and close starts a new generation. A request that began in an
@@ -441,6 +490,7 @@ export function ByokSettings({ open }: { open: boolean }) {
     setDrafts(parsed === null ? BYOK_DRAFTS_EMPTY : byokDraftsOf(parsed));
     setKeyDraft("");
     setKeyEditing(false);
+    setUnsavedCapabilities(null);
     setError(null);
     setStatus("ready");
   }, []);
@@ -453,7 +503,8 @@ export function ByokSettings({ open }: { open: boolean }) {
       setDrafts(BYOK_DRAFTS_EMPTY);
       setKeyDraft("");
       setKeyEditing(false);
-      setBusy("idle");
+      setBusy(null);
+      setUnsavedCapabilities(null);
       setError(null);
       setRemoveOpen(false);
       return;
@@ -463,14 +514,29 @@ export function ByokSettings({ open }: { open: boolean }) {
     return () => controller.abort();
   }, [load, open]);
 
+  // A 409 byok_changed means the settings changed elsewhere: it reloads the
+  // view and the drafts (carried by the answer, refetched otherwise) and
+  // shows the cause. Returns false when the answer is not a 409.
+  async function changedElsewhere(opened: number, value: unknown): Promise<boolean> {
+    if (byokErrorKey(value) !== "byok_changed") return false;
+    const carried = byokChangedView(value);
+    if (carried !== null) {
+      setView(carried.configured ? carried : null);
+      setDrafts(byokDraftsOf(carried));
+    } else {
+      await load(opened);
+      if (opened !== generation.current) return true;
+    }
+    setError(t("byok.errorChanged"));
+    return true;
+  }
+
   // The answer of POST /api/byok/test: the new view. The test runs on the
-  // saved settings, so it updates the view and leaves the drafts alone —
-  // unsaved edits survive it. A 409 byok_changed means the settings changed
-  // elsewhere: it reloads the view and the drafts (carried by the answer,
-  // refetched otherwise) and shows the cause; anything else shows its own
-  // error text.
+  // saved settings, so it updates the view and leaves the drafts alone.
+  // Anything else than a view or a 409 shows its own error text.
   async function runTest(opened: number) {
-    setBusy("testing");
+    setBusy("test");
+    setUnsavedCapabilities(null);
     setError(null);
     try {
       const response = await fetch("/api/byok/test", { method: "POST" });
@@ -483,36 +549,27 @@ export function ByokSettings({ open }: { open: boolean }) {
           return;
         }
       }
-      const code = byokErrorKey(value);
-      if (code === "byok_changed") {
-        const carried = byokChangedView(value);
-        if (carried !== null) {
-          setView(carried.configured ? carried : null);
-          setDrafts(byokDraftsOf(carried));
-        } else {
-          await load(opened);
-          if (opened !== generation.current) return;
-        }
-        setError(t("byok.errorChanged"));
-        return;
-      }
-      setError(t(byokApiErrorKey(code)));
+      if (await changedElsewhere(opened, value)) return;
+      setError(t(byokApiErrorKey(byokErrorKey(value))));
     } catch {
       if (opened !== generation.current) return;
       setError(t("byok.errorUnknown"));
     } finally {
-      if (opened === generation.current) setBusy("idle");
+      if (opened === generation.current) setBusy(null);
     }
   }
 
-  // PUT /api/byok, then the test (the save zeroes the capabilities, so the
-  // test is what records the new results — F5/S1). The key is sent only
-  // when the user typed a new one; it leaves the state as soon as the save
-  // lands, and it never reaches an error message or a toast.
+  // PUT /api/byok tests the typed values and saves them only when at least
+  // one capability passed. A 422 byok_test_failed saved nothing: the tested
+  // capabilities show as an unsaved result and the drafts and the typed key
+  // stay, to fix and try again. The key is sent only when the user typed a
+  // new one; it leaves the state as soon as a save lands, and it never
+  // reaches an error message or a toast.
   async function save() {
-    if (busy !== "idle") return;
+    if (busy !== null) return;
     const opened = generation.current;
-    setBusy("saving");
+    setBusy("testSave");
+    setUnsavedCapabilities(null);
     setError(null);
     try {
       const response = await fetch("/api/byok", {
@@ -520,7 +577,8 @@ export function ByokSettings({ open }: { open: boolean }) {
           baseUrl: drafts.baseUrl,
           chatModel: drafts.chatModel,
           embeddingModel: drafts.embeddingModel,
-          ...(keyDraft !== "" ? { apiKey: keyDraft } : {}),
+          // A pasted key goes without the whitespace at its ends.
+          ...(keyDraft.trim() !== "" ? { apiKey: keyDraft.trim() } : {}),
           transcriptionModel: drafts.transcriptionModel,
         }),
         headers: { "Content-Type": "application/json" },
@@ -529,33 +587,39 @@ export function ByokSettings({ open }: { open: boolean }) {
       const value: unknown = await response.json().catch(() => null);
       if (opened !== generation.current) return;
       if (!response.ok) {
+        const failed = byokTestFailedCapabilities(value);
+        if (failed !== null) {
+          setUnsavedCapabilities(failed);
+          setError(t("byok.errorTestFailed"));
+          return;
+        }
+        if (await changedElsewhere(opened, value)) return;
         setError(t(byokApiErrorKey(byokErrorKey(value))));
-        setBusy("idle");
         return;
       }
       const parsed = byokViewFrom(value);
       if (parsed === null) {
         setError(t("byok.errorUnknown"));
-        setBusy("idle");
         return;
       }
       setView(parsed.configured ? parsed : null);
       setDrafts(byokDraftsOf(parsed));
       setKeyDraft("");
       setKeyEditing(false);
-      await runTest(opened);
     } catch {
       if (opened !== generation.current) return;
       setError(t("byok.errorUnknown"));
-      setBusy("idle");
+    } finally {
+      if (opened === generation.current) setBusy(null);
     }
   }
 
-  // DELETE /api/byok after the AlertDialog.
+  // DELETE /api/byok after the AlertDialog, which stays open (its action
+  // button busy) until the answer lands.
   async function remove() {
-    if (busy !== "idle") return;
+    if (busy !== null) return;
     const opened = generation.current;
-    setBusy("removing");
+    setBusy("remove");
     setError(null);
     try {
       const response = await fetch("/api/byok", { method: "DELETE" });
@@ -567,24 +631,25 @@ export function ByokSettings({ open }: { open: boolean }) {
       setDrafts(BYOK_DRAFTS_EMPTY);
       setKeyDraft("");
       setKeyEditing(false);
+      setUnsavedCapabilities(null);
       setRemoveOpen(false);
       toast.success(t("byok.removed"));
     } catch {
       if (opened !== generation.current) return;
       setError(t("byok.removeError"));
     } finally {
-      if (opened === generation.current) setBusy("idle");
+      if (opened === generation.current) setBusy(null);
     }
   }
 
   function changeKey() {
-    if (busy !== "idle") return;
+    if (busy !== null) return;
     setKeyEditing(true);
     setKeyDraft("");
   }
 
   function test() {
-    if (busy !== "idle" || view === null) return;
+    if (busy !== null || view === null) return;
     void runTest(generation.current);
   }
 
@@ -607,26 +672,60 @@ export function ByokSettings({ open }: { open: boolean }) {
         }}
         onTest={test}
         t={t}
+        unsavedCapabilities={unsavedCapabilities}
         view={view}
       />
-      <AlertDialog open={removeOpen} onOpenChange={(next) => {
-        if (!next) setRemoveOpen(false);
-      }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("byok.removeTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("byok.removeDescription")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => {
-              void remove();
-            }}>
-              {t("byok.remove")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ByokRemoveDialog
+        busy={busy}
+        open={removeOpen}
+        t={t}
+        onCancel={() => setRemoveOpen(false)}
+        onConfirm={() => {
+          void remove();
+        }}
+      />
     </div>
+  );
+}
+
+export interface ByokRemoveDialogProps {
+  busy: ByokAction | null;
+  open: boolean;
+  t: Translate;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+/** The confirmation of the delete: the same busy rule as the form — only
+ *  its action button shows the spinner while the DELETE runs, the cancel
+ *  is just disabled, and the dialog does not close in the middle. */
+export function ByokRemoveDialog({ busy, onCancel, onConfirm, open, t }: ByokRemoveDialogProps) {
+  const removing = busy === "remove";
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => {
+      if (!next && busy === null) onCancel();
+    }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("byok.removeTitle")}</AlertDialogTitle>
+          <AlertDialogDescription>{t("byok.removeDescription")}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy !== null}>{t("common.cancel")}</AlertDialogCancel>
+          <AlertDialogAction
+            aria-busy={removing || undefined}
+            disabled={busy !== null}
+            variant="destructive"
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
+          >
+            {removing ? <LoaderCircleIcon className="animate-spin" /> : null}
+            {removing ? t("byok.removing") : t("byok.remove")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

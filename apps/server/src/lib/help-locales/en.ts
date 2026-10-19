@@ -1155,7 +1155,7 @@ const locale = {
         {
           heading: "The connection test and the capabilities",
           paragraphs: [
-            "Saving the endpoint runs the test right after the save, and the “Test connection” button runs it on the saved endpoint. The test checks four capabilities: “Chat with tools”, “Vision”, “Embeddings”, and “Transcription”.",
+            "“Test and save” tests the values you typed and saves the endpoint only when at least one capability passes; when none passes, nothing is saved, the previous setup stays in place, and the list shows the test result as not saved. With the endpoint saved and no changes, the “Test connection” button tests the saved endpoint again. The test checks four capabilities: “Chat with tools”, “Vision”, “Embeddings”, and “Transcription”.",
             "Each capability shows one of three states: “Your endpoint”, when it passed; “Pinar credits”, when it did not pass, with a short cause; or “Not tested”. There is a limit on how many tests you can run in a row; when you reach it, wait a moment and try again.",
           ],
         },

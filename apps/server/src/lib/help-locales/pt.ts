@@ -1158,7 +1158,7 @@ const locale = {
         {
           heading: "O teste de conexão e as capacidades",
           paragraphs: [
-            "Salvar o endpoint roda o teste em seguida, e o botão “Testar conexão” roda o teste no endpoint salvo. O teste confere quatro capacidades: “Chat com ferramentas”, “Visão”, “Embeddings” e “Transcrição”.",
+            "“Testar e salvar” testa os valores digitados e só grava o endpoint quando ao menos uma capacidade passa; se nenhuma passar, nada é salvo, a configuração anterior continua valendo e a lista mostra o resultado do teste como não salvo. Com o endpoint salvo e sem alterações, o botão “Testar conexão” testa de novo o endpoint salvo. O teste confere quatro capacidades: “Chat com ferramentas”, “Visão”, “Embeddings” e “Transcrição”.",
             "Cada capacidade mostra um de três estados: “Seu endpoint”, quando passou; “Créditos do Pinar”, quando não passou, com a causa curta; ou “Não testado”. Há limite de testes em sequência; quando você atinge, aguarde um momento e tente de novo.",
           ],
         },

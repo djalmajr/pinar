@@ -62,11 +62,13 @@ function getLanguage(language: string) {
     return name;
   }
 
-  if (name in languages) {
+  // Own keys only: a fence from the model named `__proto__` or `constructor`
+  // must not reach the inherited members of these maps.
+  if (Object.hasOwn(languages, name)) {
     return name as keyof typeof languages;
   }
 
-  return aliases[name] ?? null;
+  return Object.hasOwn(aliases, name) ? (aliases[name] ?? null) : null;
 }
 
 // Loads a language and returns a highlighter for it, or null for a language

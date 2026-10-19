@@ -1159,7 +1159,7 @@ const locale = {
         {
           heading: "Der Verbindungstest und die Fähigkeiten",
           paragraphs: [
-            "Beim Speichern des Endpoints läuft der Test gleich danach, und der Button „Verbindung testen“ führt ihn auf dem gespeicherten Endpoint aus. Der Test prüft vier Fähigkeiten: „Chat mit Tools“, „Vision“, „Embeddings“ und „Transkription“.",
+            "„Testen und speichern“ testet die eingegebenen Werte und speichert den Endpoint nur, wenn mindestens eine Fähigkeit besteht; besteht keine, wird nichts gespeichert, die vorherige Konfiguration bleibt bestehen und die Liste zeigt das Testergebnis als nicht gespeichert. Ist der Endpoint gespeichert und unverändert, testet der Button „Verbindung testen“ den gespeicherten Endpoint erneut. Der Test prüft vier Fähigkeiten: „Chat mit Tools“, „Vision“, „Embeddings“ und „Transkription“.",
             "Jede Fähigkeit zeigt einen von drei Zuständen: „Dein Endpoint“, wenn sie bestanden hat; „Pinar-Credits“, wenn sie nicht bestanden hat, mit kurzer Ursache; oder „Nicht getestet“. Es gibt ein Limit für Tests in Folge; wenn du es erreichst, warte einen Moment und versuche es erneut.",
           ],
         },

@@ -23,6 +23,23 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.9.1": {
+      changes: {
+        "byok-test-before-save": {
+          description:
+            "Dans Paramètres → Assistant IA, « Tester et enregistrer » teste l’URL, la clé et les modèles saisis avant d’enregistrer votre endpoint dans Pinar Cloud, et n’enregistre que si au moins une capacité passe ; si aucune ne passe, rien n’est enregistré et la configuration précédente reste en place. « Tester la connexion » teste de nouveau l’endpoint enregistré, et seul le bouton cliqué affiche la progression.",
+          title: "Votre propre endpoint est testé avant d’être enregistré",
+        },
+        "assistant-slow-models": {
+          description:
+            "L’assistant ne termine plus une réponse après 60 secondes fixes : il attend tant que le modèle continue de répondre et s’arrête après 1 minute sans aucune réponse, 3 minutes dans la même tentative ou 4 minutes au total et propose « Réessayer ». Après une erreur, « Consultation en cours… » ne reste plus dans la conversation. Le bouton de l’assistant dans l’en-tête n’est plus que l’icône, sans fond.",
+          title: "L’assistant attend un modèle lent qui continue de répondre",
+        },
+      },
+      summary:
+        "Votre propre endpoint Pinar Cloud est testé avant d’être enregistré, et seul le bouton cliqué affiche la progression. L’assistant attend un modèle lent tant qu’il continue de répondre, n’affiche plus « Consultation en cours… » après une erreur, et le bouton de l’assistant dans l’en-tête n’est plus que l’icône.",
+      title: "Endpoint personnel testé avant l’enregistrement et un assistant qui attend les modèles lents",
+    },
     "v0.9.0": {
       title: "Votre propre endpoint d’IA dans Pinar Cloud",
       summary:
@@ -659,11 +676,6 @@ const locale = {
   },
   upcoming: {
     changes: {
-      "assistant-slow-models": {
-        description:
-          "L’assistant ne termine plus une réponse après 60 secondes fixes : il attend tant que le modèle continue de répondre et s’arrête après 1 minute sans aucune réponse, 3 minutes dans la même tentative ou 4 minutes au total et propose « Réessayer ». Après une erreur, « Consultation en cours… » ne reste plus dans la conversation. Le bouton de l’assistant dans l’en-tête n’est plus que l’icône, sans fond.",
-        title: "L’assistant attend un modèle lent qui continue de répondre",
-      },
       "assistant-panel-steps": {
         description:
           "Pendant que l’assistant travaille, le panneau montre ce qu’il fait, avec chaque consultation comme une étape : une étape terminée reçoit une coche, et une étape qui a échoué indique « non terminé ». Quand la réponse arrive, les étapes se replient en une ligne, comme « 3 étapes », que vous pouvez ouvrir. Après 20 secondes sans progrès, le panneau indique que cela prend plus de temps que d’habitude. Arrêter une réponse garde ce qui était déjà écrit et la marque « Réponse interrompue », avec « Réessayer ». Les blocs de code des réponses ont un bouton pour copier, une réponse qui échoue montre « Réessayer » sous forme d’icône à côté du message, et le manque de crédits s’affiche dans une carte à part avec le lien pour en acheter.",
@@ -671,8 +683,8 @@ const locale = {
       },
     },
     summary:
-      "L’assistant attend un modèle lent tant qu’il continue de répondre, n’affiche plus « Consultation en cours… » après une erreur, et le bouton de l’assistant dans l’en-tête n’est plus que l’icône.",
-    title: "L’assistant attend les modèles lents",
+      "Le panneau de l’assistant affiche chaque consultation comme une étape, replie les étapes quand la réponse arrive, prévient quand cela prend plus de temps que d’habitude et conserve la réponse interrompue avec la possibilité de réessayer.",
+    title: "L’assistant montre chaque étape et garde les réponses interrompues",
   },
 } satisfies ReleaseLocale;
 

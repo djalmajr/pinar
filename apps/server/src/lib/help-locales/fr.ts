@@ -1159,7 +1159,7 @@ const locale = {
         {
           heading: "Le test de connexion et les capacités",
           paragraphs: [
-            "L’enregistrement de l’endpoint lance le test juste après, et le bouton « Tester la connexion » le relance sur l’endpoint enregistré. Le test vérifie quatre capacités : « Chat avec outils », « Vision », « Embeddings » et « Transcription ».",
+            "« Tester et enregistrer » teste les valeurs saisies et n’enregistre l’endpoint que si au moins une capacité passe ; si aucune ne passe, rien n’est enregistré, la configuration précédente reste en place et la liste affiche le résultat du test comme non enregistré. Avec l’endpoint enregistré et sans modification, le bouton « Tester la connexion » teste de nouveau l’endpoint enregistré. Le test vérifie quatre capacités : « Chat avec outils », « Vision », « Embeddings » et « Transcription ».",
             "Chaque capacité affiche un des trois états : « Votre endpoint » quand elle a passé ; « Crédits Pinar » quand elle n’a pas passé, avec la cause courte ; ou « Non testé ». Il y a une limite de tests en série ; quand vous l’atteignez, attendez un instant et réessayez.",
           ],
         },

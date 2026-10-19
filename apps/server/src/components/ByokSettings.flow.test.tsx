@@ -79,14 +79,18 @@ afterAll(() => {
 const { ByokSettings } = await import("./ByokSettings");
 
 type PanelProps = {
-  busy: string;
+  busy: string | null;
   drafts: { baseUrl: string; chatModel: string; embeddingModel: string; transcriptionModel: string };
   error: string | null;
   keyDraft: string;
+  keyEditing: boolean;
+  onChangeKey: () => void;
   onDraftsChange: (drafts: PanelProps["drafts"]) => void;
+  onKeyDraftChange: (value: string) => void;
   onSave: () => void;
   onTest: () => void;
-  view: { capabilities: { chat: { testedAt: string | null } }; models: { chat: string | null } } | null;
+  unsavedCapabilities: { chat: { error: string | null; ok: boolean | null; testedAt: string | null } } | null;
+  view: { capabilities: { chat: { testedAt: string | null } }; keyLast4: string | null; models: { chat: string | null } } | null;
 };
 
 function render(open = true) {
@@ -173,11 +177,11 @@ describe("ByokSettings request flow", () => {
     before.onDraftsChange({ ...before.drafts, chatModel: "my-unsaved-model" });
 
     panel().onTest();
-    expect(panel().busy).toBe("testing");
+    expect(panel().busy).toBe("test");
     await settle();
 
     const after = panel();
-    expect(after.busy).toBe("idle");
+    expect(after.busy).toBeNull();
     expect(after.drafts.chatModel).toBe("my-unsaved-model");
     expect(after.view?.capabilities.chat.testedAt).toBe("2026-10-18T12:00:00.000Z");
   });
@@ -211,17 +215,17 @@ describe("ByokSettings request flow", () => {
     await openWith("current-model");
     panel().onTest();
     await settle();
-    expect(panel().busy).toBe("testing");
+    expect(panel().busy).toBe("test");
 
     // Close and reopen while the first test is still out.
     expect(render(false)).toBeNull();
     await openWith("current-model");
     const reopened = panel();
-    expect(reopened.busy).toBe("idle");
+    expect(reopened.busy).toBeNull();
     reopened.onDraftsChange({ ...reopened.drafts, chatModel: "unsaved-new-model" });
     // A second test starts in the reopened form.
     panel().onTest();
-    expect(panel().busy).toBe("testing");
+    expect(panel().busy).toBe("test");
 
     oldTest.release(Response.json(byokView("old-test-model", "2026-10-17T00:00:00.000Z")));
     await settle();
@@ -231,11 +235,11 @@ describe("ByokSettings request flow", () => {
     expect(after.drafts.chatModel).toBe("unsaved-new-model");
     expect(after.view?.models.chat).toBe("current-model");
     expect(after.view?.capabilities.chat.testedAt).toBeNull();
-    expect(after.busy).toBe("testing");
+    expect(after.busy).toBe("test");
 
     newTest.release(Response.json(byokView("current-model", "2026-10-18T12:00:00.000Z")));
     await settle();
-    expect(panel().busy).toBe("idle");
+    expect(panel().busy).toBeNull();
     expect(panel().view?.capabilities.chat.testedAt).toBe("2026-10-18T12:00:00.000Z");
     expect(panel().drafts.chatModel).toBe("unsaved-new-model");
   });
@@ -247,7 +251,7 @@ describe("ByokSettings request flow", () => {
     const before = panel();
     before.onDraftsChange({ ...before.drafts, chatModel: "saved-before-close" });
     panel().onSave();
-    expect(panel().busy).toBe("saving");
+    expect(panel().busy).toBe("testSave");
 
     render(false);
     await openWith("current-model");
@@ -259,7 +263,131 @@ describe("ByokSettings request flow", () => {
 
     const after = panel();
     expect(after.drafts.chatModel).toBe("typed-after-reopen");
-    expect(after.busy).toBe("idle");
+    expect(after.busy).toBeNull();
     expect(calls.filter((call) => call.startsWith("POST"))).toEqual([]);
+  });
+
+  test("Test and save: a 422 saved nothing, keeps the drafts and the typed key, and shows the unsaved result", async () => {
+    const failedCapabilities = {
+      chat: { error: "key_rejected", ok: false, testedAt: "2026-10-19T09:00:00.000Z" },
+      embeddings: { dims: null, error: "key_rejected", ok: false, testedAt: "2026-10-19T09:00:00.000Z" },
+      tools: { error: "key_rejected", ok: false, testedAt: "2026-10-19T09:00:00.000Z" },
+      transcription: { error: "model_not_configured", ok: false, testedAt: "2026-10-19T09:00:00.000Z" },
+      vision: { error: "key_rejected", ok: false, testedAt: "2026-10-19T09:00:00.000Z" },
+    };
+    const bodies: unknown[] = [];
+    serve(async (method, _url, body) => {
+      if (method === "PUT") {
+        bodies.push(body);
+        return Response.json(
+          { capabilities: failedCapabilities, code: "byok_test_failed", error: "No capability passed the connection test; nothing was saved" },
+          { status: 422 },
+        );
+      }
+      return Response.json(byokView("saved-model", "2026-10-18T12:00:00.000Z"));
+    });
+    await openWith("saved-model");
+    panel().onChangeKey();
+    panel().onKeyDraftChange("sk-typed-secret-0000");
+    panel().onDraftsChange({ ...panel().drafts, chatModel: "typo-model" });
+
+    panel().onSave();
+    expect(panel().busy).toBe("testSave");
+    await settle();
+
+    const after = panel();
+    expect(after.busy).toBeNull();
+    expect(after.error).toBe("byok.errorTestFailed");
+    expect(after.error).not.toContain("sk-typed-secret-0000");
+    expect(after.drafts.chatModel).toBe("typo-model");
+    expect(after.keyDraft).toBe("sk-typed-secret-0000");
+    expect(after.keyEditing).toBe(true);
+    expect(after.unsavedCapabilities?.chat).toEqual({ error: "key_rejected", ok: false, testedAt: "2026-10-19T09:00:00.000Z" });
+    // The saved view is untouched, and no POST test followed the PUT.
+    expect(after.view?.models.chat).toBe("saved-model");
+    expect(after.view?.capabilities.chat.testedAt).toBe("2026-10-18T12:00:00.000Z");
+    expect(calls.filter((call) => call.startsWith("POST"))).toEqual([]);
+    expect(bodies).toEqual([{
+      apiKey: "sk-typed-secret-0000",
+      baseUrl: "https://provider.example.test/v1",
+      chatModel: "typo-model",
+      embeddingModel: "",
+      transcriptionModel: "",
+    }]);
+  });
+
+  test("Test and save: a success saves the tested view, clears the key and the unsaved result, and runs no second test", async () => {
+    let puts = 0;
+    serve(async (method) => {
+      if (method !== "PUT") return Response.json(byokView("saved-model"));
+      puts += 1;
+      return puts === 1
+        ? Response.json({ capabilities: byokView("x", "2026-10-19T09:00:00.000Z").capabilities, code: "byok_test_failed", error: "nothing saved" }, { status: 422 })
+        : Response.json({ ...byokView("fixed-model", "2026-10-19T09:05:00.000Z"), keyLast4: "1111" });
+    });
+    await openWith("saved-model");
+    panel().onChangeKey();
+    panel().onKeyDraftChange("sk-new-key-1111");
+    panel().onDraftsChange({ ...panel().drafts, chatModel: "fixed-model" });
+    panel().onSave();
+    await settle();
+    expect(panel().unsavedCapabilities).not.toBeNull();
+    expect(panel().keyDraft).toBe("sk-new-key-1111");
+
+    panel().onSave();
+    expect(panel().busy).toBe("testSave");
+    await settle();
+
+    const after = panel();
+    expect(after.busy).toBeNull();
+    expect(after.error).toBeNull();
+    expect(after.keyDraft).toBe("");
+    expect(after.keyEditing).toBe(false);
+    expect(after.unsavedCapabilities).toBeNull();
+    expect(after.view?.keyLast4).toBe("1111");
+    expect(after.view?.capabilities.chat.testedAt).toBe("2026-10-19T09:05:00.000Z");
+    expect(after.drafts.chatModel).toBe("fixed-model");
+    expect(calls.filter((call) => call.startsWith("POST"))).toEqual([]);
+  });
+
+  test("Test and save: a byok_changed answer reloads the view and the drafts, like the test", async () => {
+    serve(async (method) =>
+      method === "PUT"
+        ? Response.json({ code: "byok_changed", view: byokView("changed-elsewhere") }, { status: 409 })
+        : Response.json(byokView("saved-model")));
+    await openWith("saved-model");
+    panel().onDraftsChange({ ...panel().drafts, chatModel: "my-unsaved-model" });
+    panel().onSave();
+    await settle();
+    const after = panel();
+    expect(after.busy).toBeNull();
+    expect(after.drafts.chatModel).toBe("changed-elsewhere");
+    expect(after.view?.models.chat).toBe("changed-elsewhere");
+    expect(after.error).toBe("byok.errorChanged");
+  });
+
+  test("Test and save sends the pasted key without the whitespace at its ends", async () => {
+    const bodies: unknown[] = [];
+    serve(async (method, _url, body) => {
+      if (method === "PUT") {
+        bodies.push(body);
+        return Response.json(byokView("saved-model", "2026-10-19T09:00:00.000Z"));
+      }
+      return Response.json(byokView("saved-model"));
+    });
+    await openWith("saved-model");
+    panel().onChangeKey();
+    panel().onKeyDraftChange("  sk-pasted-key-2222\n");
+    panel().onSave();
+    await settle();
+    // Whitespace only is no new key: the PUT omits it and keeps the stored one.
+    panel().onChangeKey();
+    panel().onKeyDraftChange(" \n ");
+    panel().onSave();
+    await settle();
+    expect(bodies).toEqual([
+      { apiKey: "sk-pasted-key-2222", baseUrl: "https://provider.example.test/v1", chatModel: "saved-model", embeddingModel: "", transcriptionModel: "" },
+      { baseUrl: "https://provider.example.test/v1", chatModel: "saved-model", embeddingModel: "", transcriptionModel: "" },
+    ]);
   });
 });

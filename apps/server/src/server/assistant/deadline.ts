@@ -7,7 +7,9 @@
 //   of text, reasoning, tool input or call, a step start or end, or a raw
 //   provider chunk). While a tool runs the clock stands still (the tool
 //   stays under the caps below);
-// - a 180 s cap on the model attempt (the turn's streamText);
+// - a 180 s cap on each model attempt: the turn's first model, and again
+//   for every other model the chain starts (budget.markAttempt), each one
+//   bounded by what is left of the budget;
 // - a 240 s budget for the whole turn, created when the HTTP request enters
 //   the turn route (http.ts): the work before the stream, the attempt, the
 //   tools and the chain's fallback. A fallback uses what is LEFT, never a
@@ -56,7 +58,8 @@ export class AssistantTurnTimeoutError extends Error {
  * The turn's 240 s budget, created on entry (the start of the HTTP request).
  * The signal aborts at the deadline: the awaits before the model race it
  * (withinAssistantTurnBudget), so a hung wait before the stream ends with
- * the `turn` timeout instead of holding the request open. `dispose` disarms
+ * the `turn` timeout instead of holding the request open; a write a later
+ * turn would see never races it (afterAssistantTurnWrite). `dispose` disarms
  * the timer when whoever created the budget is done with it.
  */
 export interface AssistantTurnBudget {
@@ -66,6 +69,10 @@ export interface AssistantTurnBudget {
   // Progress seen where the turn cannot see it (the chain holds a link's
   // parts until it commits): it rearms the turn's inactivity clock.
   markProgress(): void;
+  // The chain started another model (a fallback link): the turn rearms the
+  // attempt's cap for it, so one model's cap never cuts the next one.
+  markAttempt(): void;
+  onAttempt(listener: () => void): () => void;
   onProgress(listener: () => void): () => void;
   remainingMs(): number;
   signal: AbortSignal;
@@ -81,6 +88,7 @@ export function createAssistantTurnBudget(
   if (totalMs <= 0) controller.abort(new AssistantTurnTimeoutError("turn"));
   else handle = clock.setTimeout(() => controller.abort(new AssistantTurnTimeoutError("turn")), totalMs);
   const listeners = new Set<() => void>();
+  const attemptListeners = new Set<() => void>();
   return {
     clock,
     deadlineAt,
@@ -88,8 +96,15 @@ export function createAssistantTurnBudget(
       if (handle !== null) clock.clearTimeout(handle);
       handle = null;
     },
+    markAttempt: () => {
+      for (const listener of attemptListeners) listener();
+    },
     markProgress: () => {
       for (const listener of listeners) listener();
+    },
+    onAttempt: (listener) => {
+      attemptListeners.add(listener);
+      return () => attemptListeners.delete(listener);
     },
     onProgress: (listener) => {
       listeners.add(listener);
@@ -138,4 +153,27 @@ export function withinAssistantTurnBudget<T>(
       },
     );
   });
+}
+
+/**
+ * Runs a write a later turn would see (the thread, the user's question)
+ * without racing the turn's budget: the turn waits for it to settle, with
+ * success or an error, and only then reads the budget. With the budget
+ * spent by then it rejects with the `turn` timeout (an error of the write
+ * included), so the caller answers 504 and frees what it holds only once
+ * nothing of the write is still pending. With the budget already spent the
+ * write never starts. A hung write holds the turn (and its thread) for as
+ * long as it hangs: no 504 leaves before it.
+ */
+export async function afterAssistantTurnWrite<T>(budget: AssistantTurnBudget, work: () => Promise<T>): Promise<T> {
+  if (budget.signal.aborted) throw new AssistantTurnTimeoutError("turn");
+  let value: T;
+  try {
+    value = await work();
+  } catch (error) {
+    if (budget.signal.aborted) throw new AssistantTurnTimeoutError("turn");
+    throw error;
+  }
+  if (budget.signal.aborted) throw new AssistantTurnTimeoutError("turn");
+  return value;
 }

@@ -335,11 +335,13 @@ const messages: UiMessages = {
   "byok.apiKeyDescription":
     "Verschlüsselt in Pinar Cloud; es werden nur die letzten vier Zeichen angezeigt.",
   "byok.changeKey": "Schlüssel ändern",
+  "byok.testAndSave": "Testen und speichern",
   "byok.chatModel": "Chat-Modell",
   "byok.embeddingModel": "Embedding-Modell",
   "byok.modelDescription":
     "Optional. Leer lassen, um für diese Fähigkeit Pinar-Credits zu nutzen.",
   "byok.remove": "Endpoint entfernen",
+  "byok.removing": "Wird entfernt…",
   "byok.removeTitle": "Endpoint entfernen?",
   "byok.removeDescription":
     "Der gespeicherte Schlüssel und die getesteten Fähigkeiten werden entfernt. Bis du einen neuen Endpoint speicherst, beantworten Pinar-Credits alle KI-Vorgänge.",
@@ -353,6 +355,7 @@ const messages: UiMessages = {
   "byok.sourceEndpoint": "Dein Endpoint",
   "byok.sourceCredits": "Pinar-Credits",
   "byok.sourceUntested": "Nicht getestet",
+  "byok.unsavedResult": "Testergebnis, nicht gespeichert",
   "byok.lastTested": "Zuletzt getestet {date}",
   "byok.errorGeneric": "Dein eigener Endpoint ist bei dieser Anfrage fehlgeschlagen.",
   "byok.useCredits": "Pinar-Credits verwenden",
@@ -363,8 +366,9 @@ const messages: UiMessages = {
   "byok.errorNotConfigured": "Speichere den Endpoint, bevor du die Verbindung testest.",
   "byok.errorChanged": "Der Endpoint hat sich während des Tests geändert.",
   "byok.errorTestLimited": "Verbindungstests sind begrenzt. Warte kurz und versuche es erneut.",
+  "byok.errorTestFailed": "Nichts wurde gespeichert: Keine Fähigkeit hat den Verbindungstest bestanden. Prüfe die Werte und versuche es erneut.",
   "byok.errorInvalidBaseUrl": "Die Basis-URL ist keine gültige HTTPS-Adresse.",
-  "byok.errorInvalidApiKey": "Der API-Schlüssel ist zu lang.",
+  "byok.errorInvalidApiKey": "Der API-Schlüssel ist ungültig.",
   "byok.errorInvalidModel": "Ein Modellname ist zu lang.",
   "byok.errorApiKeyRequired": "Gib den API-Schlüssel ein, um einen neuen Endpoint zu speichern.",
   "byok.cause.key_rejected": "Der Endpoint hat den API-Schlüssel abgelehnt.",

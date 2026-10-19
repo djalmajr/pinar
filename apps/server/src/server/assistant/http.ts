@@ -9,8 +9,11 @@
 // cause (runAssistantTurn keeps the boundary clean).
 //
 // Deadlines (deadline.ts): the turn's 240 s budget starts when the request
-// enters the turn route. Every wait before the stream races it; a budget
-// spent before the stream answers 504 JSON { code: ASSISTANT_TURN_TIMEOUT,
+// enters the turn route. Every wait before the stream races it, except the
+// writes a later turn would see (the new thread, the user's question): the
+// turn waits for those to settle and reads the budget after them, so no
+// write of this turn is still pending once it lets go. A budget spent
+// before the stream answers 504 JSON { code: ASSISTANT_TURN_TIMEOUT,
 // phase: "turn" } and gives back what the turn held (the thread, the BYOK
 // slot, the credits). The stream gets what is left of it.
 //
@@ -35,6 +38,7 @@ import { byokStreamErrorPart } from "../byok/route";
 import { encodeAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
 import {
   AssistantTurnTimeoutError,
+  afterAssistantTurnWrite,
   createAssistantTurnBudget,
   withinAssistantTurnBudget,
   type AssistantTurnBudget,
@@ -578,6 +582,7 @@ async function budgetedTurnRoute(
   const now = deps.now ?? (() => new Date());
   const stamp = () => now().toISOString();
   const within = <T>(work: () => Promise<T>, onLate?: (value: T) => void) => withinAssistantTurnBudget(budget, work, onLate);
+  const settled = <T>(work: () => Promise<T>) => afterAssistantTurnWrite(budget, work);
 
   // 1. Unavailable status: requires_pro → 403, the rest → 503.
   const unavailable = await within(() => unavailableResponse(deps));
@@ -631,7 +636,7 @@ async function budgetedTurnRoute(
     if (!existing) return assistantError(404, "thread_not_found", "Thread not found");
     thread = existing;
   } else {
-    thread = await within(() => deps.store.createThread({
+    thread = await settled(() => deps.store.createThread({
       id: newAssistantThreadId(),
       now: stamp(),
       title: assistantThreadTitle(text),
@@ -672,7 +677,12 @@ async function budgetedTurnRoute(
     // 6. The user message is persisted before the model, then the history
     //    (final messages, the new question included, plus each assistant
     //    message's proposal notes) is cut to the turn window.
-    await within(() => deps.store.appendMessage({
+    //    The write does not race the budget: the thread stays held until
+    //    it settles (another turn of the thread gets the 409), and only
+    //    then a spent budget answers 504 and frees it, so the question
+    //    never lands after a later turn read the history or stamped the
+    //    thread's updatedAt.
+    await settled(() => deps.store.appendMessage({
       ask: null,
       createdAt: stamp(),
       errorCode: null,

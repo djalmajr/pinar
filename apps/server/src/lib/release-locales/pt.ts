@@ -23,6 +23,23 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.9.1": {
+      changes: {
+        "byok-test-before-save": {
+          description:
+            "Em Configurações → Assistente de IA, “Testar e salvar” testa a URL, a chave e os modelos digitados antes de gravar o seu endpoint no Pinar Cloud, e só grava quando ao menos uma capacidade passa; se nenhuma passar, nada é salvo e a configuração anterior continua valendo. “Testar conexão” testa de novo o endpoint salvo, e só o botão clicado mostra o andamento.",
+          title: "Endpoint próprio testado antes de salvar",
+        },
+        "assistant-slow-models": {
+          description:
+            "O assistente não encerra mais a resposta depois de 60 segundos fixos: ele espera enquanto o modelo continua respondendo e para depois de 1 minuto sem nenhuma resposta, de 3 minutos na mesma tentativa ou de 4 minutos no total e oferece “Tentar de novo”. Depois de um erro, “Consultando…” não fica mais na conversa. O botão do assistente no cabeçalho ficou só com o ícone, sem fundo.",
+          title: "O assistente espera um modelo lento que continua respondendo",
+        },
+      },
+      summary:
+        "O endpoint próprio do Pinar Cloud é testado antes de ser salvo, e só o botão clicado mostra o andamento. O assistente espera um modelo lento enquanto ele continua respondendo, para de mostrar “Consultando…” depois de um erro e o botão do assistente no cabeçalho ficou só com o ícone.",
+      title: "Endpoint próprio testado antes de salvar e um assistente que espera modelos lentos",
+    },
     "v0.9.0": {
       title: "Seu próprio endpoint de IA no Pinar Cloud",
       summary:
@@ -676,11 +693,6 @@ const locale = {
   },
   upcoming: {
     changes: {
-      "assistant-slow-models": {
-        description:
-          "O assistente não encerra mais a resposta depois de 60 segundos fixos: ele espera enquanto o modelo continua respondendo e para depois de 1 minuto sem nenhuma resposta, de 3 minutos na mesma tentativa ou de 4 minutos no total e oferece “Tentar de novo”. Depois de um erro, “Consultando…” não fica mais na conversa. O botão do assistente no cabeçalho ficou só com o ícone, sem fundo.",
-        title: "O assistente espera um modelo lento que continua respondendo",
-      },
       "assistant-panel-steps": {
         description:
           "Enquanto o assistente trabalha, o painel mostra o que ele está fazendo, com cada consulta como um passo: o passo feito ganha um check, e o que falhou aparece como “não concluído”. Quando a resposta chega, os passos se recolhem numa linha, como “3 passos”, que você pode abrir. Depois de 20 segundos sem progresso, o painel avisa que está demorando mais que o normal. Parar uma resposta guarda o que já foi escrito e a marca como “Resposta interrompida”, com “Tentar de novo”. Os blocos de código das respostas têm um botão de copiar, uma resposta que falha mostra o “Tentar de novo” como um ícone ao lado da mensagem, e a falta de créditos aparece num cartão próprio com o link para comprar mais.",
@@ -688,8 +700,8 @@ const locale = {
       },
     },
     summary:
-      "O assistente espera um modelo lento enquanto ele continua respondendo, para de mostrar “Consultando…” depois de um erro e o botão do assistente no cabeçalho ficou só com o ícone.",
-    title: "O assistente espera modelos lentos",
+      "O painel do assistente mostra cada consulta como um passo, recolhe os passos quando a resposta chega, avisa quando demora mais que o normal e guarda a resposta interrompida com a opção de tentar de novo.",
+    title: "O assistente mostra cada passo e guarda a resposta interrompida",
   },
 } satisfies ReleaseLocale;
 

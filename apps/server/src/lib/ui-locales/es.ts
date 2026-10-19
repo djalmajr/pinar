@@ -335,11 +335,13 @@ const messages: UiMessages = {
   "byok.apiKeyDescription":
     "Cifrada en Pinar Cloud; solo se muestran los últimos cuatro caracteres.",
   "byok.changeKey": "Cambiar clave",
+  "byok.testAndSave": "Probar y guardar",
   "byok.chatModel": "Modelo de chat",
   "byok.embeddingModel": "Modelo de embedding",
   "byok.modelDescription":
     "Opcional. Déjalo vacío para usar los créditos de Pinar en esta capacidad.",
   "byok.remove": "Quitar endpoint",
+  "byok.removing": "Quitando…",
   "byok.removeTitle": "¿Quitar el endpoint?",
   "byok.removeDescription":
     "Se quitan la clave guardada y las capacidades probadas. Hasta que guardes un nuevo endpoint, los créditos de Pinar responden todas las operaciones de IA.",
@@ -353,6 +355,7 @@ const messages: UiMessages = {
   "byok.sourceEndpoint": "Tu endpoint",
   "byok.sourceCredits": "Créditos de Pinar",
   "byok.sourceUntested": "Sin probar",
+  "byok.unsavedResult": "Resultado de la prueba, sin guardar",
   "byok.lastTested": "Última prueba {date}",
   "byok.errorGeneric": "Tu endpoint falló en esta petición.",
   "byok.useCredits": "Usar créditos de Pinar",
@@ -363,8 +366,9 @@ const messages: UiMessages = {
   "byok.errorNotConfigured": "Guarda el endpoint antes de probar la conexión.",
   "byok.errorChanged": "El endpoint cambió mientras la prueba corría.",
   "byok.errorTestLimited": "Hay límite de pruebas de conexión. Espera un momento e intenta de nuevo.",
+  "byok.errorTestFailed": "No se guardó nada: ninguna capacidad pasó la prueba de conexión. Revisa los valores e intenta de nuevo.",
   "byok.errorInvalidBaseUrl": "La URL base no es una dirección HTTPS válida.",
-  "byok.errorInvalidApiKey": "La clave API es demasiado larga.",
+  "byok.errorInvalidApiKey": "La clave API no es válida.",
   "byok.errorInvalidModel": "El nombre de un modelo es demasiado largo.",
   "byok.errorApiKeyRequired": "Indica la clave API para guardar un nuevo endpoint.",
   "byok.cause.key_rejected": "El endpoint rechazó la clave API.",

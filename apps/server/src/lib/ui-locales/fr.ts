@@ -335,11 +335,13 @@ const messages: UiMessages = {
   "byok.apiKeyDescription":
     "Chiffrée dans Pinar Cloud ; seuls les quatre derniers caractères sont affichés.",
   "byok.changeKey": "Changer la clé",
+  "byok.testAndSave": "Tester et enregistrer",
   "byok.chatModel": "Modèle de chat",
   "byok.embeddingModel": "Modèle d’embedding",
   "byok.modelDescription":
     "Facultatif. Laissez vide pour utiliser les crédits Pinar pour cette capacité.",
   "byok.remove": "Supprimer l’endpoint",
+  "byok.removing": "Suppression…",
   "byok.removeTitle": "Supprimer l’endpoint ?",
   "byok.removeDescription":
     "La clé enregistrée et les capacités testées sont supprimées. Jusqu’à ce que vous enregistriez un nouvel endpoint, les crédits Pinar répondent à toutes les opérations d’IA.",
@@ -353,6 +355,7 @@ const messages: UiMessages = {
   "byok.sourceEndpoint": "Votre endpoint",
   "byok.sourceCredits": "Crédits Pinar",
   "byok.sourceUntested": "Non testé",
+  "byok.unsavedResult": "Résultat du test, non enregistré",
   "byok.lastTested": "Dernier test {date}",
   "byok.errorGeneric": "Votre endpoint a échoué sur cette requête.",
   "byok.useCredits": "Utiliser les crédits Pinar",
@@ -363,8 +366,9 @@ const messages: UiMessages = {
   "byok.errorNotConfigured": "Enregistrez l’endpoint avant de tester la connexion.",
   "byok.errorChanged": "L’endpoint a changé pendant le test.",
   "byok.errorTestLimited": "Le nombre de tests de connexion est limité. Attendez un instant et réessayez.",
+  "byok.errorTestFailed": "Rien n’a été enregistré : aucune capacité n’a réussi le test de connexion. Vérifiez les valeurs et réessayez.",
   "byok.errorInvalidBaseUrl": "L’URL de base n’est pas une adresse HTTPS valide.",
-  "byok.errorInvalidApiKey": "La clé API est trop longue.",
+  "byok.errorInvalidApiKey": "La clé API n’est pas valide.",
   "byok.errorInvalidModel": "Le nom d’un modèle est trop long.",
   "byok.errorApiKeyRequired": "Saisissez la clé API pour enregistrer un nouvel endpoint.",
   "byok.cause.key_rejected": "L’endpoint a rejeté la clé API.",

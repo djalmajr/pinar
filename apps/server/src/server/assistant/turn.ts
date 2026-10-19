@@ -281,18 +281,30 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     inactivityHandle = clock.setTimeout(() => fireTimeout("inactivity"), inactivityMs);
   };
   // The attempt's cap: 180 s, or what is left of the turn's budget when
-  // that is less (then the phase is the turn's).
-  const turnRemainingMs = budget.remainingMs();
-  const capHandle = clock.setTimeout(
-    () => fireTimeout(turnRemainingMs <= attemptMaxMs ? "turn" : "attempt"),
-    Math.min(attemptMaxMs, turnRemainingMs),
-  );
+  // that is less (then the phase is the turn's). Armed for the first model
+  // and rearmed for every other model the chain starts (the Skia's timer
+  // inside the fallback's callback): the cap of one attempt never cuts the
+  // next, and the budget still bounds them all.
+  let capHandle: unknown = null;
+  const armCap = () => {
+    if (capHandle !== null) clock.clearTimeout(capHandle);
+    capHandle = null;
+    if (timersStopped) return;
+    const turnRemainingMs = budget.remainingMs();
+    capHandle = clock.setTimeout(
+      () => fireTimeout(turnRemainingMs <= attemptMaxMs ? "turn" : "attempt"),
+      Math.min(attemptMaxMs, turnRemainingMs),
+    );
+  };
+  armCap();
   const stopTimers = () => {
     timersStopped = true;
     clearInactivity();
-    clock.clearTimeout(capHandle);
+    if (capHandle !== null) clock.clearTimeout(capHandle);
+    capHandle = null;
   };
   const offProgress = budget.onProgress(armInactivity);
+  const offAttempt = budget.onAttempt(armCap);
   const fireTimeout = (phase: AssistantTurnTimeoutPhase) => {
     if (timeoutPhase !== null || controller.signal.aborted) return;
     timeoutPhase = phase;
@@ -570,6 +582,7 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     } finally {
       stopTimers();
       offProgress();
+      offAttempt();
       ownBudget?.dispose();
       input.abortSignal?.removeEventListener("abort", onCallerAbort);
     }

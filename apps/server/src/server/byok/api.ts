@@ -11,6 +11,13 @@
 // plus one test in flight) and, like the other routes, it is Pro-only,
 // no-store and origin-checked by the entry point.
 //
+// The PUT tests before it saves: after the validation it runs the same
+// detection on the values it received (the new key, or the stored one
+// decrypted when none came), under the same limit as the POST, and stores
+// the row only when at least one capability passed, with that result as
+// its capabilities_json. When none passed it answers 422 byok_test_failed
+// with the tested capabilities and stores nothing.
+//
 // Errors never echo a value: the key never appears in a response, a log or
 // an error, and the catch of the whole route is silent, because a database
 // driver can echo a bound parameter into its message. A database without
@@ -33,15 +40,16 @@ import { detectByokCapabilities } from "./detect";
 import { byokEgressFor } from "./fetch";
 export { setByokEgressForTests } from "./fetch";
 import { BYOK_TEST_MAX_PER_HOUR, byokTestConsume } from "./limit";
-import { byokRow, deleteByokRow, recordByokCapabilities, saveByokRow, type ByokStoredRow } from "./store";
+import { byokRow, deleteByokRow, recordByokCapabilities, saveByokRowIfUnchanged, type ByokStoredRow } from "./store";
 import { BYOK_BASE_URL_MAX, validateByokUrl } from "./url";
 
 const MAX_API_KEY_LENGTH = 4096;
 const MAX_MODEL_LENGTH = 200;
 
 // A capability of S2's detection: ok/error and the test date (F5 contract
-// §3); embeddings additionally the tested dims. S1 writes only the
-// untested state; ok stays null until S2 tests the endpoint.
+// §3); embeddings additionally the tested dims. ok is null while a
+// capability has no result (the unconfigured view, a row the parser cannot
+// read).
 export interface ByokCapability {
   error: string | null;
   ok: boolean | null;
@@ -103,8 +111,9 @@ function byokNow(): string {
 // byokFetch (the refusal until S6) in production, the injected fake in the
 // tests (the ByokEgress interface, the same injection for both).
 
-// The one test in flight per account (F5 contract §2); it drains in the
-// finally of the test route, so it never leaks across tests.
+// The one test in flight per account (F5 contract §2), shared by the PUT
+// and the test route; it drains in their finally, so it never leaks across
+// tests.
 const byokTestsInFlight = new Set<string>();
 
 function unconfiguredView(): ByokView {
@@ -260,13 +269,19 @@ async function updateByok(request: Request, env: CloudEnv): Promise<Response> {
   if (!("normalized" in checked)) return badRequest("invalid_base_url", "The base URL is not allowed");
 
   // An empty or missing apiKey keeps the stored key; a new endpoint needs
-  // one. The key is never echoed back by any answer.
-  const apiKey = typeof body.apiKey === "string" && body.apiKey !== "" ? body.apiKey : null;
+  // one. A pasted key loses the whitespace at its ends first (one that is
+  // empty after that counts as omitted); whitespace left in the middle is
+  // refused. The key is never echoed back by any answer.
+  const trimmedKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+  const apiKey = trimmedKey !== "" ? trimmedKey : null;
   if (typeof body.apiKey !== "string" && body.apiKey !== undefined) {
     return badRequest("invalid_api_key", "The API key must be a string");
   }
   if (apiKey !== null && apiKey.length > MAX_API_KEY_LENGTH) {
     return badRequest("invalid_api_key", "The API key is too long");
+  }
+  if (apiKey !== null && /\s/.test(apiKey)) {
+    return badRequest("invalid_api_key", "The API key must not contain whitespace");
   }
   const chatModel = modelValue(body.chatModel);
   const embeddingModel = modelValue(body.embeddingModel);
@@ -277,50 +292,106 @@ async function updateByok(request: Request, env: CloudEnv): Promise<Response> {
 
   const crypto = await byokCrypto(env.BYOK_MASTER_KEY);
   if (crypto === null) return unavailable();
-  const current = await byokRow(env, actor.principal.id);
-  let keyCiphertext: string;
-  let keyId: string;
-  let keyLast4: string;
-  if (apiKey !== null) {
-    // A fresh random IV and the current key_id (rotation-ready) per write.
-    keyCiphertext = await crypto.encrypt(apiKey);
-    keyId = crypto.keyId;
-    keyLast4 = apiKey.slice(-4);
-  } else if (current !== null) {
-    keyCiphertext = current.keyCiphertext;
-    keyId = current.keyId;
-    keyLast4 = current.keyLast4;
-  } else {
+  const ownerId = actor.principal.id;
+  const current = await byokRow(env, ownerId);
+  if (apiKey === null && current === null) {
     return badRequest("api_key_required", "The API key is required to save a new endpoint");
   }
 
-  const now = byokNow();
+  const chatModelFinal = chatModel ?? current?.chatModel ?? "";
   const embeddingModelFinal = embeddingModel ?? current?.embeddingModel ?? "";
-  const row: ByokStoredRow = {
-    baseUrl: checked.normalized,
-    // S2's detection is what tests the endpoint: every save starts from
-    // the untested capabilities (F5 contract §1). The test itself stays in
-    // POST /api/byok/test (the UI calls it after the save).
-    capabilitiesJson: JSON.stringify(untestedCapabilities()),
-    chatModel: chatModel ?? current?.chatModel ?? "",
-    createdAt: current?.createdAt ?? now,
-    embeddingModel: embeddingModelFinal,
-    keyCiphertext,
-    keyId,
-    keyLast4,
-    transcriptionModel: transcriptionModel ?? current?.transcriptionModel ?? "",
-    updatedAt: now,
-  };
-  await saveByokRow(env, actor.principal.id, row);
-  // F5 contract §1: the vectors of different embedding models do not mix,
-  // so a save that changes the embedding model (or moves it to another
-  // endpoint) marks the owner's pin index stale, and the next indexing pass
-  // re-embeds it with the new model. Best effort: the save already landed.
-  const endpointChanged = current !== null && checked.normalized !== current.baseUrl;
-  if (embeddingModelFinal !== (current?.embeddingModel ?? "") || (endpointChanged && embeddingModelFinal !== "")) {
-    await markCloudPinIndexOwnerStale(env, actor.principal.id);
+  const transcriptionModelFinal = transcriptionModel ?? current?.transcriptionModel ?? "";
+  // The same limit as POST /api/byok/test, only after the validation: one
+  // test in flight per account (the check and the mark are one synchronous
+  // step) and BYOK_TEST_MAX_PER_HOUR per hour.
+  if (byokTestsInFlight.has(ownerId)) return testLimited();
+  byokTestsInFlight.add(ownerId);
+  try {
+    if (!(await byokTestConsume(env, ownerId, byokNowMs()))) return testLimited();
+    let testKey: string;
+    if (apiKey !== null) {
+      testKey = apiKey;
+    } else {
+      try {
+        testKey = await crypto.decrypt(current!.keyCiphertext);
+      } catch {
+        // A ciphertext the master key cannot read: the BYOK is unavailable,
+        // and the error is not logged (a driver or a tag may echo the key).
+        return unavailable();
+      }
+    }
+    // The test runs on the values this PUT received, not on the stored row.
+    const capabilities = await detectByokCapabilities({
+      endpoint: {
+        baseUrl: checked.normalized,
+        chatModel: chatModelFinal,
+        embeddingModel: embeddingModelFinal,
+        key: testKey,
+        transcriptionModel: transcriptionModelFinal,
+      },
+      egress: byokEgressFor(env),
+      now: byokNow(),
+    });
+    // Nothing passed: nothing is stored, the previous configuration (if
+    // any) stays as it was and the pin index is not marked.
+    if (!Object.values(capabilities).some((capability) => capability.ok === true)) {
+      return json(
+        {
+          capabilities,
+          code: "byok_test_failed",
+          error: "No capability passed the connection test; nothing was saved",
+        },
+        422,
+      );
+    }
+
+    let keyCiphertext: string;
+    let keyId: string;
+    let keyLast4: string;
+    if (apiKey !== null) {
+      // A fresh random IV and the current key_id (rotation-ready) per write.
+      keyCiphertext = await crypto.encrypt(apiKey);
+      keyId = crypto.keyId;
+      keyLast4 = apiKey.slice(-4);
+    } else {
+      keyCiphertext = current!.keyCiphertext;
+      keyId = current!.keyId;
+      keyLast4 = current!.keyLast4;
+    }
+    const now = byokNow();
+    const row: ByokStoredRow = {
+      baseUrl: checked.normalized,
+      // The result of the test above: the capabilities that failed keep
+      // riding the Pinar credits (the routing reads ok === true only).
+      capabilitiesJson: JSON.stringify(capabilities),
+      chatModel: chatModelFinal,
+      createdAt: current?.createdAt ?? now,
+      embeddingModel: embeddingModelFinal,
+      keyCiphertext,
+      keyId,
+      keyLast4,
+      transcriptionModel: transcriptionModelFinal,
+      updatedAt: now,
+    };
+    // The row lands only if the stored one is still the one read before the
+    // test (or still absent, for a new endpoint): a DELETE or another PUT
+    // that ran in the middle of the test wins, never a blind upsert.
+    if (!(await saveByokRowIfUnchanged(env, ownerId, current, row))) {
+      return byokChanged(await byokRow(env, ownerId));
+    }
+    // F5 contract §1: the vectors of different embedding models do not mix,
+    // so a save that changes the embedding model (or moves it to another
+    // endpoint) marks the owner's pin index stale, and the next indexing
+    // pass re-embeds it with the new model. Best effort: the save already
+    // landed.
+    const endpointChanged = current !== null && checked.normalized !== current.baseUrl;
+    if (embeddingModelFinal !== (current?.embeddingModel ?? "") || (endpointChanged && embeddingModelFinal !== "")) {
+      await markCloudPinIndexOwnerStale(env, ownerId);
+    }
+    return json(byokView(row));
+  } finally {
+    byokTestsInFlight.delete(ownerId);
   }
-  return json(byokView(row));
 }
 
 async function deleteByok(request: Request, env: CloudEnv): Promise<Response> {

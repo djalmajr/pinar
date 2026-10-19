@@ -657,6 +657,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "byok-test-before-save": {
+        description:
+          "En Configuración → Asistente de IA, “Probar y guardar” prueba la URL, la clave y los modelos que escribiste antes de guardar tu endpoint en Pinar Cloud, y solo guarda cuando al menos una capacidad pasa; si ninguna pasa, no se guarda nada y la configuración anterior sigue vigente. “Probar conexión” vuelve a probar el endpoint guardado, y solo el botón que pulsaste muestra el progreso.",
+        title: "Tu propio endpoint se prueba antes de guardarse",
+      },
+    },
+    summary:
+      "Tu propio endpoint de Pinar Cloud se prueba antes de guardarse, y solo el botón que pulsaste muestra el progreso.",
+    title: "Endpoint propio probado antes de guardar",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

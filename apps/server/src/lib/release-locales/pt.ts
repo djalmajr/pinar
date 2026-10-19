@@ -674,6 +674,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "byok-test-before-save": {
+        description:
+          "Em Configurações → Assistente de IA, “Testar e salvar” testa a URL, a chave e os modelos digitados antes de gravar o seu endpoint no Pinar Cloud, e só grava quando ao menos uma capacidade passa; se nenhuma passar, nada é salvo e a configuração anterior continua valendo. “Testar conexão” testa de novo o endpoint salvo, e só o botão clicado mostra o andamento.",
+        title: "Endpoint próprio testado antes de salvar",
+      },
+    },
+    summary:
+      "O endpoint próprio do Pinar Cloud é testado antes de ser salvo, e só o botão clicado mostra o andamento.",
+    title: "Endpoint próprio testado antes de salvar",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

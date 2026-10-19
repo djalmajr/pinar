@@ -57,42 +57,6 @@ export async function byokRow(env: CloudEnv, ownerId: string): Promise<ByokStore
   return memoryByokEndpoints.get(ownerId) ?? null;
 }
 
-export async function saveByokRow(env: CloudEnv, ownerId: string, row: ByokStoredRow): Promise<void> {
-  if (env.DB) {
-    await env.DB.prepare(`
-      INSERT INTO byok_endpoints (
-        owner_id, base_url, key_ciphertext, key_last4, key_id,
-        chat_model, embedding_model, transcription_model, capabilities_json,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(owner_id) DO UPDATE SET
-        base_url = excluded.base_url,
-        key_ciphertext = excluded.key_ciphertext,
-        key_last4 = excluded.key_last4,
-        key_id = excluded.key_id,
-        chat_model = excluded.chat_model,
-        embedding_model = excluded.embedding_model,
-        transcription_model = excluded.transcription_model,
-        capabilities_json = excluded.capabilities_json,
-        updated_at = excluded.updated_at
-    `).bind(
-      ownerId,
-      row.baseUrl,
-      row.keyCiphertext,
-      row.keyLast4,
-      row.keyId,
-      row.chatModel,
-      row.embeddingModel,
-      row.transcriptionModel,
-      row.capabilitiesJson,
-      row.createdAt,
-      row.updatedAt,
-    ).run();
-    return;
-  }
-  memoryByokEndpoints.set(ownerId, { ...row });
-}
-
 export async function deleteByokRow(env: CloudEnv, ownerId: string): Promise<void> {
   if (env.DB) {
     await env.DB.prepare("DELETE FROM byok_endpoints WHERE owner_id = ?").bind(ownerId).run();
@@ -139,5 +103,84 @@ export async function recordByokCapabilities(
   }
   current.capabilitiesJson = capabilitiesJson;
   current.updatedAt = updatedAt;
+  return true;
+}
+
+/**
+ * Writes the row a PUT tested only while the stored row is still the one
+ * the PUT read before its test (the same base URL, key ciphertext and
+ * models), or, for a new endpoint, while there is still no row: a DELETE or
+ * another PUT that landed while the test was in flight leaves the row as
+ * that write left it, and the caller answers 409. It is never a blind
+ * upsert. Returns whether the write hit.
+ */
+export async function saveByokRowIfUnchanged(
+  env: CloudEnv,
+  ownerId: string,
+  expected: ByokStoredRow | null,
+  row: ByokStoredRow,
+): Promise<boolean> {
+  if (env.DB) {
+    if (expected === null) {
+      const result = await env.DB.prepare(`
+        INSERT INTO byok_endpoints (
+          owner_id, base_url, key_ciphertext, key_last4, key_id,
+          chat_model, embedding_model, transcription_model, capabilities_json,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(owner_id) DO NOTHING
+      `).bind(
+        ownerId,
+        row.baseUrl,
+        row.keyCiphertext,
+        row.keyLast4,
+        row.keyId,
+        row.chatModel,
+        row.embeddingModel,
+        row.transcriptionModel,
+        row.capabilitiesJson,
+        row.createdAt,
+        row.updatedAt,
+      ).run();
+      return Number(result.meta?.changes ?? 0) > 0;
+    }
+    const result = await env.DB.prepare(`
+      UPDATE byok_endpoints
+      SET base_url = ?, key_ciphertext = ?, key_last4 = ?, key_id = ?,
+          chat_model = ?, embedding_model = ?, transcription_model = ?,
+          capabilities_json = ?, updated_at = ?
+      WHERE owner_id = ? AND base_url = ? AND key_ciphertext = ?
+        AND chat_model = ? AND embedding_model = ? AND transcription_model = ?
+    `).bind(
+      row.baseUrl,
+      row.keyCiphertext,
+      row.keyLast4,
+      row.keyId,
+      row.chatModel,
+      row.embeddingModel,
+      row.transcriptionModel,
+      row.capabilitiesJson,
+      row.updatedAt,
+      ownerId,
+      expected.baseUrl,
+      expected.keyCiphertext,
+      expected.chatModel,
+      expected.embeddingModel,
+      expected.transcriptionModel,
+    ).run();
+    return Number(result.meta?.changes ?? 0) > 0;
+  }
+  const current = memoryByokEndpoints.get(ownerId);
+  if (expected === null ? current !== undefined : (
+    current === undefined ||
+    current.baseUrl !== expected.baseUrl ||
+    current.keyCiphertext !== expected.keyCiphertext ||
+    current.chatModel !== expected.chatModel ||
+    current.embeddingModel !== expected.embeddingModel ||
+    current.transcriptionModel !== expected.transcriptionModel
+  )) {
+    return false;
+  }
+  memoryByokEndpoints.set(ownerId, { ...row });
   return true;
 }

@@ -657,6 +657,18 @@ const locale = {
       },
     },
   },
+  upcoming: {
+    changes: {
+      "byok-test-before-save": {
+        description:
+          "Dans Paramètres → Assistant IA, « Tester et enregistrer » teste l’URL, la clé et les modèles saisis avant d’enregistrer votre endpoint dans Pinar Cloud, et n’enregistre que si au moins une capacité passe ; si aucune ne passe, rien n’est enregistré et la configuration précédente reste en place. « Tester la connexion » teste de nouveau l’endpoint enregistré, et seul le bouton cliqué affiche la progression.",
+        title: "Votre propre endpoint est testé avant d’être enregistré",
+      },
+    },
+    summary:
+      "Votre propre endpoint Pinar Cloud est testé avant d’être enregistré, et seul le bouton cliqué affiche la progression.",
+    title: "Endpoint personnel testé avant l’enregistrement",
+  },
 } satisfies ReleaseLocale;
 
 export default locale;

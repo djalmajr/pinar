@@ -39,7 +39,7 @@ export function SettingRow({
     <div
       className={cn(
         "flex",
-        stacked ? "flex-col gap-2" : cn("items-center", compact ? "gap-4" : "gap-6"),
+        stacked ? "flex-col gap-2" : cn("flex-col gap-2 sm:flex-row sm:items-center", compact ? "sm:gap-4" : "sm:gap-6"),
         className,
       )}
       data-layout={layout}
@@ -52,7 +52,7 @@ export function SettingRow({
         ) : null}
       </div>
       {children ? (
-        <div className={cn(stacked ? "w-full" : "flex shrink-0 justify-end", controlClassName)}>{children}</div>
+        <div className={cn(stacked ? "w-full" : "flex max-sm:w-full sm:shrink-0 sm:justify-end", controlClassName)}>{children}</div>
       ) : null}
     </div>
   );

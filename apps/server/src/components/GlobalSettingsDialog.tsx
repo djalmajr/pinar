@@ -750,7 +750,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
               {showAiSettings ? <Button size="sm" variant={section === "aiUsage" ? "secondary" : "ghost"} onClick={() => setSection("aiUsage")}>{t("settings.ai")}</Button> : null}
               <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
             </nav>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 max-sm:scroll-pb-24 max-sm:pb-28">
               <section className={cn("flex flex-col gap-5", section !== "general" && "hidden")}>
                 <SettingRow controlClassName="w-36" description={t("settings.languageDescription")} title={t("common.language")}>
                   <Select

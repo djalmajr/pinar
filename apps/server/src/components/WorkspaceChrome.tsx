@@ -520,7 +520,9 @@ export function WorkspaceChrome({
   }
 
   async function createCollection(name: string, parentId?: string) {
-    if (!selectedProject) return;
+    // The dialog keeps Create disabled until the tree lands; a submit that
+    // still arrives without a project fails, so the dialog stays open.
+    if (!selectedProject) throw new Error("collection_create_failed");
     const response = await requestJson(
       `/api/projects/${selectedProject.id}/collections`,
       "POST",
@@ -605,6 +607,12 @@ export function WorkspaceChrome({
     setContainerEditor(editor);
     setProjectIcon(icon);
   }
+
+  // A collection is created inside the selected project, which only exists
+  // once the tree has loaded.
+  const containerEditorNeedsProject = containerEditor?.mode === "create"
+    && containerEditor.kind === "collection"
+    && !selectedProject;
 
   async function submitContainerEditor() {
     const name = containerName.trim();
@@ -878,7 +886,7 @@ export function WorkspaceChrome({
               {containerError ? <p className="text-sm text-destructive" role="alert">{t("dashboard.containerSaveFailed")}</p> : null}
               <DialogFooter>
                 <Button disabled={containerSubmitting} type="button" variant="outline" onClick={() => setContainerEditor(null)}>{t("common.cancel")}</Button>
-                <Button aria-busy={containerSubmitting || undefined} disabled={containerSubmitting || !containerName.trim()} type="submit">
+                <Button aria-busy={containerSubmitting || undefined} disabled={containerSubmitting || !containerName.trim() || containerEditorNeedsProject} type="submit">
                   {containerSubmitting ? <IconLoaderCircle aria-hidden="true" className="size-4 animate-spin" data-icon="inline-start" /> : null}
                   {t(containerSubmitting
                     ? containerEditor?.mode === "create" ? "dashboard.creatingContainer" : "dashboard.savingContainer"

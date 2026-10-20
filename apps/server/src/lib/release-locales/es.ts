@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.9.3": {
+      changes: {
+        "collection-create-waits": {
+          description:
+            "En el espacio de trabajo, abrir “Nueva colección” antes de que carguen tus proyectos ya no cierra el diálogo sin crear nada ni pierde el nombre que escribiste: “Crear” queda desactivado hasta que el proyecto carga, y el nombre sigue en el campo.",
+          title: "Nueva colección espera a que carguen tus proyectos",
+        },
+        "byok-own-address-ignored": {
+          description:
+            "Un endpoint propio guardado con la dirección del propio Pinar (pinar.dev) ya no lo usan el asistente ni las demás funciones de IA: esas solicitudes pasan por la IA de Pinar y usan créditos. Para usar un endpoint tuyo, guarda su URL en Configuración → Asistente de IA.",
+          title: "Un endpoint propio con la dirección de Pinar deja de usarse",
+        },
+      },
+      summary:
+        "“Crear” en el diálogo de nueva colección espera a que carguen tus proyectos y conserva el nombre que escribiste. Un endpoint propio guardado con la dirección de Pinar deja de usarse, y esas solicitudes pasan por la IA de Pinar con créditos.",
+      title: "Nueva colección espera a que carguen tus proyectos",
+    },
     "v0.9.2": {
       changes: {
         "assistant-panel-steps": {

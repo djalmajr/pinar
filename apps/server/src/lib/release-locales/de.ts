@@ -23,6 +23,23 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.9.3": {
+      changes: {
+        "collection-create-waits": {
+          description:
+            "Wenn du im Arbeitsbereich „Neue Sammlung“ öffnest, bevor deine Projekte geladen sind, schließt sich der Dialog nicht mehr, ohne etwas zu erstellen, und der eingegebene Name geht nicht mehr verloren: „Erstellen“ bleibt deaktiviert, bis das Projekt geladen ist, und der Name bleibt im Feld.",
+          title: "Neue Sammlung wartet, bis deine Projekte geladen sind",
+        },
+        "byok-own-address-ignored": {
+          description:
+            "Ein eigener Endpoint, der mit Pinars eigener Adresse (pinar.dev) gespeichert ist, wird vom Assistenten und den anderen KI-Funktionen nicht mehr verwendet: Diese Anfragen laufen über Pinars KI und verbrauchen Guthaben. Um einen eigenen Endpoint zu nutzen, speichere seine URL in Einstellungen → KI-Assistent.",
+          title: "Ein eigener Endpoint mit Pinars Adresse wird nicht mehr verwendet",
+        },
+      },
+      summary:
+        "„Erstellen“ im Dialog für eine neue Sammlung wartet, bis deine Projekte geladen sind, und behält den eingegebenen Namen. Ein eigener Endpoint, der mit Pinars Adresse gespeichert ist, wird nicht mehr verwendet, und diese Anfragen laufen über Pinars KI mit Guthaben.",
+      title: "Neue Sammlung wartet, bis deine Projekte geladen sind",
+    },
     "v0.9.2": {
       changes: {
         "assistant-panel-steps": {

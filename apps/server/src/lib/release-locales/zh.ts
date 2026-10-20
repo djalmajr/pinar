@@ -21,6 +21,23 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.9.3": {
+      changes: {
+        "collection-create-waits": {
+          description:
+            "在工作区中，如果在项目加载完成前打开「新建集合」，对话框不会再在什么都没创建的情况下关闭，也不会丢失你输入的名称：在项目加载完成前「创建」保持禁用，名称会留在输入框中。",
+          title: "新建集合会等待项目加载",
+        },
+        "byok-own-address-ignored": {
+          description:
+            "用 Pinar 自身地址（pinar.dev）保存的自有端点不再被助手和其他 AI 功能使用：这些请求改由 Pinar 的 AI 处理并消耗积分。要使用你自己的端点，请在「设置 → AI 助手」中保存它的 URL。",
+          title: "使用 Pinar 地址的自有端点不再使用",
+        },
+      },
+      summary:
+        "新建集合对话框中的「创建」会等待项目加载，并保留你输入的名称。用 Pinar 自身地址保存的自有端点不再使用，这些请求改由 Pinar 的 AI 处理并消耗积分。",
+      title: "新建集合会等待项目加载",
+    },
     "v0.9.2": {
       changes: {
         "assistant-panel-steps": {

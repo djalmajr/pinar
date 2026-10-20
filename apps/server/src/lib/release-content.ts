@@ -8,7 +8,7 @@ export type ReleaseChangeId =
 /**
  * Unreleased work shown above the published history. It has no tag and no
  * date, so it must never be looked up through the tag-based release routes.
- * Empty while there is no prepared release; the v0.9.2 changes shipped.
+ * Empty while there is no prepared release; the v0.9.3 changes shipped.
  */
 export const upcomingChanges: readonly string[] = [];
 export type UpcomingChangeId = (typeof upcomingChanges)[number];
@@ -86,6 +86,11 @@ export interface ReleaseContent {
 }
 
 export const releaseDefinitions = [
+  {
+    tag: "v0.9.3",
+    date: "2026-10-20",
+    changes: ["collection-create-waits", "byok-own-address-ignored"],
+  },
   {
     tag: "v0.9.2",
     date: "2026-10-19",

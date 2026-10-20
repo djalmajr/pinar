@@ -21,6 +21,23 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.9.3": {
+      changes: {
+        "collection-create-waits": {
+          description:
+            "In the workspace, opening “New collection” before your projects have loaded no longer closes the dialog without creating anything or loses the name you typed: “Create” stays disabled until the project is loaded, and the name stays in the field.",
+          title: "New collection waits for your projects to load",
+        },
+        "byok-own-address-ignored": {
+          description:
+            "An own endpoint saved with Pinar’s own address (pinar.dev) is no longer used by the assistant or the other AI features: those requests go through Pinar’s AI and use credits. To use an endpoint of your own, save its URL in Settings → AI Assistant.",
+          title: "An own endpoint with Pinar’s address is no longer used",
+        },
+      },
+      summary:
+        "“Create” in the new collection dialog waits for your projects to load and keeps the name you typed. An own endpoint saved with Pinar’s own address is no longer used, and those requests go through Pinar’s AI with credits.",
+      title: "New collection waits for your projects to load",
+    },
     "v0.9.2": {
       changes: {
         "assistant-panel-steps": {

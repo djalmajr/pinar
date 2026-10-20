@@ -23,6 +23,23 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.9.3": {
+      changes: {
+        "collection-create-waits": {
+          description:
+            "Dans le workspace, ouvrir « Nouvelle collection » avant le chargement de vos projets ne ferme plus la boîte de dialogue sans rien créer et ne perd plus le nom saisi : « Créer » reste désactivé jusqu’au chargement du projet, et le nom reste dans le champ.",
+          title: "Nouvelle collection attend le chargement de vos projets",
+        },
+        "byok-own-address-ignored": {
+          description:
+            "Un endpoint personnel enregistré avec l’adresse de Pinar lui-même (pinar.dev) n’est plus utilisé par l’assistant ni par les autres fonctions d’IA : ces requêtes passent par l’IA de Pinar et utilisent des crédits. Pour utiliser votre propre endpoint, enregistrez son URL dans Paramètres → Assistant IA.",
+          title: "Un endpoint personnel avec l’adresse de Pinar n’est plus utilisé",
+        },
+      },
+      summary:
+        "« Créer » dans la boîte de dialogue de nouvelle collection attend le chargement de vos projets et garde le nom saisi. Un endpoint personnel enregistré avec l’adresse de Pinar n’est plus utilisé, et ces requêtes passent par l’IA de Pinar avec des crédits.",
+      title: "Nouvelle collection attend le chargement de vos projets",
+    },
     "v0.9.2": {
       changes: {
         "assistant-panel-steps": {

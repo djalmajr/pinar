@@ -52,9 +52,10 @@ function actionsOf(row: Locator) {
 }
 
 // Opens the phone's sidebar sheet from the toolbar button and waits until it
-// settles. Creating a collection selects it, which closes the sheet.
+// settles. New collection closes the sheet; while it animates out it is still
+// visible with data-closed, so only a sheet with data-open counts as open.
 async function openPhoneSidebar(page: Page) {
-  const sheet = page.locator('[data-mobile="true"]');
+  const sheet = page.locator('[data-mobile="true"][data-open]');
   await expect(async () => {
     if (!(await sheet.isVisible())) await page.getByRole("button", { exact: true, name: "Collections" }).click();
     await expect(sheet.getByRole("button", { exact: true, name: "Inbox" })).toBeVisible({ timeout: 1_500 });
@@ -101,7 +102,9 @@ async function snapshot(page: Page, testInfo: TestInfo, name: string) {
 }
 
 async function createLongCollection(page: Page) {
-  await openWorkspaceSidebar(page, "New collection");
+  // The Inbox row comes from the project tree. Before the tree lands the app
+  // has no project to create in: Create closes the dialog and writes nothing.
+  await openWorkspaceSidebar(page, "Inbox");
   const dialog = page.getByRole("dialog", { name: "New collection" });
   // The first click can land before hydration; retry until the dialog opens.
   await expect(async () => {
@@ -109,7 +112,10 @@ async function createLongCollection(page: Page) {
     await expect(dialog).toBeVisible({ timeout: 1_500 });
   }).toPass({ timeout: 15_000 });
   await dialog.getByRole("textbox", { name: "Name" }).fill(LONG_NAME);
+  const created = page.waitForResponse((response) =>
+    response.request().method() === "POST" && /\/api\/projects\/[^/]+\/collections$/.test(new URL(response.url()).pathname));
   await dialog.getByRole("button", { name: "Create" }).click();
+  expect((await created).ok(), "the collection is created").toBe(true);
   await expect(dialog).not.toBeVisible();
 }
 
@@ -169,11 +175,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 
     test("the count sits beside the ⋮ button and clear of a long truncated name", async ({ page }, testInfo) => {
       await withLongCollection(page, async () => {
-        // A tree refresh can remount the sheet mid-way: reopen and measure again.
-        await expect(async () => {
-          await openPhoneSidebar(page);
-          await expectPhoneRows(page);
-        }).toPass({ timeout: 30_000 });
+        await openPhoneSidebar(page);
+        // Measure once the padded tree has landed in the row.
+        await expectCappedCount(collectionRow(page));
+        await expectPhoneRows(page);
         await snapshot(page, testInfo, `phone-${colorScheme}`);
       });
     });

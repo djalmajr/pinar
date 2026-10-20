@@ -1,9 +1,10 @@
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { type BrowserContext, chromium, expect, test, type Worker } from "@playwright/test";
+import { type BrowserContext, expect, test, type Worker } from "@playwright/test";
 import { resetCloudLocalAuthRateLimits, resetCloudLocalProEmailChallenge, signInCloudPro } from "../helpers/cloud-signin";
 import { pressCopyShortcut } from "../helpers/extension-shortcut";
+import { launchExtensionContext } from "../helpers/extension-context";
 
 const EXTENSION_DIR = resolve(process.cwd(), "extension");
 const BASE_URL = "http://127.0.0.1:17384";
@@ -72,7 +73,7 @@ async function cloudHistory(deviceToken: string): Promise<HistorySession[]> {
 test("the real extension signs in with the email account, captures to the cloud, and the web app lists the capture", async ({ browser }) => {
   test.setTimeout(180_000);
   const stagedExtension = stageExtension();
-  const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "pinar-free-e2e-")), {
+  const context = await launchExtensionContext(mkdtempSync(join(tmpdir(), "pinar-free-e2e-")), {
     args: [
       `--disable-extensions-except=${stagedExtension}`,
       `--load-extension=${stagedExtension}`,
@@ -90,11 +91,10 @@ test("the real extension signs in with the email account, captures to the cloud,
   try {
     const worker = await backgroundWorker(context);
     // Endpoint plumbing: point the extension at the isolated cloud runtime in
-    // cloud storage mode and pin the options UI language so the assertions
-    // stay deterministic. Cloud mode matters twice: the options page would
-    // otherwise adopt the delivery preferences (language included) of any
-    // local Pinar helper running on the machine, and a capture could land in
-    // that helper instead of the cloud.
+    // cloud storage mode, the destination this journey proves, and pin the
+    // options UI language so the assertions stay deterministic. The machine's
+    // own Pinar helper is out of reach either way: launchExtensionContext
+    // refuses the local helper ports for the whole context.
     // The background's own startup pass writes the development default
     // (staging) when the key is still absent, so the endpoint is set until it
     // sticks instead of racing that write.

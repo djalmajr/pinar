@@ -1,4 +1,4 @@
-import { chromium, expect, test, type Worker } from "@playwright/test";
+import { expect, test, type Worker } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -6,13 +6,14 @@ import { tmpdir } from "node:os";
 import { resolveCloudUrl } from "../../../extension/environment.js";
 import { remoteProfileKey } from "../../../extension/remote-profile.js";
 import { pressCopyShortcut } from "../helpers/extension-shortcut";
+import { launchExtensionContext } from "../helpers/extension-context";
 
 // Real MV3 service worker, IndexedDB, content scripts and screenshot API.
 // Only the transport is stubbed; backend parity is covered by the API contract.
 for (const mode of ["local", "cloud"]) test(`continuous session captures multiple pages in ${mode} mode`, async ({}, testInfo) => {
   test.setTimeout(90_000);
   const extension = resolve("extension");
-  const context = await chromium.launchPersistentContext("", {
+  const context = await launchExtensionContext("", {
     channel: "chromium", headless: true,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });
@@ -257,7 +258,7 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
 test("session screenshot waits until the pin popover is off the composited frame", async () => {
   test.setTimeout(60_000);
   const extension = resolve("extension");
-  const context = await chromium.launchPersistentContext("", {
+  const context = await launchExtensionContext("", {
     channel: "chromium",
     headless: true,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
@@ -407,7 +408,7 @@ test("session screenshot waits until the pin popover is off the composited frame
 test("active session pins survive back/forward, reload and re-injection on their original pages", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const extension = resolve("extension");
-  const context = await chromium.launchPersistentContext("", {
+  const context = await launchExtensionContext("", {
     channel: "chromium", headless: true,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });
@@ -793,7 +794,7 @@ async function setupRaceContext() {
     "})();",
     "",
   ].join("\n"));
-  const context = await chromium.launchPersistentContext("", {
+  const context = await launchExtensionContext("", {
     channel: "chromium", headless: true,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });

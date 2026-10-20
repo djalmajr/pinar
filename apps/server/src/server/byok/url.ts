@@ -113,6 +113,19 @@ export function isPinarOwnHost(baseUrl: string, requestUrl: string): boolean {
   return host === comparableHost(requestUrl);
 }
 
+/**
+ * True when the BYOK base URL is one of the Pinar's public hosts, compared
+ * like isPinarOwnHost but without a request: the inference routing (route.ts)
+ * runs in the background too (captions, embeddings), so a stored row that
+ * names the Pinar is refused there by its public hosts only. The server env
+ * names no public origin of its own; a stored row on another route's host
+ * (staging, a name route) is not caught here.
+ */
+export function isPinarPublicHost(baseUrl: string): boolean {
+  const host = comparableHost(baseUrl);
+  return host !== null && PINAR_PUBLIC_HOSTS.includes(host);
+}
+
 function bareHostname(hostname: string): string {
   // IPv6 literals arrive bracketed and lowercased by the URL parser; the
   // zone (if any survives) does not change the class of the address.

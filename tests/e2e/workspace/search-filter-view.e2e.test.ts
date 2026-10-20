@@ -108,12 +108,16 @@ test("search, pin filters and grid/table views preserve the same session set", a
   await page.getByRole("menuitemcheckbox", { name: "2–5 pins" }).click();
   await expectOnly(page, "Beta checkout");
   await expect(pins).toContainText("1");
+  // Checkbox items keep the menu open; close it before the next toggle.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toBeHidden();
 
   await search.fill("billing");
   await expectOnly(page, "Beta checkout");
 
   await pins.click();
   const clearFilter = page.getByRole("menuitem", { name: "Clear filter" });
+  await expect(clearFilter).toBeVisible();
   await clearFilter.focus();
   await page.keyboard.press("Enter");
   await expect(pins).toHaveText("Pins");

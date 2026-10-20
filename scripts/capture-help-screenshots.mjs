@@ -28,6 +28,12 @@ const CONTENT_TYPES = {
   ".woff2": "font/woff2",
 };
 const ONLY_KEY = process.env.PINAR_HELP_SCREENSHOT_ONLY || "";
+// The covers with their own demo data run on this frozen clock and in this
+// time zone (the one the committed covers were taken in), and the demo shots
+// carry fixed creation times, so a run a minute or a day later gives the
+// same bytes.
+const CAPTURE_TIME = "2026-10-19T18:20:00.000Z";
+const CAPTURE_TIME_ZONE = "America/Sao_Paulo";
 
 // The detached Cloud of the own-ai-endpoint cover lives in its own process
 // group, so a Ctrl+C or a SIGTERM never reaches it: the run stops what it
@@ -335,13 +341,14 @@ async function startAssistantDemo(browser) {
         const { collection: checkout } = await post(`/api/projects/${project.id}/collections`, { name: "Checkout" });
         const { collection: design } = await post(`/api/projects/${project.id}/collections`, { name: "Design" });
         const shots = [
-          { collectionId: checkout.id, id: "help_demo_payment", image: images.payment, pins: ["Pay button overlaps the order total", "Card field label is cut off"], title: "Payment step", url: "https://shop.example.test/checkout/payment" },
-          { collectionId: checkout.id, id: "help_demo_summary", image: images.summary, pins: ["Discount line is missing"], title: "Order summary", url: "https://shop.example.test/checkout/summary" },
-          { collectionId: design.id, id: "help_demo_header", image: images.header, pins: ["Logo too close to the menu"], title: "Header spacing", url: "https://shop.example.test/" },
+          { collectionId: checkout.id, createdAt: "2026-10-19T18:16:00.000Z", id: "help_demo_payment", image: images.payment, pins: ["Pay button overlaps the order total", "Card field label is cut off"], title: "Payment step", url: "https://shop.example.test/checkout/payment" },
+          { collectionId: checkout.id, createdAt: "2026-10-19T18:16:20.000Z", id: "help_demo_summary", image: images.summary, pins: ["Discount line is missing"], title: "Order summary", url: "https://shop.example.test/checkout/summary" },
+          { collectionId: design.id, createdAt: "2026-10-19T18:16:40.000Z", id: "help_demo_header", image: images.header, pins: ["Logo too close to the menu"], title: "Header spacing", url: "https://shop.example.test/" },
         ];
         for (const shot of shots) {
           await post("/api/shots", {
             collectionId: shot.collectionId,
+            createdAt: shot.createdAt,
             id: shot.id,
             image: shot.image,
             page: { title: shot.title, url: shot.url },
@@ -360,9 +367,29 @@ async function startAssistantDemo(browser) {
   }
 }
 
+// The server dates a proposal on its own clock and the page reads it on the
+// frozen one, so each deadline in an assistant answer is moved to the same
+// whole minutes after CAPTURE_TIME as it was after the server's now: the
+// card keeps reading "Expires in 10 min".
+async function fulfillOnCaptureClock(route) {
+  const response = await route.fetch();
+  const now = Date.now();
+  const body = (await response.text()).replace(
+    /(\\?"(?:expiresAt|undoExpiresAt)\\?":\s*\\?")([^"\\]+)/g,
+    (match, prefix, value) => {
+      const time = Date.parse(value);
+      if (!Number.isFinite(time)) return match;
+      const minutes = Math.round((time - now) / 60_000);
+      return `${prefix}${new Date(Date.parse(CAPTURE_TIME) + minutes * 60_000).toISOString()}`;
+    },
+  );
+  return route.fulfill({ body, response });
+}
+
 // The workspace on the demo project with the assistant panel open: the
 // question of `language` sent, the fake model's proposed move and answer.
 async function showAssistantDemo(page, demo, language, ui) {
+  await page.route("**/api/assistant/**", fulfillOnCaptureClock);
   const [question, answer] = ASSISTANT_DEMO_CONVERSATION[language];
   demo.fake.reset();
   demo.fake.enqueue(
@@ -617,30 +644,190 @@ async function showByokSettings(page, cloud, language, ui) {
 
 // Playwright's own signal handlers exit the process right away, before the
 // servers in stopOnSignal are stopped; the run closes the browser itself.
-const BROWSER_SIGNALS = { handleSIGINT: false, handleSIGTERM: false };
+// Partial raster repaints only the damaged part of a tile over its earlier
+// raster, so antialiased edges (the rounded corners of the toolbar inputs,
+// the composer) kept traces of the frames painted before the shot, which
+// differ from run to run; with whole tiles rasterized, they do not.
+const BROWSER_LAUNCH = {
+  args: ["--disable-partial-raster"],
+  handleSIGINT: false,
+  handleSIGTERM: false,
+};
 
 async function launchHelpScreenshotBrowser() {
   if (process.env.PINAR_HELP_SCREENSHOT_CHANNEL) {
     return chromium.launch({
-      ...BROWSER_SIGNALS,
+      ...BROWSER_LAUNCH,
       channel: process.env.PINAR_HELP_SCREENSHOT_CHANNEL,
       headless: true,
     });
   }
   try {
-    return await chromium.launch({ ...BROWSER_SIGNALS, headless: true });
+    return await chromium.launch({ ...BROWSER_LAUNCH, headless: true });
   } catch (error) {
     const message = String(error?.message || error);
     if (!message.includes("Executable doesn't exist")) throw error;
-    return chromium.launch({ ...BROWSER_SIGNALS, channel: "msedge", headless: true });
+    return chromium.launch({ ...BROWSER_LAUNCH, channel: "msedge", headless: true });
   }
 }
 
-// Only the targets on the local Pinar need it: the assistant cover and the
-// own-endpoint cover bring their own servers.
-const baseUrl = SCREENSHOTS.some(
-  (screenshot) => !screenshot.assistantDemo && !screenshot.byokCloud,
-)
+// The assistant cover and the own-endpoint cover bring their own servers
+// with demo data; the other targets read the local Pinar.
+function hasOwnData(screenshot) {
+  return Boolean(screenshot.assistantDemo || screenshot.byokCloud);
+}
+
+// The page every capture of `language` runs in. The covers with their own
+// demo data (`hasOwnData`) run on the frozen clock and time zone; the ones
+// on the local Pinar show its real data, so they keep the machine's clock.
+async function openCapturePage(browser, language, frozenClock) {
+  const context = await browser.newContext({
+    colorScheme: "light",
+    ...(frozenClock ? { timezoneId: CAPTURE_TIME_ZONE } : {}),
+  });
+  if (frozenClock) await context.clock.setFixedTime(CAPTURE_TIME);
+  const optionsMock = extensionOptionsChromeMock(language);
+  await context.addInitScript((locale) => {
+    localStorage.setItem("pinar-language", locale);
+  }, language);
+  await context.addInitScript(({ os, settings }) => {
+    globalThis.chrome = {
+      runtime: {
+        getManifest: () => ({ version: "0.3.0" }),
+        getPlatformInfo: async () => ({ os }),
+        id: "pinar-help-screenshots",
+        sendMessage: async (message) => {
+          if (message?.type === "preferences:get") {
+            return {
+              handoffMode: settings.handoffMode,
+              includeScreenshot: settings.includeScreenshot,
+              ok: true,
+            };
+          }
+          if (
+            message?.type === "destination:get" ||
+            message?.type === "destination:set"
+          ) {
+            const now = "2026-08-18T00:00:00.000Z";
+            return {
+              destination: {
+                collectionId: "inbox",
+                projectId: "personal",
+              },
+              ok: true,
+              tree: {
+                projects: [
+                  {
+                    collections: [
+                      {
+                        createdAt: now,
+                        id: "inbox",
+                        isProtected: true,
+                        name: "Inbox",
+                        ownerId: "local",
+                        parentId: null,
+                        position: 0,
+                        projectId: "personal",
+                        sessions: [],
+                        updatedAt: now,
+                      },
+                    ],
+                    createdAt: now,
+                    icon: "folder",
+                    id: "personal",
+                    isProtected: true,
+                    name: "Personal",
+                    ownerId: "local",
+                    position: 0,
+                    updatedAt: now,
+                  },
+                ],
+              },
+            };
+          }
+          if (message?.type === "auth:get") {
+            return {
+              ok: true,
+              session: {
+                installationId: "help-screenshots",
+                kind: "installation",
+                plan: "free",
+              },
+            };
+          }
+          return { ok: true };
+        },
+      },
+      commands: {
+        getAll: (callback) => {
+          callback([
+            {
+              description: "Toggle Pinar",
+              name: "_execute_action",
+              shortcut: "Alt+Shift+P",
+            },
+            {
+              description: "Finish batch",
+              name: "finish-batch",
+              shortcut: "Alt+Shift+B",
+            },
+            {
+              description: "Cancel batch",
+              name: "cancel-batch",
+              shortcut: "Alt+Shift+N",
+            },
+            {
+              description: "Open panel",
+              name: "open-panel",
+              shortcut: "Alt+Shift+O",
+            },
+          ]);
+        },
+      },
+      tabs: {
+        create: async () => {},
+      },
+      storage: {
+        local: {
+          get: async (defaults = {}) => ({ ...defaults }),
+          remove: async () => {},
+          set: async () => {},
+        },
+        sync: {
+          get: async (defaults = {}) => ({ ...defaults, ...settings }),
+          set: async () => {},
+        },
+      },
+    };
+  }, optionsMock);
+  await context.route("**/api/legal/current", (route) =>
+    route.fulfill({
+      json: {
+        acceptableUseUrl: "/legal/acceptable-use",
+        privacyUrl: "/legal/privacy",
+        termsUrl: "/legal/terms",
+        version: "2026-08-18",
+      },
+    }),
+  );
+  await context.route("**/extension-options/**", fulfillExtensionOptions);
+  await context.route("**/screenshot-fixtures/capture-overlay**", (route) => {
+    const mode =
+      new URL(route.request().url()).searchParams.get("mode") || "capture";
+    return route.fulfill({
+      body: overlayFixtureHtml(translations[language], {
+        language,
+        mode,
+        sendMod: process.platform === "darwin" ? "⌘" : "Ctrl",
+      }),
+      contentType: "text/html; charset=utf-8",
+    });
+  });
+  return context.newPage();
+}
+
+// Only the targets on the local Pinar need it.
+const baseUrl = SCREENSHOTS.some((screenshot) => !hasOwnData(screenshot))
   ? await discoverBaseUrl()
   : null;
 await mkdir(STAGING_ROOT, { recursive: true });
@@ -659,149 +846,16 @@ try {
       byokCloud = await startByokCloud();
     }
     for (const language of SUPPORTED_LANGUAGES) {
-      const context = await browser.newContext({ colorScheme: "light" });
-      const optionsMock = extensionOptionsChromeMock(language);
-      await context.addInitScript((locale) => {
-        localStorage.setItem("pinar-language", locale);
-      }, language);
-      await context.addInitScript(({ os, settings }) => {
-        globalThis.chrome = {
-          runtime: {
-            getManifest: () => ({ version: "0.3.0" }),
-            getPlatformInfo: async () => ({ os }),
-            id: "pinar-help-screenshots",
-            sendMessage: async (message) => {
-              if (message?.type === "preferences:get") {
-                return {
-                  handoffMode: settings.handoffMode,
-                  includeScreenshot: settings.includeScreenshot,
-                  ok: true,
-                };
-              }
-              if (
-                message?.type === "destination:get" ||
-                message?.type === "destination:set"
-              ) {
-                const now = "2026-08-18T00:00:00.000Z";
-                return {
-                  destination: {
-                    collectionId: "inbox",
-                    projectId: "personal",
-                  },
-                  ok: true,
-                  tree: {
-                    projects: [
-                      {
-                        collections: [
-                          {
-                            createdAt: now,
-                            id: "inbox",
-                            isProtected: true,
-                            name: "Inbox",
-                            ownerId: "local",
-                            parentId: null,
-                            position: 0,
-                            projectId: "personal",
-                            sessions: [],
-                            updatedAt: now,
-                          },
-                        ],
-                        createdAt: now,
-                        icon: "folder",
-                        id: "personal",
-                        isProtected: true,
-                        name: "Personal",
-                        ownerId: "local",
-                        position: 0,
-                        updatedAt: now,
-                      },
-                    ],
-                  },
-                };
-              }
-              if (message?.type === "auth:get") {
-                return {
-                  ok: true,
-                  session: {
-                    installationId: "help-screenshots",
-                    kind: "installation",
-                    plan: "free",
-                  },
-                };
-              }
-              return { ok: true };
-            },
-          },
-          commands: {
-            getAll: (callback) => {
-              callback([
-                {
-                  description: "Toggle Pinar",
-                  name: "_execute_action",
-                  shortcut: "Alt+Shift+P",
-                },
-                {
-                  description: "Finish batch",
-                  name: "finish-batch",
-                  shortcut: "Alt+Shift+B",
-                },
-                {
-                  description: "Cancel batch",
-                  name: "cancel-batch",
-                  shortcut: "Alt+Shift+N",
-                },
-                {
-                  description: "Open panel",
-                  name: "open-panel",
-                  shortcut: "Alt+Shift+O",
-                },
-              ]);
-            },
-          },
-          tabs: {
-            create: async () => {},
-          },
-          storage: {
-            local: {
-              get: async (defaults = {}) => ({ ...defaults }),
-              remove: async () => {},
-              set: async () => {},
-            },
-            sync: {
-              get: async (defaults = {}) => ({ ...defaults, ...settings }),
-              set: async () => {},
-            },
-          },
-        };
-      }, optionsMock);
-      await context.route("**/api/legal/current", (route) =>
-        route.fulfill({
-          json: {
-            acceptableUseUrl: "/legal/acceptable-use",
-            privacyUrl: "/legal/privacy",
-            termsUrl: "/legal/terms",
-            version: "2026-08-18",
-          },
-        }),
-      );
-      await context.route("**/extension-options/**", fulfillExtensionOptions);
-      await context.route("**/screenshot-fixtures/capture-overlay**", (route) => {
-        const mode =
-          new URL(route.request().url()).searchParams.get("mode") || "capture";
-        return route.fulfill({
-          body: overlayFixtureHtml(translations[language], {
-            language,
-            mode,
-            sendMod: process.platform === "darwin" ? "⌘" : "Ctrl",
-          }),
-          contentType: "text/html; charset=utf-8",
-        });
-      });
-      const page = await context.newPage();
+      const pages = new Map();
       const copy = translations[language];
       const ui = (await UI_MESSAGE_LOADERS[language]()).default;
 
       for (const screenshot of SCREENSHOTS) {
+        const frozenClock = hasOwnData(screenshot);
+        if (!pages.has(frozenClock)) {
+          pages.set(frozenClock, await openCapturePage(browser, language, frozenClock));
+        }
+        const page = pages.get(frozenClock);
         await page.setViewportSize({
           width: screenshot.width,
           height: screenshot.height,
@@ -1013,7 +1067,7 @@ try {
         process.stdout.write(`${language}/${screenshot.key}.webp\n`);
       }
 
-      await context.close();
+      for (const page of pages.values()) await page.context().close();
     }
   } finally {
     await assistantDemo?.stop();

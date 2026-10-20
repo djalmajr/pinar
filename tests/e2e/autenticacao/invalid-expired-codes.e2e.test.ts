@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { CURRENT_LEGAL_VERSION } from "../../../apps/server/src/lib/legal-documents";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
 
@@ -195,11 +196,11 @@ test("first remote account activation accepts the current policies with OTP veri
 
   expect(verifyBodies).toHaveLength(1);
   expect(verifyBodies[0].legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-10-17",
+    acceptableUseVersion: CURRENT_LEGAL_VERSION,
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-10-17",
-    termsVersion: "2026-10-17",
+    privacyVersion: CURRENT_LEGAL_VERSION,
+    termsVersion: CURRENT_LEGAL_VERSION,
   });
 });
 

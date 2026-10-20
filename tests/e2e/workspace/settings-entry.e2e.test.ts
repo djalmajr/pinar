@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { stubLocalAiSettings } from "../helpers/local-ai-settings";
 import { openWorkspaceAccountMenu } from "../helpers/ui";
+
+test.beforeEach(async ({ page }) => {
+  await stubLocalAiSettings(page);
+});
 
 test("local Settings lives in the sidebar account menu instead of the workspace header", async ({ page }) => {
   await page.goto("/app");
@@ -14,7 +19,7 @@ test("local Settings lives in the sidebar account menu instead of the workspace 
   await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
 
   await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByRole("dialog").getByText("General", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "General", exact: true })).toBeVisible();
   // Mutation captured: leaving the settings nav aside on p-3 keeps the extra inset the pin asked to drop.
   await expect(page.getByRole("dialog").locator("aside")).toHaveClass(/p-2/);
 });

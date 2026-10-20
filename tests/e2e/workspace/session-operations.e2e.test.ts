@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  closeWorkspaceSidebar,
   installClipboardHarness,
   openWorkspaceSidebar,
   readClipboardHarness,
@@ -33,7 +34,7 @@ function openSessionMenu(page: Page) {
   });
 }
 
-async function expectRightSurplus(menu: ReturnType<Page["locator"]>) {
+async function expectSymmetricPadding(menu: ReturnType<Page["locator"]>) {
   const padding = await menu.evaluate((node) => {
     const style = getComputedStyle(node);
     return {
@@ -41,7 +42,8 @@ async function expectRightSurplus(menu: ReturnType<Page["locator"]>) {
       right: Number.parseFloat(style.paddingRight),
     };
   });
-  expect(padding.right).toBeGreaterThan(padding.left);
+  expect(padding.left).toBeGreaterThan(0);
+  expect(padding.right).toBe(padding.left);
 }
 
 test("move, manual order, copy and confirmed deletion remain precise and persistent", async ({ page }) => {
@@ -124,7 +126,7 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><text x="20" y="40">Session</text></svg>',
     contentType: "image/svg+xml",
   }));
-  await page.route("**/api/batches/batch_ops/markdown", (route) => route.fulfill({
+  await page.route(/\/api\/batches\/batch_ops\/markdown\?includeViewerContent=0$/, (route) => route.fulfill({
     body: "# Aggregated prompt\n\nMoved capture feedback",
     contentType: "text/markdown; charset=utf-8",
   }));
@@ -183,18 +185,18 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
     "Delete session",
   ]);
   const openPrompt = viewerMenu.getByRole("menuitem", { name: "Open prompt *.md" });
-  await expect(openPrompt).toHaveAttribute("href", "/v/session_moved.md");
+  await expect(openPrompt).toHaveAttribute("href", "/api/sessions/session_moved/markdown");
   const menuFits = await viewerMenu.evaluate((node) => node.scrollWidth <= node.clientWidth + 1);
   expect(menuFits).toBe(true);
-  await expectRightSurplus(viewerMenu);
-  await page.context().route("**/v/session_moved.md", (route) => route.fulfill({
+  await expectSymmetricPadding(viewerMenu);
+  await page.context().route("**/api/sessions/session_moved/markdown", (route) => route.fulfill({
     body: "# Moved capture\n\nhttps://example.test/session_moved",
     contentType: "text/markdown; charset=utf-8",
   }));
   const markdownPopupPromise = page.waitForEvent("popup");
   await openPrompt.click();
   const markdownPopup = await markdownPopupPromise;
-  await expect(markdownPopup).toHaveURL(/\/v\/session_moved\.md$/);
+  await expect(markdownPopup).toHaveURL(/\/api\/sessions\/session_moved\/markdown$/);
   await expect(markdownPopup.locator("body")).toContainText("Moved capture");
   await markdownPopup.close();
   await page.goBack();
@@ -203,17 +205,19 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   const projectActions = page.getByRole("button", { name: "Workspace: Project actions" });
   await projectActions.click();
   const projectMenu = page.getByRole("menu");
-  await expectRightSurplus(projectMenu);
+  await expectSymmetricPadding(projectMenu);
   await projectActions.click();
   await expect(projectMenu).toBeHidden();
+  await openWorkspaceSidebar(page, "Collection B");
   const collectionRow = page.getByRole("button", { exact: true, name: "Collection B" });
   await collectionRow.hover();
   const collectionActions = page.getByRole("button", { name: "Collection B: Collection actions" });
   await collectionActions.click();
   const collectionMenu = page.getByRole("menu");
-  await expectRightSurplus(collectionMenu);
+  await expectSymmetricPadding(collectionMenu);
   await collectionActions.click();
   await expect(collectionMenu).toBeHidden();
+  await closeWorkspaceSidebar(page);
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
   await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (session)" })).toHaveCount(0);

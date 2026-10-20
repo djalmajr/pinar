@@ -148,6 +148,7 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   await expect(dialog).toBeVisible();
   releaseFirstCreate();
   await expect(dialog).not.toBeVisible();
+  await openWorkspaceSidebar(page, "Parent");
   await expect(page.getByRole("button", { exact: true, name: "Parent" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-pinar-workspace-view", '["prj_workspace","col_parent",null,false]');
   releaseTreeRefresh();
@@ -208,9 +209,7 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   await page.getByRole("button", { name: "Workspace" }).first().click();
   await page.getByRole("menuitem", { name: "Personal" }).click();
   await openWorkspaceSidebar(page, "Inbox");
-  await openButtonMenu(page, "Inbox: Collection actions");
-  await expect(page.getByRole("menuitem", { name: "Remove" })).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Inbox: Collection actions", exact: true })).toHaveCount(0);
   await closeWorkspaceSidebar(page);
   await page.getByRole("button", { name: "Personal" }).first().click();
   await page.getByRole("menuitem", { name: "Workspace" }).click();

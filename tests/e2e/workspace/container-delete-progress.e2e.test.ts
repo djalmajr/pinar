@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { chooseButtonMenuItem, openButtonMenu, openWorkspaceSidebar } from "../helpers/ui";
+import { chooseButtonMenuItem, openButtonMenu } from "../helpers/ui";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
 const ownerId = "ins_delete_progress";
@@ -103,7 +103,6 @@ test("collection and project deletion stay pending until the response", async ({
   });
 
   await page.goto("/app");
-  await openWorkspaceSidebar(page, "Review");
   await openButtonMenu(page, "Review: Collection actions");
   await chooseButtonMenuItem(page, "Review: Collection actions", "Remove");
   const collectionDialog = page.getByRole("alertdialog", { name: "Delete collection" });

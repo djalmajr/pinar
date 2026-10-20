@@ -1,110 +1,73 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openWorkspaceSidebar } from "../helpers/ui";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
 const ownerId = "ins_batch_filters";
 
-function tree() {
+function capture(id: string, batchId: string, title: string) {
   return {
-    projects: [{
-      collections: [{
-        createdAt,
-        id: "col_inbox",
-        isProtected: true,
-        name: "Inbox",
-        ownerId,
-        parentId: null,
-        position: 0,
-        projectId: "prj_personal",
-        sessions: [],
-        updatedAt: createdAt,
-      }],
-      createdAt,
-      icon: "user-round",
-      id: "prj_personal",
-      isProtected: true,
-      name: "Personal",
-      ownerId,
-      position: 0,
-      updatedAt: createdAt,
-    }],
+    batchId,
+    collectionId: "col_inbox",
+    createdAt,
+    id,
+    page: { title, url: `https://example.test/${id}` },
+    pins: [{ comment: `${title} feedback`, number: 1, type: "point", coords: { x: 20, y: 30 } }],
+    shotUrl: `/shots/${id}.svg`,
   };
 }
 
-test("filters stay visible and remove all clears groupings", async ({ page }) => {
-  let batches = [
-    { finishedAt: createdAt, id: "batch_one", label: "First batch", sessionCount: 2, startedAt: createdAt },
-    { finishedAt: createdAt, id: "batch_two", label: "Second batch", sessionCount: 1, startedAt: createdAt },
-  ];
-
-  await page.addInitScript(() => {
-    if (sessionStorage.getItem("pinar-batch-filters-ready")) return;
-    localStorage.clear();
-    localStorage.setItem("pinar-selected-project", "prj_personal");
-    sessionStorage.setItem("pinar-batch-filters-ready", "true");
-  });
-  await page.route("**/api/auth/session", (route) => route.fulfill({
-    json: { session: { installationId: ownerId, kind: "installation", plan: "free" } },
+async function mockWorkspace(page: Page, sessions: ReturnType<typeof capture>[]) {
+  await page.addInitScript(() => localStorage.clear());
+  await page.route("**/api/project-tree", (route) => route.fulfill({
+    json: { tree: { projects: [{
+      collections: [{
+        createdAt, id: "col_inbox", isProtected: true, name: "Inbox", ownerId,
+        parentId: null, position: 0, projectId: "prj_personal", sessions, updatedAt: createdAt,
+      }],
+      createdAt, icon: "user-round", id: "prj_personal", isProtected: true,
+      name: "Personal", ownerId, position: 0, updatedAt: createdAt,
+    }] } },
   }));
-  await page.route("**/api/project-tree", (route) => route.fulfill({ json: { tree: tree() } }));
-  await page.route("**/api/batches", (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    return route.fulfill({ json: { batches, ok: true } });
-  });
-  await page.route("**/api/batches/*", async (route) => {
-    if (route.request().method() !== "DELETE") {
-      await route.fallback();
-      return;
-    }
-    const id = new URL(route.request().url()).pathname.split("/").pop() || "";
-    batches = batches.filter((batch) => batch.id !== id);
-    await route.fulfill({ json: { ok: true } });
-  });
+  await page.route("**/api/batches", (route) => route.fulfill({
+    json: { batches: [...new Set(sessions.map((session) => session.batchId))].map((id) => ({
+      id, label: id, sessionCount: sessions.filter((session) => session.batchId === id).length, startedAt: createdAt,
+    })), ok: true },
+  }));
+  await page.route("**/shots/*.svg", (route) => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="50"><rect width="80" height="50" fill="skyblue"/></svg>',
+  }));
+}
 
+// The batch sidebar was retired in 1ec1ecc; captures are grouped in their collection.
+test("batches group their captures in Inbox without separate sidebar filters", async ({ page }) => {
+  await mockWorkspace(page, [
+    capture("first-one", "batch_one", "First batch"),
+    capture("first-two", "batch_one", "First batch second page"),
+    capture("second-one", "batch_two", "Second batch"),
+  ]);
   await page.goto("/app");
+  await expect(page.locator("[data-session-id]")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "First batch", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Second batch", exact: true })).toBeVisible();
+  await expect(page.getByText("2 pages · 2 captures")).toBeVisible();
   await openWorkspaceSidebar(page, "Inbox");
-  await expect(page.getByText("Filters", { exact: true })).toBeVisible();
-  const batchesRow = page.getByRole("button", { exact: true, name: "Batches" });
-  await expect(batchesRow).toBeVisible();
-  await page.getByRole("button", { name: "Expand Batches" }).click();
-  await expect(page.getByRole("button", { exact: true, name: "First batch" })).toBeVisible();
-  await expect(page.getByRole("button", { exact: true, name: "Second batch" })).toBeVisible();
-
-  await batchesRow.hover();
-  await page.getByRole("button", { name: "Batch actions" }).click();
-  await page.getByRole("menuitem", { name: "Remove all" }).click();
-  const confirm = page.getByRole("alertdialog", { name: "Remove all groupings?" });
-  await expect(confirm).toContainText("The sessions stay in their collections. Only the groupings are removed.");
-  await confirm.getByRole("button", { name: "Remove all" }).click();
-  await expect(page.getByRole("button", { exact: true, name: "First batch" })).toHaveCount(0);
-  await expect(page.getByRole("button", { exact: true, name: "Second batch" })).toHaveCount(0);
-  await expect(page.getByText("Filters", { exact: true })).toBeVisible();
-  await expect(batchesRow).toBeVisible();
-
-  await batchesRow.hover();
-  await page.getByRole("button", { name: "Batch actions" }).click();
-  await expect(page.getByRole("menuitem", { name: "Remove all" })).toBeDisabled();
+  await expect(page.getByText("Filters", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Batches", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Inbox", exact: true }).click();
+  await expect(page.locator("[data-session-id]")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "First batch", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Second batch", exact: true })).toBeVisible();
 });
 
-test("empty workspace still shows the batches grouper", async ({ page }) => {
-  await page.addInitScript(() => {
-    if (sessionStorage.getItem("pinar-batch-filters-empty-ready")) return;
-    localStorage.clear();
-    localStorage.setItem("pinar-selected-project", "prj_personal");
-    sessionStorage.setItem("pinar-batch-filters-empty-ready", "true");
-  });
-  await page.route("**/api/auth/session", (route) => route.fulfill({
-    json: { session: { installationId: ownerId, kind: "installation", plan: "free" } },
-  }));
-  await page.route("**/api/project-tree", (route) => route.fulfill({ json: { tree: tree() } }));
-  await page.route("**/api/batches", (route) => route.fulfill({ json: { batches: [], ok: true } }));
-
+test("empty Inbox keeps collection navigation without obsolete batch actions", async ({ page }) => {
+  await mockWorkspace(page, []);
   await page.goto("/app");
   await openWorkspaceSidebar(page, "Inbox");
-  await expect(page.getByText("Filters", { exact: true })).toBeVisible();
-  const batchesRow = page.getByRole("button", { exact: true, name: "Batches" });
-  await expect(batchesRow).toBeVisible();
-  await batchesRow.hover();
-  await page.getByRole("button", { name: "Batch actions" }).click();
-  await expect(page.getByRole("menuitem", { name: "Remove all" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Inbox", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "All sessions", exact: true })).toBeVisible();
+  await expect(page.getByText("Filters", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Batch actions" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Inbox", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "No annotation sessions found" })).toBeVisible();
 });

@@ -1,8 +1,9 @@
-import { chromium, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cloudEnvironment, resolveCloudUrl } from "../../../extension/environment.js";
 import { remoteProfileKey } from "../../../extension/remote-profile.js";
+import { launchExtensionContext } from "../helpers/extension-context";
 
 test("remote selection drives app routing and Pro microphone availability", async () => {
   const extension = resolve("extension");
@@ -12,7 +13,7 @@ test("remote selection drives app routing and Pro microphone availability", asyn
   const deviceTokenKey = remoteProfileKey(endpoint, "deviceToken");
   const sessionUrl = `${endpoint}/api/auth/session`;
   const remoteRadioName = environment === "staging" ? /Staging/ : /Remote Server|Servidor Remoto/;
-  const context = await chromium.launchPersistentContext("", {
+  const context = await launchExtensionContext("", {
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     channel: "chromium",
     headless: true,

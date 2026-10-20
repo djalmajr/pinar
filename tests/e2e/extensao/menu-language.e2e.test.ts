@@ -1,9 +1,10 @@
-import { chromium, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { resolve } from "node:path";
+import { launchExtensionContext } from "../helpers/extension-context";
 
 test("application language changes refresh the extension action menu", async () => {
   const extension = resolve("extension");
-  const context = await chromium.launchPersistentContext("", {
+  const context = await launchExtensionContext("", {
     channel: "chromium", headless: true,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });

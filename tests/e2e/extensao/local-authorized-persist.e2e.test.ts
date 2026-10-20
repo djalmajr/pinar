@@ -1,5 +1,6 @@
-import { chromium, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { resolve } from "node:path";
+import { launchExtensionContext } from "../helpers/extension-context";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const CAPTURE_TITLE = "Extension authorized capture";
@@ -9,7 +10,7 @@ test.describe("loaded Chrome extension local persist", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "MV3 loading is Chromium-only");
 
   test("pairs, rejects a missing/invalid capability, and persists into the workspace", async ({ baseURL }) => {
-    const context = await chromium.launchPersistentContext("", {
+    const context = await launchExtensionContext("", {
       args: [
         `--disable-extensions-except=${extensionDir}`,
         `--load-extension=${extensionDir}`,

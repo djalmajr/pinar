@@ -1,9 +1,10 @@
-import { chromium, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { resolve } from "node:path";
+import { launchExtensionContext } from "../helpers/extension-context";
 
 test("pins from another Pinar collection do not return when the toolbar reopens", async () => {
   const extension = resolve("extension");
-  const context = await chromium.launchPersistentContext("", {
+  const context = await launchExtensionContext("", {
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     channel: "chromium",
     headless: true,

@@ -1624,6 +1624,58 @@ describe("cloud GET /api/preferences autoCaptureDestinationAvailable", () => {
       db.close();
     }
   });
+
+  test("a stored BYOK row that names the Pinar, embeddings ok: today's detection decides, and nothing reaches the BYOK egress", async () => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    const db = migratedDatabase();
+    const byokKey = Buffer.alloc(32, 42).toString("base64");
+    const byokCalls: string[] = [];
+    setByokEgressForTests(async (url) => {
+      byokCalls.push(url);
+      return new Response("not found", { status: 404 });
+    });
+    try {
+      // A deployment without an embedding model nor decisions: only a BYOK
+      // route could make the destination available.
+      const env = filingEnv(db, { AI_EMBEDDING_MODEL: undefined, BYOK_MASTER_KEY: byokKey });
+      const cookie = await signIn(db, env);
+      appliance = fakeAppliance({ engine: "none" });
+      const cryptoObj = await byokCrypto(byokKey);
+      const ciphertext = await cryptoObj.encrypt("sk-byok-pref-own-host-2718");
+      db.query(`INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
+           embedding_model, transcription_model, capabilities_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        OWNER,
+        "https://pinar.dev",
+        ciphertext,
+        "2718",
+        cryptoObj.keyId,
+        "chat-1",
+        EMBEDDING_MODEL,
+        "",
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: 256, error: null, ok: true, testedAt: NOW },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: null, testedAt: null },
+          vision: { error: null, ok: true, testedAt: NOW },
+        }),
+        NOW,
+        NOW,
+      );
+      const response = await handleCloudApiRequest(new Request("https://pinar.test/api/preferences", { headers: { cookie } }), env);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as Record<string, unknown>;
+      // The deployment without an engine: today's answer, as without BYOK.
+      assert.equal(body.autoCaptureDestinationAvailable, false, "the own-host row does not make the destination available");
+      assert.equal(appliance.calls.length, 1, "one /models detection: today's path");
+      assert.deepEqual(byokCalls, [], "0 BYOK calls");
+    } finally {
+      setByokEgressForTests(null);
+      db.close();
+    }
+  });
 });
 
 // ---------- production through the gateway (F4 contract §4) ----------

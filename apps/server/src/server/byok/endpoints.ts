@@ -32,15 +32,12 @@
 
 import type { EmbeddingEndpoint } from "../assistant/retrieval/embeddings";
 import type { VisionEndpoint } from "../assistant/retrieval/vision";
-import { planIncludesAi } from "../../lib/entitlements";
 import type { CloudEnv, Principal } from "../cloud-api";
 import { capabilitiesOf } from "./api";
 import { ByokCallError, byokAbortRace, byokEgressErrorCause, byokReadBody, byokResponseCause } from "./cause";
-import { byokCrypto } from "./crypto";
 import type { ByokEgress } from "./fetch";
 import { byokEgressFor } from "./fetch";
-import { byokAcquireSlot, byokEgressAsFetch, byokSlotRelease } from "./route";
-import { byokRow } from "./store";
+import { byokAcquireSlot, byokEgressAsFetch, byokRoutableRow, byokSlotRelease } from "./route";
 
 // The body of a non-2xx answer, capped like the turn's and S2's: enough
 // for the 403/404 markers of the common table, never more.
@@ -199,11 +196,12 @@ export interface ByokRetrievalEndpoints {
  * caller keeps the gateway path, or the text-only turn search.
  */
 export async function byokRetrievalEndpoints(env: CloudEnv, principal: Principal): Promise<ByokRetrievalEndpoints | null> {
-  if (!planIncludesAi(principal.plan)) return null;
-  const crypto = await byokCrypto(env.BYOK_MASTER_KEY);
-  if (crypto === null) return null;
-  const row = await byokRow(env, principal.id);
-  if (row === null) return null;
+  // The stored row that names the Pinar has no route either, before the
+  // capabilities and the decrypt (byokRoutableRow, shared with the turn's
+  // and the capability routes).
+  const routable = await byokRoutableRow(env, principal);
+  if (routable === null) return null;
+  const { crypto, row } = routable;
   const capabilities = capabilitiesOf(row.capabilitiesJson);
   // The capabilities alone make both endpoints unusable: no decrypt, and
   // no key in a log or an error (the S3a rule — the status and the

@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
-import { afterEach, describe, test } from "node:test";
+import { afterEach, describe, mock, test } from "node:test";
 import type { CloudEnv, Principal } from "../cloud-api";
 import { untestedCapabilities } from "./api";
 import { ByokCallError } from "./cause";
@@ -122,7 +122,7 @@ async function insertUser(db: Database, id: string, email: string, plan: "free" 
 async function seedByokRow(
   db: Database,
   ownerId: string,
-  options: { capabilitiesJson?: string; chatModel?: string; embeddingModel?: string } = {},
+  options: { baseUrl?: string; capabilitiesJson?: string; chatModel?: string; embeddingModel?: string } = {},
 ) {
   const crypto = (await byokCrypto(MASTER_KEY))!;
   const ciphertext = await crypto.encrypt(TEST_KEY);
@@ -133,7 +133,7 @@ async function seedByokRow(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     ownerId,
-    BASE_URL,
+    options.baseUrl ?? BASE_URL,
     ciphertext,
     "1234",
     crypto.keyId,
@@ -754,6 +754,92 @@ describe("byokRetrievalEndpoints (F5/S3c)", () => {
         NOW,
       );
       assert.equal(await byokRetrievalEndpoints(envFor(db), principal("usr_u")), null, "the unreadable ciphertext has no route");
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------- a stored row that names the Pinar ----------
+
+// The rows stored before PUT /api/byok refused the Pinar's own host (the
+// same six as byok/route.test.ts): the vision and the embeddings tested ok
+// and both models configured, so only the host keeps them from routing.
+describe("byokRetrievalEndpoints: a stored row that names the Pinar", () => {
+  const PINAR_OWN_BASE_URLS = [
+    "https://pinar.dev",
+    "https://www.pinar.dev",
+    "https://PINAR.DEV",
+    "https://pinar.dev.",
+    "https://pinar.dev:443",
+    "https://www.pinar.dev/v1",
+  ];
+
+  const bothOk = JSON.stringify({
+    ...(untestedCapabilities() as Record<string, unknown>),
+    embeddings: { dims: 256, error: null, ok: true, testedAt: NOW },
+    vision: { error: null, ok: true, testedAt: NOW },
+  });
+
+  // The decryptions (crypto.subtle.decrypt, under byokCrypto's decrypt) and
+  // the egress calls the block makes, counted from after the row is seeded.
+  async function countingByokCalls<T>(block: () => Promise<T>) {
+    let egressCalls = 0;
+    setByokEgressForTests(async () => {
+      egressCalls += 1;
+      return Response.json({ data: [{ embedding: [1], index: 0 }] });
+    });
+    const decrypt = mock.method(crypto.subtle, "decrypt");
+    try {
+      const result = await block();
+      return { decrypts: decrypt.mock.callCount(), egressCalls, result };
+    } finally {
+      decrypt.mock.restore();
+    }
+  }
+
+  for (const baseUrl of PINAR_OWN_BASE_URLS) {
+    test(`${baseUrl}: no endpoints, no decrypt, no egress, the row left as it is`, async () => {
+      const db = migratedDatabase();
+      try {
+        await insertUser(db, "usr_p", "p@example.test", "pro");
+        await seedByokRow(db, "usr_p", { baseUrl, capabilitiesJson: bothOk });
+        const before = db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_p'").get();
+        const env = envFor(db);
+
+        const counted = await countingByokCalls(async () => ({
+          again: await byokRetrievalEndpoints(env, principal("usr_p")),
+          first: await byokRetrievalEndpoints(env, principal("usr_p")),
+        }));
+        assert.deepEqual(counted.result, { again: null, first: null });
+        assert.equal(counted.decrypts, 0, "the key is never decrypted");
+        assert.equal(counted.egressCalls, 0, "nothing leaves");
+        assert.deepEqual(db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_p'").get(), before, "the row is left as it is");
+      } finally {
+        db.close();
+      }
+    });
+  }
+
+  test("control: a neighbor host still answers both endpoints, with one decrypt", async () => {
+    const control = "https://api.pinar.dev.example";
+    const db = migratedDatabase();
+    try {
+      await insertUser(db, "usr_p", "p@example.test", "pro");
+      await seedByokRow(db, "usr_p", { baseUrl: control, capabilitiesJson: bothOk });
+      const env = envFor(db);
+
+      const counted = await countingByokCalls(async () => {
+        const endpoints = await byokRetrievalEndpoints(env, principal("usr_p"));
+        assert.ok(endpoints);
+        assert.equal(endpoints.vision?.baseUrl, control);
+        assert.equal(endpoints.vision?.apiKey, TEST_KEY);
+        assert.equal(endpoints.embedding?.baseUrl, control);
+        assert.equal(endpoints.embedding?.apiKey, TEST_KEY);
+        await endpoints.embedding!.fetch!(`${control}/embeddings`, { body: "{}", method: "POST" });
+      });
+      assert.equal(counted.decrypts, 1);
+      assert.equal(counted.egressCalls, 1, "the counting egress is the endpoints'");
     } finally {
       db.close();
     }

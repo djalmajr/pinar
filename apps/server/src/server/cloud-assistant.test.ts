@@ -1759,14 +1759,14 @@ describe("cloud assistant retrieval and the automatic destination follow the use
       vision: vision ? { error: null, ok: true, testedAt: NOW } : { error: null, ok: null, testedAt: null },
     });
 
-  async function seedByokRow(db: Database, byokKey: string, capabilities: string, embeddingModel = S3C_EMBEDDING, chatModel = S3C_CHAT) {
+  async function seedByokRow(db: Database, byokKey: string, capabilities: string, embeddingModel = S3C_EMBEDDING, chatModel = S3C_CHAT, baseUrl = BYOK_BASE_URL) {
     const cryptoObj = (await byokCrypto(byokKey))!;
     const ciphertext = await cryptoObj.encrypt(BYOK_KEY);
     db.query(
       `INSERT INTO byok_endpoints (owner_id, base_url, key_ciphertext, key_last4, key_id, chat_model,
          embedding_model, transcription_model, capabilities_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run("usr_a", BYOK_BASE_URL, ciphertext, "9876", cryptoObj.keyId, chatModel, embeddingModel, "", capabilities, NOW, NOW);
+    ).run("usr_a", baseUrl, ciphertext, "9876", cryptoObj.keyId, chatModel, embeddingModel, "", capabilities, NOW, NOW);
   }
 
   async function seedWorkspace(db: Database) {
@@ -1985,6 +1985,90 @@ describe("cloud assistant retrieval and the automatic destination follow the use
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       assert.deepEqual(db.query("SELECT id FROM assistant_index_costs").all(), [], "no index cost line");
+    } finally {
+      setByokEgressForTests(null);
+      fake.stop();
+      db.close();
+    }
+  });
+
+  test("S3c: a stored row that names the Pinar, every capability ok, follows today's path (the search, the captions and the filing through the gateway), 0 BYOK calls", async () => {
+    const db = migratedDatabase();
+    const fake = s3cDeployment({ vision: true });
+    const byokKey = Buffer.alloc(32, 25).toString("base64");
+    // Every BYOK egress call is recorded, whatever its host: the own-host
+    // row must never reach it.
+    const byokCalls: string[] = [];
+    setByokEgressForTests(async (url) => {
+      byokCalls.push(url);
+      return new Response("not found", { status: 404 });
+    });
+    try {
+      const { a } = await seedWorkspace(db);
+      await seedByokRow(
+        db,
+        byokKey,
+        JSON.stringify({
+          chat: { error: null, ok: true, testedAt: NOW },
+          embeddings: { dims: 256, error: null, ok: true, testedAt: NOW },
+          tools: { error: null, ok: true, testedAt: NOW },
+          transcription: { error: null, ok: true, testedAt: NOW },
+          vision: { error: null, ok: true, testedAt: NOW },
+        }),
+        S3C_EMBEDDING,
+        S3C_CHAT,
+        "https://www.pinar.dev/v1",
+      );
+      const b3 = bucket();
+      b3.put("shots/sess_s3c.png", PNG_BYTES);
+      const env = assistantEnv(db, {
+        AI_BASE_URL: `http://127.0.0.1:${fake.port}/v1`,
+        AI_EMBEDDING_MODEL: "embed-model",
+        BYOK_MASTER_KEY: byokKey,
+        PINAR_BUCKET: b3,
+      });
+
+      // The turn and its search: the gateway (source pinar), the index on
+      // the deployment's identity, the captions by the deployment's model.
+      const response = await turn(env, a.cookie, { text: "Onde está a nota do deploy?" });
+      assert.equal(response.status, 200);
+      const sse = await response.text();
+      assert.equal(firstPartOf(sse).data.source, "pinar");
+      const rows = indexRows(db);
+      assert.equal(rows.length, 2);
+      const deploymentIdentity = embeddingIdentity({ baseUrl: `http://127.0.0.1:${fake.port}/v1`, model: "embed-model" });
+      assert.ok(rows.every((row) => row.model === deploymentIdentity && row.vector_null === 0), `the deployment's identity: ${JSON.stringify(rows)}`);
+      assert.deepEqual(rows.map((row) => row.caption).sort(), ["legenda gw 1", "legenda gw 2"], "the captions ran on the deployment");
+
+      // The automatic destination: the capture's embedding through the
+      // gateway, one credit.
+      insertSession(db, "sess_s3c_own", "usr_a", "collection_s3c", [{ comment: "nova captura do deploy", number: 1, pinId: "pin_s3c_own" }]);
+      await writeOwnerDeliveryPreferences(env, "usr_a", { autoCaptureDestination: true });
+      const shotResponse = await route(
+        "/api/shots",
+        env,
+        {
+          body: JSON.stringify({
+            id: "sess_s3c_own",
+            image: `data:image/png;base64,${PNG_B64}`,
+            page: { title: "Nota do deploy", url: "https://example.test/nova" },
+            pins: [{ comment: "nova captura do deploy", number: 1 }],
+          }),
+          headers: { cookie: a.cookie, "content-type": "application/json" },
+          method: "POST",
+        },
+      );
+      assert.equal(shotResponse.status, 201, await shotResponse.clone().text());
+      const shotBody = (await shotResponse.json()) as Record<string, any>;
+      assert.equal(shotBody.filing.engine, "similarity", "the engine ran through the gateway");
+      const filingUsages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'capture_filing'").all();
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(filingUsages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the capture was not billed: ${JSON.stringify(filingUsages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      assert.deepEqual(byokCalls, [], "0 BYOK calls on the whole path");
     } finally {
       setByokEgressForTests(null);
       fake.stop();

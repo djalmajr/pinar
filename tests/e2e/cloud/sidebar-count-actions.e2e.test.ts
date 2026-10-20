@@ -137,6 +137,9 @@ async function withLongCollection(page: Page, body: () => Promise<void>) {
     await body();
   } finally {
     await deleteLongCollection(page);
+    // The delete refreshes the tree: let that padded response finish before
+    // teardown closes the context under it.
+    await page.unrouteAll({ behavior: "wait" });
   }
 }
 

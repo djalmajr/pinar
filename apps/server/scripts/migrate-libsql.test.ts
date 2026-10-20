@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -112,13 +111,50 @@ interface CliRun {
   stdout: string;
 }
 
-function runCli(args: string[], env: Record<string, string>, cwd: string): Promise<CliRun> {
-  return new Promise((resolveRun) => {
-    execFile(process.execPath, [SCRIPT_PATH, ...args], { cwd, env: { ...process.env, ...env } }, (error, stdout, stderr) => {
-      const code = error === null ? 0 : typeof error.code === "number" ? error.code : 1;
-      resolveRun({ code, stderr: String(stderr), stdout: String(stdout) });
-    });
+// Bun 1.4.3 under load can lose a child's exit with node:child_process
+// execFile: the child is gone and the callback never comes (measured: 5 lost
+// exits in 6 rounds of `bun run test --rerun-each 30` beside a full suite;
+// the same 6 rounds through Bun.spawn lost none). Bun.spawn is used instead, and a
+// child that is gone for a second while `exited` still waits fails with that
+// diagnosis rather than the runner's generic timeout. A child still running
+// keeps the runner's whole budget.
+async function spawnCli(args: string[], env: Record<string, string>, cwd: string): Promise<CliRun> {
+  const proc = Bun.spawn([process.execPath, SCRIPT_PATH, ...args], {
+    cwd,
+    env: { ...process.env, ...env },
+    stderr: "pipe",
+    stdin: "ignore",
+    stdout: "pipe",
   });
+  let watch: ReturnType<typeof setInterval> | undefined;
+  const lost = new Promise<never>((_, reject) => {
+    let goneSince = 0;
+    watch = setInterval(() => {
+      try {
+        process.kill(proc.pid, 0);
+        goneSince = 0;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") return;
+        goneSince ||= Date.now();
+        if (Date.now() - goneSince < 1_000) return;
+        clearInterval(watch);
+        reject(new Error(`child ${proc.pid} exited but no exit event reached runCli`));
+      }
+    }, 250);
+  });
+  try {
+    const [stdout, stderr, code] = await Promise.race([
+      Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
+      lost,
+    ]);
+    return { code, stderr, stdout };
+  } finally {
+    clearInterval(watch);
+  }
+}
+
+function runCli(args: string[], env: Record<string, string>, cwd: string): Promise<CliRun> {
+  return spawnCli(args, env, cwd);
 }
 
 describe("migrateLibsql", () => {

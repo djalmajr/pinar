@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { stubLocalAiSettings } from "../helpers/local-ai-settings";
 import {
   closeWorkspaceSidebar,
   isMobileViewport,
@@ -18,6 +19,7 @@ async function dragSeparator(page: Page, separator: Locator, targetX: number) {
 }
 
 test("global settings and viewer navigation preserve language, theme, and capture preferences", async ({ page }) => {
+  await stubLocalAiSettings(page);
   let includeScreenshot = true;
   let handoffMode: "compact" | "full" = "compact";
   const capture = {

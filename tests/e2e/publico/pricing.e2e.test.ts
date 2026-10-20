@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { CURRENT_LEGAL_VERSION } from "../../../apps/server/src/lib/legal-documents";
 import { primaryNavigationItem } from "../helpers/ui";
 
 const MACOS_DMG_URL = "https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg";
@@ -137,8 +138,8 @@ test("paid checkout sends current consent on the first click", async ({ page }) 
   expect(notesPrecedeSupport).toBe(true);
   await expect(legalNote.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
-  await expect(legalNote.getByText("Version 2026-10-17.")).toBeVisible();
-  await expect(legalNote.getByText("Version 2026-10-17.")).toHaveCSS("display", "inline");
+  await expect(legalNote.getByText(`Version ${CURRENT_LEGAL_VERSION}.`)).toBeVisible();
+  await expect(legalNote.getByText(`Version ${CURRENT_LEGAL_VERSION}.`)).toHaveCSS("display", "inline");
   const freeFooter = page.getByRole("link", { exact: true, name: "Use Free" })
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
   await expect(freeFooter.getByText("By continuing, you accept the")).toHaveCount(0);
@@ -177,10 +178,10 @@ function assertCheckoutConsent(body: Record<string, unknown> | null) {
   expect(body?.offer).toBe("pro_year");
   expect(body?.locale).toBe("en");
   expect(body?.legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-10-17",
+    acceptableUseVersion: CURRENT_LEGAL_VERSION,
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-10-17",
-    termsVersion: "2026-10-17",
+    privacyVersion: CURRENT_LEGAL_VERSION,
+    termsVersion: CURRENT_LEGAL_VERSION,
   });
 }

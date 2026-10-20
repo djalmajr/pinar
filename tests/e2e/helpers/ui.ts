@@ -59,33 +59,38 @@ export async function primaryNavigationItem(page: Page, name: string) {
 
 export async function openWorkspaceSidebar(page: Page, visibleControl: string) {
   const target = page.getByRole("button", { exact: true, name: visibleControl });
-  if (await target.isVisible()) return;
-
   if (!isMobileViewport(page)) {
     await expect(target).toBeVisible();
     return;
   }
 
   const mobileSidebar = page.locator('[data-mobile="true"]');
+  const closingSidebar = page.locator('[data-mobile="true"][data-closed]');
   const toggle = page.getByRole("button", { exact: true, name: /^(Collections|Coleções)$/ });
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (await target.isVisible()) break;
-    if (await mobileSidebar.isVisible()) await page.keyboard.press("Escape");
-    await expect(toggle).toBeVisible();
-    await toggle.click();
+    await expect(closingSidebar).toHaveCount(0);
+    if (await target.isVisible() && !await mobileSidebar.isVisible()) return;
+    if (!await target.isVisible()) {
+      if (await mobileSidebar.isVisible()) await closeWorkspaceSidebar(page);
+      await expect(toggle).toBeVisible();
+      await toggle.click();
+    }
     try {
       await target.waitFor({ state: "visible", timeout: 2_000 });
-      break;
+      await mobileSidebar.evaluate(async (element) => {
+        await Promise.all(element.getAnimations({ subtree: true })
+          .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+          .map((animation) => animation.finished.catch(() => undefined)));
+      });
+      if (await target.isVisible() && await mobileSidebar.getAttribute("data-open") !== null) return;
     } catch {
       // A completed tree refresh remounts the mobile Sheet. Reopen the current tree.
     }
   }
 
   await expect(target).toBeVisible();
-  await mobileSidebar.evaluate(async (element) => {
-    await Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)));
-  });
+  await expect(mobileSidebar).toHaveAttribute("data-open", "");
 }
 
 export async function openWorkspaceAccountMenu(page: Page, triggerName = "Account menu") {
@@ -99,7 +104,15 @@ export async function openWorkspaceAccountMenu(page: Page, triggerName = "Accoun
 export async function closeWorkspaceSidebar(page: Page) {
   if (!isMobileViewport(page)) return;
   const mobileSidebar = page.locator('[data-mobile="true"]');
-  if (await mobileSidebar.isVisible()) await page.keyboard.press("Escape");
+  const openSidebar = page.locator('[data-mobile="true"][data-open]');
+  if (await openSidebar.isVisible()) {
+    try {
+      await openSidebar.press("Escape", { timeout: 2_000 });
+    } catch (error) {
+      if (await mobileSidebar.isVisible()) throw error;
+    }
+  }
+  await expect(mobileSidebar).toBeHidden();
 }
 
 export async function openButtonMenu(page: Page, name: string) {

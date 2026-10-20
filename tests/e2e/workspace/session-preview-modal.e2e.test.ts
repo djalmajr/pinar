@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { isMobileViewport, openWorkspaceSidebar } from "../helpers/ui";
+import { installClipboardHarness, isMobileViewport, openWorkspaceSidebar, readClipboardHarness } from "../helpers/ui";
 
 const createdAt = "2026-08-14T14:52:00.000Z";
 const pinComment = "Rotate this API key field.";
@@ -327,7 +327,7 @@ test("table view puts the mini-preview in the first column and opens the viewer"
   await expect(page).toHaveURL(/\/app\?session=preview-e2e/);
 });
 
-test("a pin thumbnail opens that capture and the privacy note stays beside the image", async ({ page }) => {
+test("the viewer zooms its image directly and the privacy note stays beside it", async ({ page }) => {
   await page.route("**/api/sessions/preview-e2e", (route) => route.fulfill({
     json: { session: { ...session, privacy: { unevaluated: true } } },
   }));
@@ -340,18 +340,15 @@ test("a pin thumbnail opens that capture and the privacy note stays beside the i
   const copyBox = await copy.boundingBox();
   expect(copyBox).not.toBeNull();
   expect(copyBox!.width).toBeLessThan(48);
-  const thumb = dialog.getByRole("button", { name: "Open this capture" });
-  await thumb.focus();
-  await expect(thumb).toBeFocused();
-  await page.keyboard.press("Enter");
-  const shot = page.getByRole("dialog", { name: "Open this capture" });
-  await expect(shot).toBeVisible();
-  await expect(shot.getByRole("img", { name: "Lowcode Studio" })).toBeVisible();
-  const zoomIn = shot.getByRole("button", { name: "Zoom in" });
+  await expect(dialog.getByRole("button", { name: "Open this capture" })).toHaveCount(0);
+  await expect(dialog.getByRole("img", { name: "Annotated page screenshot" })).toBeVisible();
+  const zoomIn = dialog.getByRole("button", { name: "Zoom in" });
   await zoomIn.focus();
   await expect(zoomIn).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(shot).toBeHidden();
+  await page.keyboard.press("Enter");
+  await expect(dialog.getByText("125%", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Reset zoom" }).click();
+  await expect(dialog.getByText("100%", { exact: true })).toBeVisible();
   await expect(dialog).toBeVisible();
   await expect(page).toHaveURL(/\/app/);
 });
@@ -366,7 +363,7 @@ test("modal viewer prepares a batch prompt once and shows the wait before it is 
   const markdownGate = new Promise<void>((resolve) => {
     releaseMarkdown = resolve;
   });
-  await page.route("**/api/batches/batch-preview/markdown", async (route) => {
+  await page.route(/\/api\/batches\/batch-preview\/markdown\?includeViewerContent=0$/, async (route) => {
     markdownRequests += 1;
     await markdownGate;
     await route.fulfill({
@@ -374,7 +371,7 @@ test("modal viewer prepares a batch prompt once and shows the wait before it is 
       contentType: "text/markdown; charset=utf-8",
     });
   });
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await installClipboardHarness(page);
   await page.goto("/app");
 
   const dialog = await openPreview(page, "Lowcode Studio");
@@ -418,7 +415,7 @@ test("modal viewer prepares a batch prompt once and shows the wait before it is 
   expectSameBox(before.close, during.close);
   expectSameBox(during.close, after.close);
   expect(markdownRequests).toBe(1);
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Aggregated prompt");
+  expect(await readClipboardHarness(page)).toContain("Aggregated prompt");
 });
 
 test("a failed batch copy shows the error and retries without saying copied", async ({ page }) => {
@@ -431,7 +428,7 @@ test("a failed batch copy shows the error and retries without saying copied", as
   const failureGate = new Promise<void>((resolve) => {
     releaseFailure = resolve;
   });
-  await page.route("**/api/batches/batch-preview-fail/markdown", async (route) => {
+  await page.route(/\/api\/batches\/batch-preview-fail\/markdown\?includeViewerContent=0$/, async (route) => {
     markdownRequests += 1;
     if (markdownRequests === 1) {
       await route.fulfill({ status: 500, body: "unavailable" });
@@ -447,7 +444,7 @@ test("a failed batch copy shows the error and retries without saying copied", as
       contentType: "text/markdown; charset=utf-8",
     });
   });
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await installClipboardHarness(page);
   await page.goto("/app");
 
   const dialog = await openPreview(page, "Lowcode Studio");

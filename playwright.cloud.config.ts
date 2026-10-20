@@ -1,12 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const PORT = 17_384;
 const baseURL = `http://127.0.0.1:${PORT}`;
 
-// Relative to apps/server, where cloud-local.mjs resolves it. The e2e
-// helpers import this single source of truth to reach the run's persisted
-// state (tests/e2e/helpers/cloud-signin.ts).
-export const CLOUD_E2E_STATE_PATH = ".wrangler/state/cloud-e2e-run";
+// Workers inherit the same home when they import this config through cloud-signin.
+const e2eHome = process.env.PINAR_E2E_HOME || mkdtempSync(join(tmpdir(), "pinar-cloud-e2e-"));
+process.env.PINAR_E2E_HOME = e2eHome;
+export const CLOUD_E2E_STATE_PATH = join(e2eHome, "cloud-state");
 
 export default defineConfig({
   expect: { timeout: 10_000 },
@@ -30,7 +33,8 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `bun run dev:cloud -- --port ${PORT} --state-path ${CLOUD_E2E_STATE_PATH}`,
+    command: `bun tests/e2e/helpers/cloud-web-server.ts ${PORT}`,
+    env: { PINAR_E2E_HOME: e2eHome },
     reuseExistingServer: false,
     stderr: "pipe",
     stdout: "pipe",

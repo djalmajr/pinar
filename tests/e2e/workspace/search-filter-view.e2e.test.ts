@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { closeWorkspaceSidebar, isMobileViewport, openWorkspaceSidebar } from "../helpers/ui";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
 
@@ -73,6 +74,18 @@ async function expectOnly(page: Page, title: string) {
   }
 }
 
+async function expectSelectedScope(page: Page, name: string) {
+  if (!isMobileViewport(page)) {
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(name);
+    return;
+  }
+  await expect(page.locator('[data-mobile="true"]')).toBeHidden();
+  await openWorkspaceSidebar(page, name);
+  await expect(page.getByRole("button", { exact: true, name })).toHaveAttribute("data-active", "");
+  await closeWorkspaceSidebar(page);
+  await expect(page.locator('[data-mobile="true"]')).toBeHidden();
+}
+
 test("search, pin filters and grid/table views preserve the same session set", async ({ page }) => {
   await page.goto("/app");
   await expect(page.getByRole("heading", { name: "Gamma reports" })).toBeVisible();
@@ -95,41 +108,47 @@ test("search, pin filters and grid/table views preserve the same session set", a
   await page.getByRole("menuitemcheckbox", { name: "2–5 pins" }).click();
   await expectOnly(page, "Beta checkout");
   await expect(pins).toContainText("1");
+  // Checkbox items keep the menu open; close it before the next toggle.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toBeHidden();
 
   await search.fill("billing");
   await expectOnly(page, "Beta checkout");
 
   await pins.click();
   const clearFilter = page.getByRole("menuitem", { name: "Clear filter" });
+  await expect(clearFilter).toBeVisible();
   await clearFilter.focus();
   await page.keyboard.press("Enter");
   await expect(pins).toHaveText("Pins");
   await expectOnly(page, "Beta checkout");
 
   await search.clear();
-  await page.getByRole("button", { name: "Table view" }).click();
+  await page.getByRole("tab", { name: "Table view" }).click();
   await expect(page.getByRole("table")).toBeVisible();
   for (const item of sessions) {
     await expect(
       page.getByRole("row").filter({
-        has: page.getByRole("link", { name: item.page.title, exact: true }),
+        has: page.getByText(item.page.title, { exact: true }),
       }),
     ).toBeVisible();
   }
 
+  await openWorkspaceSidebar(page, "Inbox");
   await page.getByRole("button", { exact: true, name: "Inbox" }).click();
-  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Inbox");
+  await expectSelectedScope(page, "Inbox");
+  await openWorkspaceSidebar(page, "All sessions");
   await page.getByRole("button", { exact: true, name: "All sessions" }).click();
-  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("All sessions");
+  await expectSelectedScope(page, "All sessions");
   for (const item of sessions) {
     await expect(
       page.getByRole("row").filter({
-        has: page.getByRole("link", { name: item.page.title, exact: true }),
+        has: page.getByText(item.page.title, { exact: true }),
       }),
     ).toBeVisible();
   }
 
-  await page.getByRole("button", { name: "Grid view" }).click();
+  await page.getByRole("tab", { name: "Grid view" }).click();
   for (const item of sessions) await expect(page.getByRole("heading", { name: item.page.title })).toBeVisible();
   await expect(pins).toHaveText("Pins");
 });

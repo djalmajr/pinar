@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isMobileViewport, openWorkspaceSidebar } from "../helpers/ui";
 
 test("every collection displays newest captures first", async ({ page }) => {
   const createdAt = "2026-09-14T12:00:00Z";
@@ -13,13 +14,17 @@ test("every collection displays newest captures first", async ({ page }) => {
   await page.route("**/shots/order.svg", (route) => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="50"><rect width="80" height="50" fill="skyblue"/></svg>' }));
   await page.goto("/app");
   for (const name of ["Inbox", "Other"]) {
+    await openWorkspaceSidebar(page, name);
     await page.getByRole("button", { name: new RegExp(name) }).first().click();
+    if (isMobileViewport(page)) await expect(page.locator('[data-mobile="true"]')).toBeHidden();
     await expect(page.locator('[data-session-id]')).toHaveCount(3);
     await expect.poll(() => page.locator('[data-session-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-session-id")))).toEqual([`${name}-3`, `${name}-2`, `${name}-1`]);
   }
   await page.locator('[data-session-id="Other-3"]').getByRole("button", { name: "View capture", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Other 3", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Next capture", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Other 3", exact: true }).getByRole("status")).toHaveText("1 of 3");
+  await expect(page.getByRole("button", { name: "Previous capture", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Next capture", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Review on page", exact: true })).toHaveCount(0);
 });
 test("history opens one review session containing all screenshots", async ({ page }, testInfo) => {
@@ -59,8 +64,12 @@ test("history opens one review session containing all screenshots", async ({ pag
   await page.setViewportSize({ height: 720, width: 1280 });
   await page.screenshot({ path: testInfo.outputPath("review-evidence.png"), fullPage: true });
   await dialog.getByText("Review comment 2", { exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Pin 3", exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
+  const pinDialog = page.getByRole("dialog", { name: "Pin 3", exact: true });
+  await expect(pinDialog).toBeVisible();
+  const closePin = pinDialog.getByRole("button", { name: "Close", exact: true });
+  await closePin.focus();
+  await expect(closePin).toBeFocused();
+  await closePin.press("Escape");
   await expect(dialog.locator('[data-capture-image="review-evidence-2"]')).toHaveClass(/ring-primary/);
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator('[data-session-id]')).toHaveCount(1);

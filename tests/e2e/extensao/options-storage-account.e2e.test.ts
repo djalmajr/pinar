@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
-import { DEVELOPMENT_EXTENSION_KEY, STAGING_CLOUD_URL } from "../../../extension/environment.js";
+import { DEVELOPMENT_EXTENSION_KEY } from "../../../extension/environment.js";
 
 const extensionDist = resolve(process.cwd(), "extension", "dist");
 
@@ -446,31 +446,12 @@ test("storage mode persists immediately and opens the matching app", async ({ pa
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
 });
 
-test("the unpacked development profile exposes staging without console configuration", async ({ page }) => {
-  await installOptionsHarness(page, { development: true });
-
-  await expect(page.getByRole("radio", { name: /Staging/ })).toBeVisible();
-  const settings = await page.evaluate(() => JSON.parse(
-    localStorage.getItem("pinar-e2e-extension-settings") || "{}",
-  ));
-  expect(settings.cloudUrl).toBe(STAGING_CLOUD_URL);
-
-  await page.getByRole("radio", { name: /Staging/ }).check();
-  await expect(page.getByText("STAGING", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("checkbox", {
-    name: "I accept the current documents for Pinar's hosted service.",
-  })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Terms", exact: true })).toHaveCount(0);
-  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-});
-
 test("save button replaces its disk with a loading icon while preferences are persisted", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("pinar-e2e-preferences-save-delay", "750");
   });
   await installOptionsHarness(page, { development: true });
-  await page.getByRole("radio", { name: /Staging/ }).check();
+  await page.getByRole("radio", { name: /Local Cloud/ }).check();
   await page.getByRole("tab", { name: "Dark", exact: true }).click();
 
   const saveButton = page.getByRole("button", { name: "Save", exact: true });

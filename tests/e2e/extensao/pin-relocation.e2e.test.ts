@@ -190,9 +190,13 @@ test("relocates a same-origin iframe pin after the inner target changes", async 
 
   const marker = childFrame.locator('[data-pinar="host"] [data-pin]').first();
   await expect(marker).toHaveAttribute("data-location-confidence", /exact|probable/);
-  const targetBox = await target.boundingBox();
-  const markerBox = await marker.boundingBox();
-  expect(targetBox && markerBox).toBeTruthy();
-  if (!targetBox || !markerBox) return;
-  expect(Math.abs(targetBox.x + targetBox.width / 2 - (markerBox.x + markerBox.width / 2))).toBeLessThan(40);
+  // The overlay can rebuild its markers once more after the relocation; a
+  // marker measured mid-rebuild is detached and has no box, so measure until
+  // the layout settles.
+  await expect.poll(async () => {
+    const targetBox = await target.boundingBox();
+    const markerBox = await marker.boundingBox();
+    if (!targetBox || !markerBox) return null;
+    return Math.abs(targetBox.x + targetBox.width / 2 - (markerBox.x + markerBox.width / 2));
+  }).toBeLessThan(40);
 });

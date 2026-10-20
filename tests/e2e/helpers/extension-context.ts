@@ -43,6 +43,20 @@ export interface ExtensionIsolation {
 
 type LaunchOptions = NonNullable<Parameters<typeof chromium.launchPersistentContext>[1]>;
 
+// Playwright Test fills every context option the caller leaves out with the
+// project's device (runBeforeCreateBrowserContext), launchPersistentContext
+// included, so the webkit and mobile projects would emulate Safari, an iPhone
+// or a Pixel inside the Chromium that loads the extension. MV3 extensions only
+// exist in desktop Chromium: these keys keep that device unless a test sets
+// them itself (userAgent undefined is Chromium's own).
+const DESKTOP_CHROMIUM: LaunchOptions = {
+  deviceScaleFactor: 1,
+  hasTouch: false,
+  isMobile: false,
+  userAgent: undefined,
+  viewport: { height: 720, width: 1280 },
+};
+
 const logs = new WeakMap<BrowserContext, PinarPortLog>();
 
 export function pinarPortLog(context: BrowserContext): PinarPortLog {
@@ -129,6 +143,7 @@ export async function launchExtensionContext(
   let context: BrowserContext;
   try {
     context = await chromium.launchPersistentContext(userDataDir, {
+      ...DESKTOP_CHROMIUM,
       ...options,
       proxy: { server: `http://127.0.0.1:${proxy.port}` },
     });

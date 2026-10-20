@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { pressCopyShortcut } from "../helpers/extension-shortcut";
+import { createPin, HANDOFF_MARKDOWN, launchHandoffSession, readDraft } from "../helpers/extension-session";
 import { injectExtensionScripts } from "../helpers/extension-scripts";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -49,7 +50,7 @@ async function installHarness(page: Page) {
   }));
   await page.goto("/closed-loop-fixture");
   await page.evaluate(() => {
-    const runtimeState = { clipboard: "", messages: [] as unknown[], pins: [] as unknown[] };
+    const runtimeState = { messages: [] as unknown[], pins: [] as unknown[] };
     (globalThis as any).__pinarRuntimeState = runtimeState;
     (globalThis as any).chrome = {
       runtime: {
@@ -61,12 +62,6 @@ async function installHarness(page: Page) {
           }
           if (message.type === "pins:list") return { ok: true, pins: structuredClone(runtimeState.pins) };
           if (message.type === "pins:refresh") return { ok: true };
-          if (message.type === "capture") {
-            return { ok: true, shot: "data:image/png;base64,cGluYXI=" };
-          }
-          if (message.type === "clipboard") {
-            return { degraded: false, ok: true, plain: "copied", warnings: [] };
-          }
           if (message.type === "pins:clear") {
             runtimeState.pins = [];
             return { ok: true };
@@ -80,26 +75,26 @@ async function installHarness(page: Page) {
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
 }
 
-test("pin copy keeps capture ids for the four-agent handoff", async ({ page }) => {
-  await installHarness(page);
-  const bounds = await page.locator("#save").boundingBox();
-  expect(bounds).not.toBeNull();
-  if (!bounds) return;
-  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-  const composer = page.locator('[data-pinar="host"] [data-ref="composer"]');
-  await expect(composer).toBeVisible();
-  await composer.locator("textarea").fill("Make the CTA bolder");
-  await composer.getByRole("button", { name: "Add" }).click();
-  await pressCopyShortcut(page);
-  await expect(page.locator('[data-pinar="host"] [data-ref="status"]')).toHaveText("Copied");
-
-  const clipboardMessage = await page.evaluate(() => {
-    const messages = (globalThis as any).__pinarRuntimeState.messages as any[];
-    return messages.findLast((message) => message.type === "clipboard");
-  });
-  expect(clipboardMessage.captureId).toBeTruthy();
-  expect(clipboardMessage.pins[0].pinId || clipboardMessage.pins[0].id).toBeTruthy();
-  expect(clipboardMessage.pins[0].comment).toBe("Make the CTA bolder");
+// The handoff any of the four agents reads is the session the service worker
+// finishes (1ec1ecc): the capture keeps the captureId the draft assigned and
+// the pin keeps its own id, and the clipboard gets the destination's handoff.
+test("pin copy keeps capture ids for the four-agent handoff", async () => {
+  const { context, page, worker } = await launchHandoffSession();
+  try {
+    await createPin(page, "Make the CTA bolder");
+    await expect.poll(async () => (await readDraft(worker))?.entries[0]?.status ?? null).toBe("saved");
+    const entry = (await readDraft(worker)).entries[0];
+    await pressCopyShortcut(page);
+    await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("aria-label", "Session saved");
+    const handoff = await worker.evaluate(() => (globalThis as any).__handoff);
+    expect(entry.captureId).toBeTruthy();
+    expect(handoff.shots.map((shot: any) => shot.id)).toEqual([entry.captureId]);
+    expect(handoff.shots[0].pins[0].id).toBe(entry.pin.id);
+    expect(handoff.shots[0].pins[0].comment).toBe("Make the CTA bolder");
+    expect(handoff.clipboard).toEqual([HANDOFF_MARKDOWN]);
+  } finally {
+    await context.close();
+  }
 });
 
 test("pin composer focuses its comment field over a page modal", async ({ page }) => {
@@ -118,13 +113,20 @@ test("pin composer focuses its comment field over a page modal", async ({ page }
   await expect(input).toBeFocused();
 });
 
-test("workspace records handoff return, accept, reopen and keeps metrics empty without opt-in", async ({ page }) => {
+// Pinar Local stopped accepting agent feedback in d9bfd30 (agent results live
+// in Pinar Cloud, tests/e2e/cloud/agent-access.e2e.test.ts): an agent
+// execution is refused with 410 and never shapes the pin's review, while
+// the human accept and reopen still work on the local session.
+test("workspace refuses agent feedback, keeps the human accept and reopen, and keeps metrics empty without opt-in", async ({ page }) => {
+  // The e2e server keeps its home across runs: a per-run capture id keeps
+  // earlier runs' reviews out of this one.
+  const captureId = `e2e_closed_loop_${Date.now().toString(36)}`;
   await page.goto("/app");
-  const uploaded = await page.evaluate(async ({ image }) => {
+  const uploaded = await page.evaluate(async ({ captureId, image }) => {
     const response = await fetch("/api/shots", {
       body: JSON.stringify({
-        captureId: "e2e_closed_loop",
-        id: "e2e_closed_loop",
+        captureId,
+        id: captureId,
         image,
         page: { title: "Closed loop", url: "https://example.test/closed-loop" },
         pins: [{ comment: "Make the CTA bolder", kind: "element", pinId: "pin_cta" }],
@@ -133,59 +135,53 @@ test("workspace records handoff return, accept, reopen and keeps metrics empty w
       method: "POST",
     });
     return { status: response.status };
-  }, { image: VALID_PNG });
+  }, { captureId, image: VALID_PNG });
   expect(uploaded.status).toBe(201);
 
-  const ready = await page.evaluate(async () => {
+  const agentExecution = (idempotencyKey: string, agent: string, summary: string) => page.evaluate(async ({ agent, captureId, idempotencyKey, summary }) => {
     const created = await fetch("/api/agent-executions", {
       body: JSON.stringify({
-        agent: "claude",
-        captureId: "e2e_closed_loop",
-        idempotencyKey: "exec_e2e_closed_loop_01",
-        results: [{ pinId: "pin_cta", status: "changed", summary: "First correction" }],
+        agent,
+        captureId,
+        idempotencyKey,
+        results: [{ pinId: "pin_cta", status: "changed", summary }],
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
-    const session = await (await fetch("/api/sessions/e2e_closed_loop")).json();
-    return { created: created.status, status: session.reviews?.[0]?.status };
-  });
-  expect(ready.created).toBe(201);
-  expect(ready.status).toBe("correction_ready");
-
-  const accepted = await page.evaluate(async () => {
-    const response = await fetch("/api/sessions/e2e_closed_loop/pins/pin_cta/review", {
-      body: JSON.stringify({ action: "accept" }),
+    const session = await (await fetch(`/api/sessions/${captureId}`)).json();
+    return { body: await created.json(), created: created.status, executions: session.executions, reviews: session.reviews };
+  }, { agent, captureId, idempotencyKey: `${idempotencyKey}_${captureId}`, summary });
+  const review = (action: string) => page.evaluate(async ({ action, captureId }) => {
+    const response = await fetch(`/api/sessions/${captureId}/pins/pin_cta/review`, {
+      body: JSON.stringify({ action }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     const body = await response.json();
     return { status: response.status, review: body.review?.status };
-  });
+  }, { action, captureId });
+
+  const first = await agentExecution("exec_e2e_closed_loop_01", "claude", "First correction");
+  expect(first.created).toBe(410);
+  expect(first.body.error).toBe("agent_feedback_disabled");
+  // Only human events shape a local review: the refused execution leaves none.
+  expect(first.executions).toEqual([]);
+  expect(first.reviews).toEqual([]);
+
+  const accepted = await review("accept");
   expect(accepted.status).toBe(200);
   expect(accepted.review).toBe("accepted");
 
-  const second = await page.evaluate(async () => {
-    await fetch("/api/sessions/e2e_closed_loop/pins/pin_cta/review", {
-      body: JSON.stringify({ action: "reopen" }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    const created = await fetch("/api/agent-executions", {
-      body: JSON.stringify({
-        agent: "grok",
-        captureId: "e2e_closed_loop",
-        idempotencyKey: "exec_e2e_closed_loop_02",
-        results: [{ pinId: "pin_cta", status: "changed", summary: "Second correction" }],
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    const session = await (await fetch("/api/sessions/e2e_closed_loop")).json();
-    return { created: created.status, status: session.reviews?.[0]?.status };
-  });
-  expect(second.created).toBe(201);
-  expect(second.status).toBe("correction_ready");
+  const reopened = await review("reopen");
+  expect(reopened.status).toBe(200);
+  expect(reopened.review).toBe("reopened");
+
+  const second = await agentExecution("exec_e2e_closed_loop_02", "grok", "Second correction");
+  expect(second.created).toBe(410);
+  expect(second.body.error).toBe("agent_feedback_disabled");
+  expect(second.executions).toEqual([]);
+  expect(second.reviews.map((item: any) => [item.pinId, item.status])).toEqual([["pin_cta", "reopened"]]);
 
   const metrics = await page.evaluate(async () => {
     const off = await fetch("/api/loop-metrics", {

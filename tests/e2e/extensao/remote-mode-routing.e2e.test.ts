@@ -12,7 +12,7 @@ test("remote selection drives app routing and Pro microphone availability", asyn
   const environment = cloudEnvironment(manifest);
   const deviceTokenKey = remoteProfileKey(endpoint, "deviceToken");
   const sessionUrl = `${endpoint}/api/auth/session`;
-  const remoteRadioName = environment === "staging" ? /Staging/ : /Remote Server|Servidor Remoto/;
+  const remoteRadioName = environment === "local-cloud" ? /Local Cloud|Cloud local/ : /Remote Server|Servidor Remoto/;
   const context = await launchExtensionContext("", {
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
     channel: "chromium",
@@ -49,7 +49,10 @@ test("remote selection drives app routing and Pro microphone availability", asyn
     const options = await context.newPage();
     await options.goto(`chrome-extension://${extensionId}/dist/options.html`);
     const localVoiceAvailability = await options.evaluate(() => chrome.runtime.sendMessage({ type: "voice:availability" }));
-    expect(localVoiceAvailability).toMatchObject({ available: false, ok: true, reason: "cloud_required" });
+    // Local mode asks the local helper for its AI status; launchExtensionContext
+    // refuses the helper ports, so the check cannot run (resolveVoiceAvailability,
+    // extension/voice-access.js).
+    expect(localVoiceAvailability).toMatchObject({ available: false, ok: true, reason: "unavailable" });
     await expect(options.getByRole("radio", { name: /Local Server|Servidor Local/ })).toBeChecked();
     const remoteRadio = options.getByRole("radio", { name: remoteRadioName });
     await remoteRadio.check();

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { resolveCloudUrl } from "../../../extension/environment.js";
 import { remoteProfileKey } from "../../../extension/remote-profile.js";
 import { pressCopyShortcut } from "../helpers/extension-shortcut";
+import { CONTENT_INJECTION_FILES } from "../../../extension/session.js";
 import { launchExtensionContext } from "../helpers/extension-context";
 
 // Real MV3 service worker, IndexedDB, content scripts and screenshot API.
@@ -78,15 +79,15 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
     await context.route("https://review.pinar.test/**", (route) => route.fulfill({ contentType: "text/html", body: `<html><title>Review fixture</title><body style="margin:0;padding:100px;font:20px sans-serif"><button style="width:250px;height:150px">Target</button><button style="width:250px;height:150px">Second target</button><a href="/two">Next page</a><input type="password" value="PRIVATE_PASSWORD_9283" /></body></html>` }));
     const page = await context.newPage();
     await page.goto("https://review.pinar.test/one?access_token=PRIVATE_QUERY_8293");
-    const inject = async (worker: Worker) => worker.evaluate(async () => {
+    const inject = async (worker: Worker) => worker.evaluate(async (files) => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       // Expose the production shadow tree in the extension's isolated world for assertions.
       await chrome.scripting.executeScript({ target: { tabId: tab.id! }, func: () => {
         const attach = Element.prototype.attachShadow;
         Element.prototype.attachShadow = function (options) { return attach.call(this, { ...options, mode: "open" }); };
       } });
-      await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "voice.js", "content.js"] });
-    });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: files });
+    }, CONTENT_INJECTION_FILES);
     // Same path as the action/shortcut: the toolbar's persisted visibility is
     // owned by the service worker, so an explicit show must go through the
     // content toggle, not a fresh injection.
@@ -304,7 +305,7 @@ test("session screenshot waits until the pin popover is off the composited frame
     }));
     const page = await context.newPage();
     await page.goto("https://review.pinar.test/popover");
-    await worker.evaluate(async () => {
+    await worker.evaluate(async (files) => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       await chrome.scripting.executeScript({ target: { tabId: tab.id! }, func: () => {
         const attach = Element.prototype.attachShadow;
@@ -312,9 +313,9 @@ test("session screenshot waits until the pin popover is off the composited frame
       } });
       await chrome.scripting.executeScript({
         target: { tabId: tab.id! },
-        files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "voice.js", "floating.js", "content.js"],
+        files: files,
       });
-    });
+    }, CONTENT_INJECTION_FILES);
     await expect(page.locator('[data-pinar="host"]')).toBeVisible();
     await expect.poll(async () => worker.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -481,14 +482,14 @@ test("active session pins survive back/forward, reload and re-injection on their
         request.onerror = () => reject(request.error);
       });
     });
-    const inject = async () => worker.evaluate(async () => {
+    const inject = async () => worker.evaluate(async (files) => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       await chrome.scripting.executeScript({ target: { tabId: tab.id! }, func: () => {
         const attach = Element.prototype.attachShadow;
         Element.prototype.attachShadow = function (options) { return attach.call(this, { ...options, mode: "open" }); };
       } });
-      await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "voice.js", "content.js"] });
-    });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: files });
+    }, CONTENT_INJECTION_FILES);
     // The toolbar's persisted visibility is owned by the service worker; the
     // explicit show/hide must go through the same toggle as the action.
     // The resume chain may still be injecting content.js, so the instance
@@ -872,14 +873,14 @@ async function setupRaceContext() {
     };
     request.onerror = () => reject(request.error);
   }));
-  const injectAll = () => worker.evaluate(async () => {
+  const injectAll = () => worker.evaluate(async (files) => {
     const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
     await chrome.scripting.executeScript({ target: { tabId: t.id!, allFrames: true }, func: () => {
       const attach = Element.prototype.attachShadow;
       Element.prototype.attachShadow = function (options: any) { return attach.call(this, { ...options, mode: "open" }); };
     } });
-    await chrome.scripting.executeScript({ target: { tabId: t.id!, allFrames: true }, files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "voice.js", "content.js"] });
-  });
+    await chrome.scripting.executeScript({ target: { tabId: t.id!, allFrames: true }, files: files });
+  }, CONTENT_INJECTION_FILES);
   // The resume chain injects content.js per tab, so right after a
   // navigation the instance (and __pinarToggle) can still be missing from
   // the current document: a toggle issued then is silently consumed as a

@@ -136,9 +136,12 @@ test("checking availability does not leave a tooltip on an enabled microphone", 
   const voiceControl = composer.locator('[data-ref="voiceControl"]');
   const tooltip = composer.locator('[data-ref="voiceTooltip"]');
 
+  // The first check of a page shows its checking state (be6a485): the disabled
+  // microphone explains why while the answer is pending.
   await expect(voice).toBeDisabled();
   await voiceControl.hover();
-  await expect(tooltip).toBeHidden();
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveText("Checking voice availability…");
   await page.evaluate(() => (globalThis as any).__releaseVoiceAvailability());
   await expect(voice).toBeEnabled();
   await expect(tooltip).toBeHidden();

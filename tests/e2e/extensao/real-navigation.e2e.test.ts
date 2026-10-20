@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { resolve } from "node:path";
+import { CONTENT_INJECTION_FILES } from "../../../extension/session.js";
 import { launchExtensionContext } from "../helpers/extension-context";
 
 test("pins from another Pinar collection do not return when the toolbar reopens", async () => {
@@ -49,7 +50,7 @@ test("pins from another Pinar collection do not return when the toolbar reopens"
       localStorage.setItem("pinar-selected-project", "project-a");
       localStorage.setItem("pinar-selected-collection", "collection-a");
     });
-    const inject = () => worker.evaluate(async () => {
+    const inject = () => worker.evaluate(async (files) => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       await chrome.scripting.executeScript({ target: { allFrames: true, tabId: tab.id! }, func: () => {
         const attach = Element.prototype.attachShadow;
@@ -67,10 +68,10 @@ test("pins from another Pinar collection do not return when the toolbar reopens"
         return;
       }
       await chrome.scripting.executeScript({
-        files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "voice.js", "content.js"],
+        files: files,
         target: { allFrames: true, tabId: tab.id! },
       });
-    });
+    }, CONTENT_INJECTION_FILES);
     await inject();
     await page.locator("#target").click();
     const composer = page.locator('[data-pinar="host"] [data-ref="composer"]');

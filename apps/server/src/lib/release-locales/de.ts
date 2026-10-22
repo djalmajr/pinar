@@ -23,6 +23,28 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.9.4": {
+      changes: {
+        "cloud-own-endpoint-removed": {
+          description:
+            "Pinar Cloud bietet in Einstellungen → KI-Assistent keinen eigenen KI-Endpoint mehr an. Der Assistent, die Sprachtranskription, die schriftlichen Reproduktionsschritte, die Pin-Suche und die automatische Sammlungswahl nutzen immer Pinars KI mit Credits, und „Pinar-Credits verwenden“ erscheint nicht mehr. In Pinar Cloud gespeicherte Endpoints und API-Schlüssel werden mit dieser Version gelöscht. Die lokale App nutzt weiterhin den KI-Endpoint, den du dort konfigurierst.",
+          title: "Dein eigener KI-Endpoint verlässt Pinar Cloud",
+        },
+        "ai-legal-shorter": {
+          description:
+            "Die Datenschutzerklärung, die Nutzungsbedingungen und die Seite Dienstleister und Unterauftragsverarbeiter beschreiben deinen eigenen Endpoint nicht mehr, und ihr KI-Abschnitt ist kürzer: Für Daten Dritter in dem, was du aufnimmst, bist du der Verantwortliche und für die Rechtsgrundlage zuständig, auch wenn du die KI-Funktionen von Pinar Cloud nutzt, und Pinar verarbeitet diesen Inhalt als Auftragsverarbeiter. Wenn du Pinar Cloud nutzt, stimmst du den aktualisierten Dokumenten erneut zu.",
+          title: "Kürzerer KI-Abschnitt in den rechtlichen Dokumenten",
+        },
+        "mobile-viewer-settings": {
+          description:
+            "Auf dem Handy wird der Seitenlink im Aufnahme-Viewer in seinem Bereich mit Auslassungspunkten gekürzt und öffnet die Seite wieder, statt unter den Schaltflächen des Viewers zu liegen. In den Einstellungen zeigt jede Zeile Titel und Beschreibung über dem Feld, das die volle Breite einnimmt, und der Speicherhinweis verdeckt die Schaltfläche Speichern nicht mehr. Auf größeren Bildschirmen ändert sich nichts.",
+          title: "Seitenlink und Zeilen der Einstellungen auf dem Handy korrigiert",
+        },
+      },
+      summary:
+        "Pinar Cloud bietet keinen eigenen KI-Endpoint mehr an, und gespeicherte Schlüssel werden gelöscht. Die rechtlichen Dokumente haben einen kürzeren KI-Abschnitt, mit erneuter Zustimmung für Pinar Cloud. Auf dem Handy funktionieren der Seitenlink im Aufnahme-Viewer und die Zeilen der Einstellungen wieder.",
+      title: "Die KI von Pinar Cloud nur noch mit Credits, mit kürzeren KI-Bedingungen",
+    },
     "v0.9.3": {
       changes: {
         "collection-create-waits": {

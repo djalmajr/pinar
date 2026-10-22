@@ -23,6 +23,28 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.9.4": {
+      changes: {
+        "cloud-own-endpoint-removed": {
+          description:
+            "O Pinar Cloud não oferece mais o seu próprio endpoint de IA em Configurações → Assistente de IA. O assistente, a transcrição de voz, os passos escritos de reprodução, a busca nos pins e a escolha automática da coleção passam a usar sempre a IA do Pinar, com créditos, e “Usar créditos do Pinar” não aparece mais. Os endpoints e as chaves de API salvos no Pinar Cloud são apagados com esta versão. O app local continua usando o endpoint de IA que você configura nele.",
+          title: "Seu próprio endpoint de IA sai do Pinar Cloud",
+        },
+        "ai-legal-shorter": {
+          description:
+            "A Política de Privacidade, os Termos de Serviço e a página Provedores de Serviço e Suboperadores não descrevem mais o seu próprio endpoint, e a seção de IA ficou mais curta: para dados de terceiros no que você captura, você é o controlador e responde pela base legal, inclusive quando usa os recursos de IA do Pinar Cloud, e o Pinar trata esse conteúdo como operador. Se você usa o Pinar Cloud, aceita os documentos atualizados de novo.",
+          title: "Seção de IA mais curta nos documentos legais",
+        },
+        "mobile-viewer-settings": {
+          description:
+            "No celular, o link da página no visualizador de capturas é cortado com reticências dentro do espaço dele e volta a abrir a página, em vez de ficar embaixo dos botões do visualizador. Em Configurações, cada linha mostra o título e a descrição acima do campo, que ocupa a largura toda, e o aviso de salvo não cobre mais o botão Salvar. Em telas maiores, nada muda.",
+          title: "Link da página e linhas de Configurações corrigidos no celular",
+        },
+      },
+      summary:
+        "O Pinar Cloud deixa de oferecer o seu próprio endpoint de IA, e as chaves salvas são apagadas. Os documentos legais têm uma seção de IA mais curta, com novo aceite para o Pinar Cloud. No celular, o link da página no visualizador de capturas e as linhas de Configurações voltam a funcionar.",
+      title: "IA do Pinar Cloud só com créditos e termos de IA mais curtos",
+    },
     "v0.9.3": {
       changes: {
         "collection-create-waits": {

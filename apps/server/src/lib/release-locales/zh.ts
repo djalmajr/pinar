@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.9.4": {
+      changes: {
+        "cloud-own-endpoint-removed": {
+          description:
+            "Pinar Cloud 不再在「设置 → AI 助手」中提供自有 AI 端点。助手、语音转写、书面复现步骤、图钉搜索和自动选择集合现在都始终使用 Pinar 的 AI 并消耗积分，「使用 Pinar 积分」也不再出现。保存在 Pinar Cloud 中的端点和 API 密钥会随此版本删除。本地应用继续使用你在其中配置的 AI 端点。",
+          title: "自有 AI 端点从 Pinar Cloud 移除",
+        },
+        "ai-legal-shorter": {
+          description:
+            "隐私政策、服务条款以及服务提供商和子处理者页面不再介绍自有端点，AI 部分也更简短：对于你所截取内容中的第三方数据，你是控制者并对其法律依据负责，包括在使用 Pinar Cloud 的 AI 功能时；Pinar 作为处理者处理这些内容。如果你使用 Pinar Cloud，需要重新接受更新后的文件。",
+          title: "法律文件中的 AI 部分更简短",
+        },
+        "mobile-viewer-settings": {
+          description:
+            "在手机上，截图查看器中的页面链接会在自己的区域内以省略号截断，并能再次打开页面，不再被查看器的按钮挡住。在设置中，每一行的标题和说明显示在占满宽度的输入框上方，保存提示也不再遮住「保存」按钮。在较大的屏幕上没有变化。",
+          title: "修复手机上的页面链接和设置行",
+        },
+      },
+      summary:
+        "Pinar Cloud 不再提供自有 AI 端点，已保存的密钥会被删除。法律文件中的 AI 部分更简短，Pinar Cloud 用户需要重新接受。在手机上，截图查看器中的页面链接和设置中的各行恢复正常。",
+      title: "Pinar Cloud 的 AI 只用积分，AI 条款更简短",
+    },
     "v0.9.3": {
       changes: {
         "collection-create-waits": {

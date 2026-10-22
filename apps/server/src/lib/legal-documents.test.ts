@@ -51,7 +51,7 @@ describe("public legal documents", () => {
     assert.doesNotMatch(termsPt, /Araújo/);
     assert.doesNotMatch(termsEn, /\("Pinar", "we", "us"\)/);
     assert.doesNotMatch(termsPt, /\("Pinar", "nós"\)/);
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-19");
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-22");
     for (const documentId of LegalDocumentIds) {
       const english = legalDocument(documentId, "en").body;
       const portuguese = legalDocument(documentId, "pt").body;
@@ -99,22 +99,21 @@ describe("public legal documents", () => {
     // the Policy section 1 and the Terms section 6 (A48).
     const privacySection1En = privacyEn.slice(privacyEn.indexOf("## 1."), privacyEn.indexOf("## 2."));
     const privacySection1Pt = privacyPt.slice(privacyPt.indexOf("## 1."), privacyPt.indexOf("## 2."));
-    assert.match(privacySection1En, /you are the controller of that data/);
-    assert.match(privacySection1En, /you instruct Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil/);
+    assert.match(privacySection1En, /you are the controller of that data and are responsible for having a legal basis and for informing the data subjects, including when you use the AI features of Pinar Cloud described in Section 4/);
     assert.match(privacySection1En, /Pinar acts as a processor of that data/);
-    assert.match(privacySection1Pt, /você é o controlador desses dados/);
-    assert.match(privacySection1Pt, /você instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil/);
-    assert.match(privacySection1Pt, /o Pinar atua como operador desses dados/);
+    assert.match(privacySection1Pt, /você é o controlador desses dados e responde por ter base legal e por informar os titulares, inclusive quando usa os recursos de IA do Pinar Cloud descritos na seção 4/);
+    assert.match(privacySection1Pt, /O Pinar atua como operador desses dados/);
     const termsSection6En = termsEn.slice(termsEn.indexOf("## 6."), termsEn.indexOf("## 7."));
     const termsSection6Pt = termsPt.slice(termsPt.indexOf("## 6."), termsPt.indexOf("## 7."));
-    assert.match(termsSection6En, /you are the controller/);
-    assert.match(termsSection6En, /instructs Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil/);
-    assert.match(termsSection6En, /Pinar acting as a processor/);
-    assert.match(termsSection6En, /see the Privacy Policy/);
-    assert.match(termsSection6Pt, /você é o controlador/);
-    assert.match(termsSection6Pt, /instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil/);
-    assert.match(termsSection6Pt, /o Pinar atuando como operador/);
-    assert.match(termsSection6Pt, /veja a Política de Privacidade/);
+    assert.match(termsSection6En, /you are the controller and are responsible for having a legal basis and for informing the data subjects/);
+    assert.match(termsSection6En, /process that content with AI providers outside Brazil as described in the Privacy Policy\. Pinar processes that content as a processor\./);
+    assert.match(termsSection6Pt, /você é o controlador e responde por ter base legal e por informar os titulares/);
+    assert.match(termsSection6Pt, /tratam esse conteúdo com provedores de IA fora do Brasil, como descreve a Política de Privacidade\. O Pinar trata esse conteúdo como operador\./);
+    // The customer's instruction or acceptance never stands in for the legal
+    // basis of third-party data (technical opinion of 22/10, F1).
+    for (const text of [termsSection6En, termsSection6Pt, privacySection1En, privacySection1Pt]) {
+      assert.doesNotMatch(text, /instruct|instrui/);
+    }
     // Cookies (J13): the session and language cookies, and the interface
     // preferences in local storage (every localStorage key of the web app);
     // no advertising or analytics; Cloudflare's own protection cookies.
@@ -171,15 +170,17 @@ describe("public legal documents", () => {
         // J1: the data protection officer is named through the existing privacy contact.
         assert.match(privacy, /Data protection officer: \*\*Djalma Júnior\*\*, through the same contact\./);
         // J2/J3: the providers act as processors of Pinar and, for third-party data
-        // you control, as subprocessors, under Article 33, IX + Article 7, V.
+        // you control, as subprocessors. Article 33, IX + Article 7, V covers only
+        // the account's own data; third-party data rests on the controller's basis (F1).
         assert.match(privacy, /act as processors of Pinar and, for third-party data that you control, as subprocessors/);
-        assert.match(privacy, /The transfer is necessary to run the features you invoke \(Article 33, IX, combined with Article 7, V, of the LGPD\) and, for third-party data, follows your instruction as controller/);
+        assert.match(privacy, /For your own account data, the transfer is necessary to run the features you invoke under your contract with Pinar \(Article 33, IX, combined with Article 7, V, of the LGPD\)\. For third-party data in your content, it is up to you, as controller, to have a legal basis for using it with these features\./);
         // J4: Pinar does not request zero data retention; providers keep their own periods.
         assert.match(privacy, /Pinar does not request zero data retention, so the providers may retain the data from each request for the periods in their own terms/);
         // J5: Pinar is controller for its own purposes.
         assert.match(privacy, /When we process that data for our own purposes, such as security, fraud and abuse prevention, and legal compliance, we act as controller/);
-        // J8: the screenshot description and pin indexing run under contract performance.
-        assert.match(privacy, /The description of screenshots and the indexing of pins for search are done to run the AI features you use \(contract performance\)\./);
+        // J8: the screenshot description and pin indexing run the features you use;
+        // no blanket contract basis, since screenshots carry third-party data (F1).
+        assert.match(privacy, /The description of screenshots and the indexing of pins for search are done to run the AI features you use\./);
         // J9: a relevant incident is reported to the ANPD and to the data subjects.
         assert.match(privacy, /If a security incident may cause relevant risk or harm to the data subjects, we will notify the ANPD and the affected data subjects, as required by law\./);
         // J12: requests are answered within the LGPD time limits.
@@ -192,15 +193,17 @@ describe("public legal documents", () => {
       } else {
         // J1: encarregado indicado pelo mesmo contato de privacidade.
         assert.match(privacy, /Encarregado pelo tratamento de dados pessoais: \*\*Djalma Júnior\*\*, pelo mesmo contato\./);
-        // J2/J3: duplo papel operador/suboperador com a base art. 33, IX + art. 7º, V.
+        // J2/J3: duplo papel operador/suboperador; o art. 33, IX + art. 7º, V vale
+        // só para os dados da própria conta, e terceiros dependem do controlador (F1).
         assert.match(privacy, /atuam como operadores do Pinar e, para dados de terceiros que você controla, como suboperadores/);
-        assert.match(privacy, /A transferência é necessária para executar os recursos que você aciona \(art\. 33, IX, combinado com o art\. 7º, V, da LGPD\) e, para dados de terceiros, segue a sua instrução como controlador/);
+        assert.match(privacy, /Para os dados da sua própria conta, a transferência é necessária para executar os recursos que você aciona no seu contrato com o Pinar \(art\. 33, IX, combinado com o art\. 7º, V, da LGPD\)\. Para dados de terceiros no seu conteúdo, cabe a você, como controlador, ter base legal para usá-los nesses recursos\./);
         // J4: o Pinar não solicita retenção zero; os provedores mantêm os prazos dos próprios termos.
         assert.match(privacy, /O Pinar não solicita retenção zero de dados, então os provedores podem reter os dados de cada pedido pelos prazos dos próprios termos/);
         // J5: o Pinar é controlador para finalidades próprias.
         assert.match(privacy, /Quando tratamos esses dados para finalidades próprias, como segurança, prevenção a fraude e abuso e cumprimento da lei, atuamos como controlador/);
-        // J8: a descrição dos screenshots e a indexação dos pins valem pela execução de contrato.
-        assert.match(privacy, /A descrição dos screenshots e a indexação dos pins para busca são feitas para executar os recursos de IA que você usa \(execução de contrato\)\./);
+        // J8: a descrição dos screenshots e a indexação dos pins executam os recursos
+        // que você usa, sem base contratual genérica (F1).
+        assert.match(privacy, /A descrição dos screenshots e a indexação dos pins para busca são feitas para executar os recursos de IA que você usa\./);
         // J9: incidente relevante é comunicado à ANPD e aos titulares.
         assert.match(privacy, /Se um incidente de segurança puder gerar risco ou dano relevante aos titulares, comunicaremos a ANPD e os titulares afetados, conforme a lei\./);
         // J12: resposta nos prazos da LGPD.
@@ -254,47 +257,17 @@ describe("public legal documents", () => {
     assert.match(fairSource, /not OSI-approved Open Source/);
   });
 
-  it("describes the user's own AI endpoint in the Privacy Policy, the Terms, and the Subprocessors page (S5 BYOK)", () => {
+  it("no longer offers an own AI endpoint in Pinar Cloud nor claims unproven transfer safeguards", () => {
     const body = (id: Parameters<typeof legalDocument>[0], language: "en" | "pt") => legalDocument(id, language).body;
     for (const language of ["en", "pt"] as const) {
-      const privacy = body("privacy", language);
-      const terms = body("terms", language);
-      const subprocessors = body("subprocessors", language);
-      if (language === "en") {
-        // The endpoint's provider is the user's, Pinar only forwards, and the
-        // same content list applies to the capabilities that passed the test.
-        assert.match(privacy, /You choose and contract that provider, and its processing follows the agreement and terms between you and it, not Pinar's/);
-        assert.match(privacy, /Pinar does not instruct it and does not control how long it keeps the data/);
-        assert.match(privacy, /Pinar only forwards your requests to it, at your instruction/);
-        assert.match(privacy, /you are the controller of that sending too, and Pinar acts as a processor in the forwarding/);
-        assert.match(privacy, /The same content listed above goes to the endpoint for the capabilities that passed its connection test/);
-        assert.match(privacy, /which may be outside Brazil; that transfer is made at your request to run the features you invoke \(Article 33, IX, combined with Article 7, V, of the LGPD\)/);
-        assert.match(privacy, /is decrypted only in memory at the moment of each call, is never written to a log/);
-        assert.match(privacy, /is deleted when you remove the endpoint or delete your account/);
-        assert.match(privacy, /A feature whose capability did not pass the test keeps using the AI providers accessed through the Vercel AI Gateway/);
-        assert.match(privacy, /the search of your pins in that answer uses your endpoint's vision and embeddings when they passed, or the text alone when they did not, and nothing goes to those providers/);
-        // The Terms keep the controller burden, now with the endpoint branch.
-        assert.match(terms, /or with the AI endpoint you configure yourself when its capabilities have passed the connection test/);
-        // The endpoint's provider is not a subprocessor of Pinar.
-        assert.match(subprocessors, /the provider of that endpoint is not a subprocessor of Pinar/);
-        assert.match(subprocessors, /Pinar only forwards your requests to it, and its own terms apply to the processing/);
-      } else {
-        assert.match(privacy, /Esse provedor é escolhido e contratado por você, e o tratamento que ele faz segue o contrato e os termos entre vocês, não os do Pinar/);
-        assert.match(privacy, /o Pinar não dá instruções a ele nem controla por quanto tempo ele guarda os dados/);
-        assert.match(privacy, /O Pinar só encaminha os seus pedidos a ele, por sua instrução/);
-        assert.match(privacy, /você também é o controlador desse envio, e o Pinar atua como operador no encaminhamento/);
-        assert.match(privacy, /Os mesmos conteúdos listados acima vão ao endpoint, para as capacidades que passaram no teste de conexão/);
-        assert.match(privacy, /o que pode ser fora do Brasil; essa transferência é feita a seu pedido, para executar os recursos que você aciona \(art\. 33, IX, combinado com o art\. 7º, V, da LGPD\)/);
-        assert.match(privacy, /é decifrada só em memória na hora de cada chamada, nunca vai para log/);
-        assert.match(privacy, /é apagada quando você remove o endpoint ou apaga a conta/);
-        assert.match(privacy, /Um recurso cuja capacidade não passou no teste segue usando os provedores de IA acessados pelo Vercel AI Gateway/);
-        assert.match(privacy, /a busca nos seus pins nessa resposta usa a visão e os embeddings do seu endpoint quando eles passaram, ou só o texto quando não passaram, e nada vai a esses provedores/);
-        assert.match(terms, /ou com o endpoint de IA que você configura por sua conta, quando as capacidades dele passaram no teste de conexão/);
-        assert.match(subprocessors, /o provedor desse endpoint não é suboperador do Pinar/);
-        assert.match(subprocessors, /o Pinar só encaminha os seus pedidos a ele, e valem os termos próprios desse provedor para o tratamento/);
+      // Pinar Cloud dropped the customer's own AI endpoint (BYOK); only the
+      // local app's own endpoint, which never passes through Pinar, remains.
+      for (const documentId of ["privacy", "terms", "subprocessors"] as const) {
+        assert.doesNotMatch(body(documentId, language), language === "en" ? /Your own AI endpoint|AI endpoint you configure yourself|connection test/ : /Seu próprio endpoint de IA|endpoint de IA que você configura por sua conta|teste de conexão/);
       }
+      // Section 4 lists the providers without asserting contract safeguards the
+      // service cannot show yet (technical opinion of 22/10, point 3).
+      assert.doesNotMatch(body("privacy", language), language === "en" ? /legally recognized safeguards/ : /salvaguardas reconhecidas em lei/);
     }
-    // The documents move to the BYOK version, dated by the orchestrator at merge.
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-10-19");
   });
 });

@@ -9,14 +9,12 @@ import {
   fetchAssistantThread,
   runAssistantProposalAction,
   threadMessagesToUiMessages,
-  type AssistantByokErrorInfo,
   type AssistantProposalActionKind,
   type AssistantPublicProposal,
   type AssistantThreadDetail,
   type AssistantUIMessage,
 } from "./assistant-client";
 import type { AssistantProposalCardState } from "./AssistantMessages";
-import { isRecord } from "@/lib/api-data";
 
 /**
  * A single assistant conversation: the real SDK Chat, the id passed to the
@@ -28,12 +26,6 @@ export interface AssistantConversation {
   chat: Chat<AssistantUIMessage>;
   chatId: string;
   generation: number;
-  /**
-   * The `data-byok-error` part of the turn in flight (F5/S3): set when the
-   * part arrives, reset on every new send, and passed to the panel's
-   * onTurnError by this conversation's onError.
-   */
-  byokError: { current: AssistantByokErrorInfo | null };
   threadId: { current: string | null };
 }
 
@@ -48,8 +40,7 @@ export interface AssistantConversationHooks {
   onThreadEntry?: (thread: { id: string; now: string; title: string }) => void;
   /** A `data-thread` arrived on the current conversation: the active thread id changed. */
   onActiveThreadCreated?: (threadId: string) => void;
-  /** A turn of the current conversation failed; the second argument is the `data-byok-error` part of the same turn when there is one. */
-  onTurnError?: (error: Error, byok?: AssistantByokErrorInfo | null) => void;
+  onTurnError?: (error: Error) => void;
   /** A turn of the current conversation was aborted (Stop, or the request aborted); the messages as it left them. */
   onTurnAborted?: (messages: AssistantUIMessage[]) => void;
 }
@@ -66,7 +57,6 @@ export interface AssistantConversationInit {
 
 export function createAssistantConversation(init: AssistantConversationInit): AssistantConversation {
   const conversation: AssistantConversation = {
-    byokError: { current: null },
     chat: undefined as unknown as Chat<AssistantUIMessage>,
     chatId: init.chatId,
     generation: init.generation,
@@ -79,27 +69,15 @@ export function createAssistantConversation(init: AssistantConversationInit): As
       api: "/api/assistant/turn",
       fetch: init.fetch,
       prepareSendMessagesRequest: ({ body, messages }) => {
-        // A new send never inherits the byok part of the previous turn.
-        conversation.byokError.current = null;
         return {
           body: {
             ...buildTurnRequestBody(conversation.threadId.current, messages),
-            // The body of the call rides the same request (F5/S4: the
-            // "Use Pinar credits" retry sends useCredits for this send only).
             ...body,
           },
         };
       },
     }),
     onData: (part) => {
-      // The BYOK failure of the turn (F5/S3): the cause part, written by the
-      // server before the byok_error error part it explains.
-      if (part.type === "data-byok-error") {
-        conversation.byokError.current = byokErrorPart(part.data);
-        return;
-      }
-      // First part of the turn stream: the id of the conversation the turn
-      // just created.
       if (part.type !== "data-thread") return;
       const data = part.data;
       if (typeof data !== "object" || data === null || !("id" in data)) return;
@@ -115,12 +93,8 @@ export function createAssistantConversation(init: AssistantConversationInit): As
       init.hooks.onThreadEntry?.({ id, now: new Date().toISOString(), title });
     },
     onError: (error) => {
-      // Same generation rule: a failure of a conversation the user already
-      // left must not surface on the one they moved to. The byok cell is
-      // this conversation's: a late failure of a switched-away one is
-      // dropped by the generation check above it.
       if (init.hooks.generation.current !== conversation.generation) return;
-      init.hooks.onTurnError?.(error, conversation.byokError.current);
+      init.hooks.onTurnError?.(error);
     },
     onFinish: ({ isAbort, messages }) => {
       // An aborted turn ends without an error: the panel marks the answer
@@ -132,23 +106,6 @@ export function createAssistantConversation(init: AssistantConversationInit): As
     },
   });
   return conversation;
-}
-
-/**
- * The `data-byok-error` part data (F5 contract §5): the cause of the BYOK
- * failure, the Retry-After in seconds when there is one and the credits
- * offer. Invalid data is dropped: without a cause the note falls back to
- * the generic BYOK text.
- */
-export function byokErrorPart(value: unknown): AssistantByokErrorInfo | null {
-  if (!isRecord(value) || typeof value.cause !== "string" || value.cause === "") return null;
-  return {
-    canUseCredits: typeof value.canUseCredits === "boolean" ? value.canUseCredits : true,
-    cause: value.cause,
-    retryAfter: typeof value.retryAfter === "number" && Number.isFinite(value.retryAfter) && value.retryAfter > 0
-      ? value.retryAfter
-      : null,
-  };
 }
 
 export interface AssistantConversationStore {

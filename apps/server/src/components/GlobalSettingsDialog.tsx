@@ -41,7 +41,6 @@ import {
   toast,
 } from "@pinar/ui";
 import { AgentAccessSettings } from "@/components/AgentAccessSettings";
-import { ByokSettings } from "@/components/ByokSettings";
 import { resolveSettingsSection, showsAiSection, showsAiSettings, type SettingsSection } from "@/components/global-settings-sections";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
@@ -1008,10 +1007,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                 )}
               </section>
               {showAiSettings ? <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
-                {/* F5/S4: the BYOK endpoint subpanel above the usage history:
-                    it reads /api/byok itself and stays hidden (nothing, not
-                    even a "coming soon") when the service is unavailable. */}
-                <ByokSettings open={open && section === "aiUsage"} />
                   <div className="flex flex-col gap-3">
                     <SettingRow
                       description={t("settings.voicePostProcessingDescription")}

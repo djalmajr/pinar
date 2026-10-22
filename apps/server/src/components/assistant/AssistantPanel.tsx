@@ -3,7 +3,6 @@ import { useChat } from "@ai-sdk/react";
 import { Link } from "@tanstack/react-router";
 import { Button, cn } from "@pinar/ui";
 import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
-import { byokCauseMessageKey } from "@/lib/ai-error-presentation";
 import { parseAssistantTurnTerminal, type AssistantTurnTerminal } from "@/lib/assistant-turn-terminal";
 import type { Translate } from "@/lib/i18n";
 import IconHistory from "~icons/lucide/history";
@@ -11,14 +10,12 @@ import IconPlus from "~icons/lucide/plus";
 import IconSparkles from "~icons/lucide/sparkles";
 import IconX from "~icons/lucide/x";
 import {
-  assistantByokErrorFromChatError,
   assistantCreditsFromChatError,
   assistantErrorFromChatError,
   assistantErrorMessageKey,
   buildTurnRequestBody,
   deleteAssistantThread,
   fetchAssistantThreads,
-  type AssistantByokErrorInfo,
   type AssistantErrorKey,
   type AssistantProposalActionKind,
   type AssistantPublicProposal,
@@ -42,12 +39,7 @@ import { AssistantNoCreditsCard, AssistantTurnErrorText } from "./AssistantNotic
 import { assistantInterruptedMessageId } from "./assistant-trace";
 import { AssistantThreadList } from "./AssistantThreadList";
 
-// The note of a failed turn; a turn refused for lack of credits (402
-// insufficient_ai_credits) also carries the balance and the price, and a
-// BYOK failure (byok_error, F5/S3) carries the cause, the Retry-After when
-// there is one and the credits offer.
 export interface AssistantTurnError {
-  byok: AssistantByokErrorInfo | null;
   credits: { balance: number; required: number } | null;
   key: AssistantErrorKey | AssistantTurnTerminalKey;
 }
@@ -72,61 +64,31 @@ export function assistantTurnTerminalMessageKey(terminal: AssistantTurnTerminal)
   }
 }
 
-// A failed turn's note from the chat error. The transport delivers the JSON
-// error body (or the stream's errorText) as the error message; only the
-// mapped i18n key is ever shown, never the raw text. The typed terminal
-// (mid-stream, or the 504 before the stream) maps by its code and phase.
-// The cause of a BYOK failure (F5/S4): the `data-byok-error` part of the
-// same turn when it failed mid-stream, or the pre-stream 429 body; a
-// byok_error without either still shows the generic note.
-export function assistantTurnErrorFromChatError(error: Error, byokPart?: AssistantByokErrorInfo | null): AssistantTurnError {
+export function assistantTurnErrorFromChatError(error: Error): AssistantTurnError {
   const code = assistantErrorFromChatError(error);
   const terminal = parseAssistantTurnTerminal(error);
   const key = terminal !== null ? assistantTurnTerminalMessageKey(terminal) : assistantErrorMessageKey(code);
-  const byok = code === "byok_error"
-    ? byokPart ?? assistantByokErrorFromChatError(error) ?? { canUseCredits: true, cause: "", retryAfter: null }
-    : null;
   return {
-    byok,
     credits: key === "assistant.errorNoCredits" ? assistantCreditsFromChatError(error) : null,
     key,
   };
 }
 
-// Lack of credits shows its own card with the balance and the link to buy
-// more (/pricing); a BYOK failure shows the cause text, the Retry-After and
-// the two actions ("Tentar de novo" and "Usar créditos do Pinar", F5/S4);
-// any other failure is the Skia's SkiaTurnError: the destructive text and
-// the retry icon.
 export function AssistantTurnErrorNote({
   disabled = false,
   error,
   onRetry,
-  onRetryWithCredits,
+
   t,
 }: {
   disabled?: boolean;
   error: AssistantTurnError;
   onRetry: () => void;
-  onRetryWithCredits: () => void;
+
   t: Translate;
 }) {
   if (error.key === "assistant.errorNoCredits") {
     return <AssistantNoCreditsCard credits={error.credits} t={t} />;
-  }
-  if (error.byok !== null) {
-    return (
-      <AssistantTurnErrorText
-        detail={error.byok.retryAfter !== null ? (
-          <p className="text-xs text-muted-foreground">{t("byok.retryAfter", { seconds: error.byok.retryAfter })}</p>
-        ) : null}
-        disabled={disabled}
-        message={t(byokCauseMessageKey(error.byok.cause))}
-        onRetry={onRetry}
-        onRetryWithCredits={error.byok.canUseCredits ? onRetryWithCredits : null}
-        t={t}
-      />
-    );
   }
   return <AssistantTurnErrorText disabled={disabled} message={t(error.key)} onRetry={onRetry} t={t} />;
 }
@@ -181,8 +143,8 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       onActiveThreadCreated: (id) => {
         setActiveThreadId(id);
       },
-      onTurnError: (error, byokPart) => {
-        setTurnError(assistantTurnErrorFromChatError(error, byokPart));
+      onTurnError: (error) => {
+        setTurnError(assistantTurnErrorFromChatError(error));
       },
       onTurnAborted: (messages) => {
         const id = assistantInterruptedMessageId(messages);
@@ -308,16 +270,6 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     void sendMessage({ text });
   }
 
-  // "Use Pinar credits" (F5/S4): the same request with useCredits true only
-  // for this send (the body of the call, F5 contract §5); the next send goes
-  // back to the account's normal routing.
-  function handleRetryWithCredits() {
-    const text = buildTurnRequestBody(null, messages).text;
-    if (!text) return;
-    setTurnError(null);
-    void sendMessage({ text }, { body: { useCredits: true } });
-  }
-
   const hasThread = status !== null && status.available && messages.length > 0;
   const body =
     status === null || (status !== null && status.reason === "disabled") ? (
@@ -350,7 +302,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
               disabled={busy}
               error={turnError}
               onRetry={handleRetry}
-              onRetryWithCredits={handleRetryWithCredits}
+
               t={t}
             />
           ) : null}
@@ -361,7 +313,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
             void handleProposalAction(kind, proposal);
           }}
           onRetry={handleRetry}
-          onRetryWithCredits={handleRetryWithCredits}
+
           proposalStates={proposalStates}
           status={chatStatus}
           t={t}

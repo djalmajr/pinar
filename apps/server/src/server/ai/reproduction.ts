@@ -7,9 +7,6 @@ import {
 } from "@pinar/shared";
 import {
   AI_FEATURE_SPECS,
-  byokErrorResponse,
-  byokRateLimitedResponse,
-  byokSuccessJson,
   type CloudEnv,
   aiOutputLanguage,
   aiSessionRequest,
@@ -19,7 +16,6 @@ import {
   runMeteredAiFeature,
   stringValue,
 } from "../cloud-api";
-import { ByokCallError, byokChat } from "../byok/call";
 import {
   chainUsable,
   runTextChain,
@@ -122,37 +118,10 @@ export function parseGenerated(model: string, provider = "pinar_cloud") {
   };
 }
 
-/**
- * POST /api/ai/reproduction — writes concise reproduction steps from the
- * recorded timeline. The user edits the timeline in the viewer first
- * (PATCH /api/sessions/:id); the stored steps are what the model sees. The
- * result is persisted as `reproduction.generated`.
- *
- * A53: one credit per generation, through the metered gate the voice uses —
- * reservation before the inference, refund on a failed or invalid answer,
- * 402 with the balance without enough credits, and the idempotent replay of
- * a repeated request id (the client's order id).
- *
- * F5/S3b (contract §5): with the chat capability tested ok (and without
- * useCredits) the generation runs on the user's endpoint — no credit, one
- * link, no gateway fallback; the result persists like today (without the
- * session the answer is 404, without a credit to refund). The plan and the
- * per-minute limit run on both paths, exactly as today.
- */
 export async function generateReproduction(request: Request, env: CloudEnv): Promise<Response> {
   const scoped = await aiSessionRequest(request, env);
   if (scoped.response) return scoped.response;
   const { body, principal, requestId, session } = scoped;
-  // F5/S3b (contract §5): useCredits is the optional JSON boolean; any
-  // other type is 400.
-  let useCredits = false;
-  const useCreditsEntry = body.useCredits;
-  if (useCreditsEntry !== undefined) {
-    if (typeof useCreditsEntry !== "boolean") {
-      return json({ error: "useCredits must be a boolean" }, 400);
-    }
-    useCredits = useCreditsEntry;
-  }
   const input = reproductionPromptInput(session);
   if (!input) {
     return json({ code: "reproduction_required", error: "This capture has no recorded steps" }, 422);
@@ -160,11 +129,6 @@ export async function generateReproduction(request: Request, env: CloudEnv): Pro
   const language = aiOutputLanguage(stringValue(body, "language"));
   const spec = AI_FEATURE_SPECS.reproduction;
   const parse = parseGenerated(spec.model);
-  // The persistence of the generated steps (the metered path's onSuccess
-  // and the BYOK path alike): throws on a local failure (the metered catch
-  // refunds; the BYOK path answers 503 without a credit), and 404 when the
-  // session is gone (the write did not persist, like the other session
-  // edits).
   const persistGenerated = async (generated: ReproductionGenerated): Promise<Response | undefined> => {
     if (!session.reproduction) throw new Error("reproduction_missing");
     const patched = applySessionPatch(session, { reproduction: { ...session.reproduction, generated } });
@@ -233,65 +197,10 @@ export async function generateReproduction(request: Request, env: CloudEnv): Pro
     resourceId: `reproduction:${session.id}`,
     spec,
     unavailable: async () => {
-      // D5: a configured and usable AI_TEXT_CHAIN keeps the route available
-      // without the AI binding; the environment never decides the provider
-      // (A50). F5/S3b: the gate runs only on the metered path — the BYOK
-      // route never passes it (contract §5).
       if (env.AI) return null;
       const availability = await voiceAvailability(env);
       return availability.text ? null : json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
     },
     unavailableMessage: "Reproduction generation unavailable",
-    useCredits,
-    byok: async () => {
-      // F5/S3b (contract §5): the same prompt and the same parse as today,
-      // on the user's chat (one link, no credit, no gateway fallback). The
-      // slot is released in the finally.
-      const { cloudByokRoute } = await import("../byok/route");
-      const route = await cloudByokRoute(env, principal, "chat");
-      if (route === null) return null; // no route: the metered path
-      if ("cause" in route) return byokRateLimitedResponse();
-      try {
-        const output = await byokChat(route, {
-          jsonObject: true,
-          maxTokens: spec.maxTokens,
-          messages: [
-            { content: REPRODUCTION_INSTRUCTIONS, role: "system" },
-            { content: JSON.stringify({ language, ...input }), role: "user" },
-          ],
-          temperature: 0.1,
-          timeoutMs: spec.timeoutMs,
-        });
-        const result = parseGenerated(route.model, "byok")(output.text);
-        // The same parse as today: the invalid JSON is the
-        // invalid_response of the common table (the metered path's
-        // invalid_ai_response, the same refusal, without a credit).
-        if (!result) throw new ByokCallError({ cause: "invalid_response", retryAfterSeconds: null });
-        // The same persistence as today; without the session the answer is
-        // 404, without a credit to refund (nothing was reserved).
-        let shortCircuit: Response | undefined;
-        try {
-          shortCircuit = await persistGenerated(result);
-        } catch {
-          return json({ code: "ai_inference_failed", error: "Reproduction generation unavailable" }, 503);
-        }
-        if (shortCircuit) return shortCircuit;
-        return await byokSuccessJson(env, principal, result, {
-          costUsdMicros: 0,
-          inputTokens: output.inputTokens,
-          model: route.model,
-          outputTokens: output.outputTokens,
-        });
-      } catch (error) {
-        const response = byokErrorResponse(error);
-        if (response !== null) return response;
-        // A failure that is not the classified BYOK (a server bug, not the
-        // endpoint): it propagates like today's metered path (the global
-        // handler's error), never a byok_error and never the gateway.
-        throw error;
-      } finally {
-        route.release();
-      }
-    },
   });
 }

@@ -19,7 +19,6 @@
 
 import { cloudRetrievalEndpoints, type CloudIndexCostRecorder, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
-import type { ByokRetrievalEndpoints } from "../byok/endpoints";
 import type { FilingThresholdEnv } from "./constants";
 import type { FilingCreditMeter } from "./choose";
 import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
@@ -36,23 +35,10 @@ function fetchOption(): { fetch?: typeof fetch } {
   return testFetch ? { fetch: testFetch } : {};
 }
 
-/**
- * The engine of the deployment, or null without the AI configuration or a
- * usable engine. `recordIndexCost` records the gateway embeddings of the
- * similarity engine (the margin monitor's index costs). F5/S3c: `byok`
- * (the user's retrieval endpoints, their capabilities ok) wins — the
- * similarity engine on the user's embedding endpoint, one link, no credit
- * and no reservation; the deployment's detection still runs for what the
- * BYOK does not cover (the decisions engine, never BYOK).
- */
 export async function cloudFilingEngine(
   env: CloudPinEnv,
-  byok: ByokRetrievalEndpoints | null = null,
   recordIndexCost?: CloudIndexCostRecorder,
 ): Promise<FilingEngineChoice | null> {
-  if (byok?.embedding !== undefined && byok.embedding !== null) {
-    return { byok: true, embedding: byok.embedding, kind: "similarity" };
-  }
   const endpoints = await cloudRetrievalEndpoints(env, testFetch ?? undefined, recordIndexCost);
   if (!endpoints) return null;
   if (endpoints.decisions) return { endpoint: endpoints.decisions, kind: "decisions" };
@@ -60,38 +46,20 @@ export async function cloudFilingEngine(
   return { embedding: endpoints.embedding, kind: "similarity" };
 }
 
-/**
- * GET and PATCH /api/preferences behind the gate: an engine is available.
- * F5/S3c: `byok` (the owner's retrieval endpoints, the Pro gate and the
- * no-decrypt rule inside byokRetrievalEndpoints) answers the availability
- * too — the user's embeddings ok make the automatic destination
- * available, with no deployment detection call. The answer waits at most
- * `timeoutMs`; a detection still running then answers false, and its
- * result reaches the cache for the next read.
- */
-export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, byok: ByokRetrievalEndpoints | null, timeoutMs: number): Promise<boolean> {
+export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, timeoutMs: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), Math.max(0, timeoutMs));
   });
   try {
-    return (await Promise.race([cloudFilingEngine(env, byok).catch(() => null), late])) !== null;
+    return (await Promise.race([cloudFilingEngine(env).catch(() => null), late])) !== null;
   } finally {
     clearTimeout(timer);
   }
 }
 
-/**
- * Files a new Cloud capture of `ownerId`; the caller checked the gate and
- * the preference. The env also carries the filing similarity threshold
- * variables (F3.5 §1), applied where chooseCollection resolves them. The
- * meter (A53) charges the capture's credit when the engine is called —
- * never for the BYOK engine (F5/S3c: no reservation, no credit). `byok`
- * is the owner's retrieval endpoints (their capabilities ok).
- */
 export function fileCloudCapture(input: {
   batchId: string | null;
-  byok?: ByokRetrievalEndpoints | null;
   capture: FilingCapture;
   env: CloudPinEnv & FilingThresholdEnv;
   meter?: FilingCreditMeter;
@@ -104,7 +72,7 @@ export function fileCloudCapture(input: {
   return fileCapture({
     batchId: input.batchId,
     capture: input.capture,
-    engine: () => cloudFilingEngine(input.env, input.byok ?? null, input.recordIndexCost),
+    engine: () => cloudFilingEngine(input.env, input.recordIndexCost),
     ...fetchOption(),
     ...(input.meter ? { meter: input.meter } : {}),
     source: { ...input.source, entriesFor: (sessionIds) => store.entriesFor(sessionIds) },

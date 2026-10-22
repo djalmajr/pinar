@@ -1596,31 +1596,6 @@ describe("assistant turn deadlines over http", () => {
     await readSse(next);
   });
 
-  test("a BYOK route that arrives after the budget ran out frees its slot", async () => {
-    const clock = fakeTurnClock();
-    const { deps } = makeDeps();
-    let released = 0;
-    let resolveRoute!: (route: Awaited<ReturnType<NonNullable<AssistantRequestDeps["byokTurn"]>>>) => void;
-    const byokTurn: NonNullable<AssistantRequestDeps["byokTurn"]> = () =>
-      new Promise((resolve) => {
-        resolveRoute = resolve;
-      });
-    const pending = postTurn({ ...deps, byokTurn, clock }, { text: "oi" });
-    await clock.advance(240_000);
-    assert.equal((await pending).status, 504);
-    resolveRoute({
-      endpoint: FAKE_ENDPOINT,
-      kind: "route",
-      model: textModel("nunca"),
-      pinSearch: { search: async () => [] },
-      release: () => {
-        released += 1;
-      },
-    });
-    await waitFor(() => (released > 0 ? released : null));
-    assert.equal(released, 1);
-  });
-
   test("the budget starts with the request: 100 s before the stream leave 140 s to the attempt (turn phase)", async () => {
     const clock = fakeTurnClock();
     const feed = pushableStream();

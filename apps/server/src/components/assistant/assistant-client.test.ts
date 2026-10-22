@@ -4,7 +4,6 @@ import englishMessages from "@/lib/ui-locales/en";
 import {
   ASSISTANT_PROPOSAL_ACTIONS,
   ASSISTANT_RESOURCE_TYPES,
-  assistantByokErrorFromChatError,
   assistantCreditsFromChatError,
   assistantErrorFromChatError,
   assistantErrorMessageKey,
@@ -107,7 +106,6 @@ describe("assistantErrorMessageKey", () => {
     expect(assistantErrorMessageKey("assistant_unavailable")).toBe("assistant.errorFailed");
     expect(assistantErrorMessageKey("assistant_rate_limited")).toBe("assistant.errorRateLimited");
     expect(assistantErrorMessageKey("assistant_requires_pro")).toBe("assistant.requiresPro");
-    expect(assistantErrorMessageKey("byok_error")).toBe("byok.errorGeneric");
     expect(assistantErrorMessageKey("insufficient_ai_credits")).toBe("assistant.errorNoCredits");
   });
 
@@ -154,50 +152,6 @@ describe("assistantCreditsFromChatError", () => {
     for (const body of cases) expect(assistantCreditsFromChatError(new Error(JSON.stringify(body)))).toBeNull();
     expect(assistantCreditsFromChatError(new Error("ASSISTANT_STREAM_FAILED"))).toBeNull();
     expect(assistantCreditsFromChatError(new Error("not json {"))).toBeNull();
-  });
-});
-
-describe("assistantByokErrorFromChatError (F5/S3b: the pre-stream 429)", () => {
-  const body429 = { canUseCredits: true, cause: "rate_limited", code: "byok_error", retryAfter: 30 };
-
-  test("reads the cause and the Retry-After of the 429 body the transport puts in the message", () => {
-    const error = new Error(JSON.stringify(body429));
-    expect(assistantErrorFromChatError(error)).toBe("byok_error");
-    expect(assistantByokErrorFromChatError(error)).toEqual({
-      canUseCredits: true,
-      cause: "rate_limited",
-      retryAfter: 30,
-    });
-  });
-
-  test("a body without retryAfter and a falsy credits offer are kept as such", () => {
-    expect(assistantByokErrorFromChatError(new Error(JSON.stringify({ cause: "key_rejected", code: "byok_error" })))).toEqual({
-      canUseCredits: true,
-      cause: "key_rejected",
-      retryAfter: null,
-    });
-    expect(assistantByokErrorFromChatError(new Error(JSON.stringify({ canUseCredits: false, cause: "unavailable", code: "byok_error" })))).toEqual({
-      canUseCredits: false,
-      cause: "unavailable",
-      retryAfter: null,
-    });
-    // A malformed retryAfter never blocks the cause: it is just dropped.
-    expect(assistantByokErrorFromChatError(new Error(JSON.stringify({ ...body429, retryAfter: 0 })))).toEqual({
-      canUseCredits: true,
-      cause: "rate_limited",
-      retryAfter: null,
-    });
-  });
-
-  test("anything else is null: other codes, a missing or empty cause, plain text", () => {
-    const cases = [
-      { ...body429, code: "assistant_rate_limited" },
-      { ...body429, cause: "" },
-      { canUseCredits: true, code: "byok_error" },
-    ];
-    for (const body of cases) expect(assistantByokErrorFromChatError(new Error(JSON.stringify(body)))).toBeNull();
-    expect(assistantByokErrorFromChatError(new Error("byok_error"))).toBeNull();
-    expect(assistantByokErrorFromChatError(new Error("not json {"))).toBeNull();
   });
 });
 
@@ -266,23 +220,6 @@ describe("assistant fetch functions", () => {
       reason: null,
       surface: "local",
     });
-  });
-
-  // F5/S3: the `byok` block of the status is kept for the future; nothing
-  // visible depends on it in this slice, and an answer without it parses as
-  // before.
-  test("fetchAssistantStatus: the byok block is kept when the server carries it", async () => {
-    stubFetch(() =>
-      jsonResponse({ available: true, byok: { chat: true }, reason: null, surface: "cloud" }));
-    await expect(fetchAssistantStatus()).resolves.toEqual({
-      available: true,
-      byok: { chat: true },
-      reason: null,
-      surface: "cloud",
-    });
-    stubFetch(() =>
-      jsonResponse({ available: false, byok: { chat: "yes" }, reason: "requires_pro", surface: "cloud" }));
-    await expect(fetchAssistantStatus()).resolves.toBeNull();
   });
 
   test("fetchAssistantStatus: 404 before the route lands returns null", async () => {

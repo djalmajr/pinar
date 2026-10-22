@@ -1,22 +1,3 @@
-// The assistant turn's deadlines, by progress (the Skia's, ZOM-269): the
-// slow appliance model (qwen3.8-27b with reasoning) takes more than 60 s and
-// still produces, and the old fixed 60 s cut of the whole turn killed useful
-// work. Three limits, the same for every source (gateway, appliance, the
-// local app's endpoint and BYOK):
-// - inactivity: 60 s without ANY progress from the provider (a stream part
-//   of text, reasoning, tool input or call, a step start or end, or a raw
-//   provider chunk). While a tool runs the clock stands still (the tool
-//   stays under the caps below);
-// - a 180 s cap on each model attempt: the turn's first model, and again
-//   for every other model the chain starts (budget.markAttempt), each one
-//   bounded by what is left of the budget;
-// - a 240 s budget for the whole turn, created when the HTTP request enters
-//   the turn route (http.ts): the work before the stream, the attempt, the
-//   tools and the chain's fallback. A fallback uses what is LEFT, never a
-//   new budget, and does not start with less than 30 s left.
-//
-// The clock is injectable so the tests run the deadlines on a fake clock.
-
 import type { AssistantTurnTimeoutPhase } from "../../lib/assistant-turn-terminal";
 
 export const ASSISTANT_TURN_INACTIVITY_MS = 60_000;
@@ -41,10 +22,6 @@ export const systemTurnClock: AssistantTurnClock = {
   setTimeout: (callback, ms) => setTimeout(callback, ms),
 };
 
-// The error a deadline raises when it aborts the turn (F5/S3 review F3): a
-// timeout the caller may classify (the BYOK cause), while the caller's abort
-// is a cancellation and is never a timeout. The class, not a message, is how
-// the caller recognizes it; `phase` says which limit ran out.
 export class AssistantTurnTimeoutError extends Error {
   readonly phase: AssistantTurnTimeoutPhase;
   constructor(phase: AssistantTurnTimeoutPhase = "turn") {

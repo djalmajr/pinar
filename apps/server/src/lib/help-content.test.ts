@@ -18,7 +18,7 @@ import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 const expectedArticleCounts = {
   agents: 6,
   captures: 6,
-  cloud: 6,
+  cloud: 5,
   "getting-started": 4,
   privacy: 4,
   workspace: 3,
@@ -54,11 +54,11 @@ describe("help content", () => {
     assert.equal(loadHelpContent("fr"), frenchContent);
     assert.equal((await frenchContent).language, "fr");
   });
-  test("ships the designed six-category, 29-article catalog in every locale", async () => {
+  test("ships the designed six-category, 28-article catalog in every locale", async () => {
     const contents = await loadEveryHelpLocale();
     for (const content of contents) {
       assert.equal(content.categories.length, 6, content.language);
-      assert.equal(content.articles.length, 29, content.language);
+      assert.equal(content.articles.length, 28, content.language);
       for (const category of content.categories) {
         assert.equal(
           articlesInCategory(content, category.id).length,
@@ -537,8 +537,8 @@ describe("help content", () => {
   test("gives every article its own cover file", async () => {
     for (const content of await loadEveryHelpLocale()) {
       const keys = content.articles.map((article) => article.screenshot.key);
-      assert.equal(keys.length, 29, content.language);
-      assert.equal(new Set(keys).size, 29, content.language);
+      assert.equal(keys.length, 28, content.language);
+      assert.equal(new Set(keys).size, 28, content.language);
     }
   });
 
@@ -590,7 +590,6 @@ describe("help content", () => {
       "local-security-and-recovery": "workspace-security",
       "nested-collections": "workspace-nested",
       "organize-projects": "capture-workspace",
-      "own-ai-endpoint": "own-ai-endpoint",
       "pins-and-comments": "capture-pins",
       "plans-and-billing": "pricing",
       "privacy-masks": "capture-masks",
@@ -909,13 +908,6 @@ describe("help content", () => {
       /OpenAI 互換/g,
       /OpenAI 兼容/g,
     ];
-    // The BYOK settings and the own-ai-endpoint guide quote the embedding
-    // capability and model labels exactly as the UI shows them ("Embeddings",
-    // "Modelo de embedding", "嵌入", …): the scan strips those exact labels,
-    // per language, not the word in general. The boundaries keep the strip
-    // from eating a longer word that only starts with the label ("Embedding
-    // models"): the lookarounds test ASCII word characters only, so they
-    // still hold in zh and ja, where words are not space-separated.
     const embeddingUiLabels: Record<string, string[]> = {
       de: ["Embedding-Modell", "Embeddings"],
       en: ["Embedding model", "Embeddings"],
@@ -1005,7 +997,7 @@ describe("help content", () => {
     );
     for (const content of await loadEveryHelpLocale()) {
       const texts: string[] = [];
-      for (const id of ["assistant", "ai-features", "ai-credits", "own-ai-endpoint"]) {
+      for (const id of ["assistant", "ai-features", "ai-credits"]) {
         const article = content.articles.find((candidate) => candidate.id === id);
         assert.ok(article, `${content.language}:${id}`);
         texts.push(...articleTexts(article));

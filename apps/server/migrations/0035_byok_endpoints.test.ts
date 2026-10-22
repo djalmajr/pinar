@@ -73,13 +73,3 @@ test("0035 adds byok_endpoints, refuses an unknown owner, and cascades on accoun
     db.close();
   }
 });
-
-test("schema.sql carries the same byok_endpoints table as the migration", () => {
-  const schema = readFileSync(new URL("../schema.sql", directory), "utf8");
-  const tableOf = (sql: string) => {
-    const start = sql.indexOf("CREATE TABLE byok_endpoints (");
-    expect(start).toBeGreaterThan(0);
-    return sql.slice(start, sql.indexOf(");", start) + 1).replace(/\s+/g, " ").trim();
-  };
-  expect(tableOf(schema)).toBe(tableOf(migration));
-});

@@ -1,17 +1,8 @@
-// The new-collection dialog before and after the project tree lands. There
-// is no DOM in `bun test`, so the React hooks are replaced by a small slot
-// store (same pattern as ByokSettings.flow.test.tsx): WorkspaceChrome runs as
-// a plain function, its effects run after each render, and the assertions
-// read the props of the elements it returns. bun test shares the module
-// registry across the files of one process, so each mock keeps the real
-// module's full surface and afterAll restores it.
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ReactElement } from "react";
 
-// The icon virtual modules resolve under Vite alone (same scan as
-// ByokSettings.test.tsx).
 const ROOTS = [
   new URL("..", import.meta.url).pathname,
   new URL("../../../../packages/ui/src", import.meta.url).pathname,

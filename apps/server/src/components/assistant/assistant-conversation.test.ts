@@ -6,7 +6,6 @@
 // events even after the switch.
 import { describe, expect, test } from "bun:test";
 import {
-  assistantByokErrorFromChatError,
   assistantErrorFromChatError,
   assistantErrorMessageKey,
   assistantMessageAsk,
@@ -15,7 +14,6 @@ import {
   type AssistantThreadDetail,
 } from "./assistant-client";
 import {
-  byokErrorPart,
   createAssistantConversation,
   openAssistantConversation,
   startAssistantConversation,
@@ -614,163 +612,5 @@ describe("proposal and ask parts through the real Chat + DefaultChatTransport", 
     expect(assistantMessageAsk(proposed)).toBeNull();
     expect(assistantMessageAsk(asked)).toEqual(ask);
     expect(assistantMessageProposals(asked)).toEqual([]);
-  });
-});
-
-describe("byok_error turns (F5/S3: the cause part, the 429 and the useCredits body)", () => {
-  test("a data-byok-error part before the error part reaches onTurnError with the info", async () => {
-    const cell = { current: 0 };
-    const seen: Array<{ byok: unknown; error: Error }> = [];
-    const encoder = new TextEncoder();
-    const conversation = createAssistantConversation({
-      chatId: "assistant:new:0",
-      fetch: async () =>
-        new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              for (const chunk of [
-                { messageId: "answerB", type: "start" },
-                { data: { canUseCredits: true, cause: "key_rejected", retryAfter: 15 }, type: "data-byok-error" },
-                { errorText: "byok_error", type: "error" },
-              ]) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
-              }
-              controller.close();
-            },
-          }),
-          { headers: { "content-type": "text/event-stream" } },
-        ),
-      generation: 0,
-      hooks: {
-        generation: cell,
-        onTurnError: (error, byok) => {
-          seen.push({ byok, error });
-        },
-      },
-      messages: [],
-      threadId: null,
-    });
-    await conversation.chat.sendMessage({ text: "q" });
-    expect(seen).toHaveLength(1);
-    expect(assistantErrorFromChatError(seen[0].error)).toBe("byok_error");
-    expect(seen[0].byok).toEqual({ canUseCredits: true, cause: "key_rejected", retryAfter: 15 });
-  });
-
-  test("the pre-stream 429 byok_error arrives as the error body and onTurnError carries no part", async () => {
-    const cell = { current: 0 };
-    const seen: Array<{ byok: unknown; error: Error }> = [];
-    const conversation = createAssistantConversation({
-      chatId: "assistant:new:0",
-      fetch: async () =>
-        new Response(
-          JSON.stringify({ canUseCredits: true, cause: "rate_limited", code: "byok_error", retryAfter: 30 }),
-          { headers: { "content-type": "application/json" }, status: 429 },
-        ),
-      generation: 0,
-      hooks: {
-        generation: cell,
-        onTurnError: (error, byok) => {
-          seen.push({ byok, error });
-        },
-      },
-      messages: [],
-      threadId: null,
-    });
-    await conversation.chat.sendMessage({ text: "q" });
-    expect(seen).toHaveLength(1);
-    expect(assistantErrorFromChatError(seen[0].error)).toBe("byok_error");
-    // Without a part the cell stays null: the panel falls back to the body.
-    expect(seen[0].byok).toBeNull();
-    expect(assistantByokErrorFromChatError(seen[0].error)).toEqual({
-      canUseCredits: true,
-      cause: "rate_limited",
-      retryAfter: 30,
-    });
-  });
-
-  test("a malformed data-byok-error part is dropped only without a cause (an unknown cause keeps the generic text later)", () => {
-    expect(byokErrorPart({ canUseCredits: true })).toBeNull();
-    expect(byokErrorPart({ cause: "" })).toBeNull();
-    expect(byokErrorPart(null)).toBeNull();
-    // The part data is the server's: a readable cause always survives, and a
-    // negative or missing retryAfter is dropped (the line never renders).
-    expect(byokErrorPart({ cause: "not_a_cause", retryAfter: -1 })).toEqual({
-      canUseCredits: true,
-      cause: "not_a_cause",
-      retryAfter: null,
-    });
-    expect(byokErrorPart({ cause: "timeout" })).toEqual({ canUseCredits: true, cause: "timeout", retryAfter: null });
-  });
-
-  test("useCredits rides only the send that asked for it", async () => {
-    const bodies: Array<Record<string, unknown>> = [];
-    const cell = { current: 0 };
-    const encoder = new TextEncoder();
-    const conversation = createAssistantConversation({
-      chatId: "assistant:new:0",
-      fetch: async (_input, init) => {
-        const sent = JSON.parse(String((init as { body?: string }).body));
-        bodies.push(sent);
-        return new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              for (const chunk of [{ messageId: `answer${bodies.length}`, type: "start" }, { type: "finish" }]) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
-              }
-              controller.close();
-            },
-          }),
-          { headers: { "content-type": "text/event-stream" } },
-        );
-      },
-      generation: 0,
-      hooks: { generation: cell },
-      messages: [],
-      threadId: null,
-    });
-    await conversation.chat.sendMessage({ text: "first" });
-    await conversation.chat.sendMessage({ text: "second, with credits" }, { body: { useCredits: true } });
-    await conversation.chat.sendMessage({ text: "third" });
-    expect(bodies).toHaveLength(3);
-    expect(bodies[0].useCredits).toBeUndefined();
-    expect(bodies[0].text).toBe("first");
-    expect(bodies[1].useCredits).toBe(true);
-    expect(bodies[1].text).toBe("second, with credits");
-    // The next send goes back to the account's normal routing.
-    expect(bodies[2].useCredits).toBeUndefined();
-  });
-
-  test("a new send resets the byok part of the previous turn", async () => {
-    const cell = { current: 0 };
-    const encoder = new TextEncoder();
-    let turn = 0;
-    const conversation = createAssistantConversation({
-      chatId: "assistant:new:0",
-      fetch: async () => {
-        turn += 1;
-        const chunks = turn === 1
-          ? [{ messageId: "a1", type: "start" }, { data: { cause: "unavailable" }, type: "data-byok-error" }, { errorText: "byok_error", type: "error" }]
-          : [{ messageId: "a2", type: "start" }, { type: "finish" }];
-        return new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              for (const chunk of chunks) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
-              }
-              controller.close();
-            },
-          }),
-          { headers: { "content-type": "text/event-stream" } },
-        );
-      },
-      generation: 0,
-      hooks: { generation: cell },
-      messages: [],
-      threadId: null,
-    });
-    await conversation.chat.sendMessage({ text: "first" });
-    expect(conversation.byokError.current).toEqual({ canUseCredits: true, cause: "unavailable", retryAfter: null });
-    await conversation.chat.sendMessage({ text: "second" });
-    expect(conversation.byokError.current).toBeNull();
   });
 });

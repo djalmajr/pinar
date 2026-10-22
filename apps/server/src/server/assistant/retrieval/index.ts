@@ -53,30 +53,11 @@ export function embeddingIdentity(endpoint: EmbeddingEndpoint): string {
   return `${endpoint.model}\u0000${endpoint.baseUrl}`;
 }
 
-/**
- * Whether a stored entry's `model` is current for the endpoint (F5/S2
- * re-review fix). Two shapes:
- *
- * - The new format carries the URL (`model\u0000url`, gateway: the plain
- *   model): it matches only the same model and URL. A URL change with the
- *   same model re-embeds these entries.
- * - Entries written before the endpoint joined the identity carry only the
- *   model: they match the deployment's endpoint of the same model, on read
- *   and reuse — an upgrade must not strand their vectors (the pre-v0.8.1
- *   behavior), and a URL change with the same model re-embeds only the
- *   new-format entries. A model name never contains the NUL that separates
- *   the new format's model from its base URL, so the two shapes cannot be
- *   mixed up. F5/S3c: the user's BYOK endpoint is a different vector space
- *   than the deployment that wrote the legacy entries, and vectors of
- *   different identities never mix (contract §5) — the legacy rule does
- *   not apply to it, while the deployment's endpoints keep it.
- *
- * Every consumer of the stored model uses this rule: the indexSession
- * reuse, laggingSessions, searchPins and the filing centroids.
- */
+// Legacy model-only entries remain usable for the same deployment model.
+// New entries also identify the endpoint, so changing it invalidates their vectors.
 export function identityMatches(entryModel: string, endpoint: EmbeddingEndpoint): boolean {
   if (entryModel === embeddingIdentity(endpoint)) return true;
-  if (endpoint.byok) return false;
+
   return !entryModel.includes("\u0000") && entryModel === endpoint.model;
 }
 
@@ -94,12 +75,7 @@ export interface PinIndexDeps {
   chat: VisionEndpoint | null; // null or no image input → no captions
   embedding: EmbeddingEndpoint | null; // null → text-only entries
   fetch?: typeof fetch;
-  // F5/S3c: the session's indexing failure, as the error crossed it (the
-  // BYOK turn observes the ByokCallError of the caption's or the
-  // embedding's schema — outside the fetch's marking — and degrades the
-  // turn as an egress failure degrades it). Unset for the deployment's
-  // runtimes, where a failed session simply stays stale.
-  onSessionError?: (error: unknown) => void;
+
   now: () => Date;
   source: PinSource;
   store: PinIndexStore;
@@ -163,11 +139,6 @@ export function withAbortSignal(fetchFn: typeof fetch | undefined, signal: Abort
 
 type Caption = { caption: string; ocr: string };
 
-// The stored document still has the pin's "Pin #n: comment" line in its
-// fixed place. Values are written on one line, so no other text can fill
-// that place. indexSession uses it to tell an entry apart from a changed
-// pin; the BYOK text search (runtime-cloud.ts) uses the same rule to know
-// when a stored caption is still the caption of the current pin.
 export function sameSection(docText: string, pin: PinDocumentInput["pin"]): boolean {
   return docText.split("\n")[PIN_SECTION_LINE] === pinSectionText(pin);
 }
@@ -213,24 +184,13 @@ export async function indexSession(
       try {
         const result = await captionSessionPins({
           endpoint: deps.chat,
-          // The endpoint's own egress wins (F5/S3c: the BYOK caption); the
-          // deployment's endpoints run on the deps' fetch as before.
-          fetch: deps.chat.fetch ?? deps.fetch,
+          fetch: deps.fetch,
           image: shot,
           pins: pins.map((pin) => ({ comment: pin.comment, number: pin.number })),
         });
         fresh = new Map(result.map((item) => [item.number, { caption: item.caption, ocr: item.ocr }]));
         captioned = result.length > 0;
-      } catch (error) {
-        // F5/S3c: the user's caption is a BYOK operation: a failure of its
-        // egress, cause, per-user cap, or the 2xx's parse and schema is a
-        // failure of the session's indexing — nothing is written, the
-        // whole work stays pending for the next pass, and the error
-        // crosses to the caller's marking (the BYOK's control sees it).
-        // The deployment's endpoints keep today's soft fallback: the
-        // session indexes without a caption, the caption pending for the
-        // next pass.
-        if (deps.chat.byok === true) throw error;
+      } catch {
         fresh = null;
       }
     }
@@ -260,9 +220,7 @@ export async function indexSession(
       return current ? [] : [index];
     });
     if (pending.length > 0) {
-      // The endpoint's own egress wins (F5/S3c: the BYOK embedding); the
-      // deployment's endpoints run on the deps' fetch as before.
-      const result = await embedTexts({ endpoint: embedding, fetch: embedding.fetch ?? deps.fetch, kind: "document", texts: pending.map((index) => docs[index]!.text) });
+      const result = await embedTexts({ endpoint: embedding, fetch: deps.fetch, kind: "document", texts: pending.map((index) => docs[index]!.text) });
       pending.forEach((index, position) => vectors.set(index, encodeVector(result[position]!)));
     }
     embedded = pending.length;
@@ -363,11 +321,7 @@ export async function indexStale(
     try {
       await indexSession(deps, sessionId, { notBefore: listedAt.get(sessionId) });
       indexed += 1;
-    } catch (error) {
-      // The session stays stale and is retried by the next pass. F5/S3c:
-      // the failure crosses to the deps' observer (the BYOK turn's
-      // control) as the error reached it.
-      deps.onSessionError?.(error);
+    } catch {
       remaining = true;
     }
   }
@@ -407,9 +361,7 @@ export async function searchPins(deps: PinIndexDeps, input: { limit: number; que
   const embedding = deps.embedding;
   if (embedding) {
     try {
-      // The endpoint's own egress wins (F5/S3c: the BYOK query embedding);
-      // the deployment's endpoints run on the deps' fetch as before.
-      const vectors = await embedTexts({ endpoint: embedding, fetch: embedding.fetch ?? deps.fetch, kind: "query", texts: [query] });
+      const vectors = await embedTexts({ endpoint: embedding, fetch: deps.fetch, kind: "query", texts: [query] });
       queryVector = vectors[0] ?? null;
     } catch {
       queryVector = null;

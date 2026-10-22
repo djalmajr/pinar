@@ -1,38 +1,3 @@
-// Assistant model chain (F4 contract §1, decisions A38 and A40).
-//
-// ASSISTANT_CHAIN is a CSV of `hub:model` links, tried in order. The chain
-// is one LanguageModel built with wrapLanguageModel: its doStream wrapper
-// opens the first link whose circuit breaker is closed and holds every
-// part that comes before the first text or tool chunk (stream start,
-// response metadata, raw, reasoning, sources, files). An error in that
-// window passes to the next link when it is transient (429, 5xx, timeout,
-// network) and ends the call when it is not (400/401/403 and other 4xx;
-// 402 ends it as out of budget); the held parts of a dropped link go with
-// it. Only the first text or tool chunk commits the link, or a normal
-// finish with no content (a valid empty answer the turn judges): after
-// that a later error goes on to the turn and no other link is tried.
-//
-// The turn's budget (deadline.ts) reaches the chain through the call's
-// context: a fallback link runs only with at least
-// ASSISTANT_TURN_MIN_FALLBACK_MS left of it — what is left, never a new
-// budget —, else the call ends with the `turn` timeout. The parts held
-// before the commit count as the turn's progress (they rearm its
-// inactivity clock), since the turn only sees them once the link commits.
-//
-// Every committed call adds its billing under providerMetadata
-// [ASSISTANT_CHAIN_METADATA_KEY] of the finish part: the link, its
-// `hub:model`, whether it was a fallback and the cost in USD micros, read
-// from providerMetadata.gateway — marketCost, a decimal USD string, when it
-// is valid (a BYOK call reports its real cost there and 0 in cost), else
-// cost, each rounded up — or else the worst-case ASSISTANT_MODEL_PRICES
-// table; the appliance costs 0.
-// The turn adds the steps up (assistantTurnBilling). The UI message stream
-// drops finish metadata (finish-step is sent bare), so the client stream
-// does not change.
-//
-// Errors never carry the provider's URL, key or body: the chain throws
-// AssistantChainError with a fixed message and no cause.
-
 import { createGateway, wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
 import { ASSISTANT_TURN_MIN_FALLBACK_MS, AssistantTurnTimeoutError, type AssistantTurnBudget } from "./deadline";
 import { assistantLanguageModel, assistantProviderOptions, guardRedirects, type ProviderOptions } from "./models";
@@ -204,12 +169,7 @@ export function usdToMicrosCeil(decimal: string): number | null {
   return femto === null ? null : femtoToMicrosCeil(femto);
 }
 
-/**
- * USD micros of a gateway call read from its providerMetadata.gateway
- * object: marketCost, when it is a plain non-negative decimal string (a
- * BYOK call reports its real cost there and 0 in cost), else cost, else
- * null. Each figure is rounded up as usdToMicrosCeil.
- */
+/** Uses marketCost when valid, otherwise cost; amounts are rounded up to USD micros. */
 export function gatewayCostMicros(gateway: unknown): number | null {
   const fields: Record<string, unknown> =
     typeof gateway === "object" && gateway !== null && !Array.isArray(gateway)

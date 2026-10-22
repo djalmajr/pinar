@@ -58,8 +58,7 @@ export interface AssistantMessagesProps {
   onAsk: (option: string) => void;
   onProposalAction: (kind: AssistantProposalActionKind, proposal: AssistantPublicProposal) => void;
   onRetry: () => void;
-  /** The same request with useCredits for this send only (F5/S4). */
-  onRetryWithCredits: () => void;
+
   /** Per proposal id; a proposal without an entry shows the state its part carried. */
   proposalStates: Readonly<Record<string, AssistantProposalCardState>>;
   status: AssistantChatStatus;
@@ -97,23 +96,17 @@ function messageText(message: AssistantUIMessage): string {
     .join("");
 }
 
-/**
- * A stored failure of an earlier turn (a reopened thread, or the turn that
- * just failed): the same notices the live error uses. The BYOK cause is not
- * stored with the message (F5/S3 records the code only), so a stored BYOK
- * failure shows the generic BYOK text and both actions.
- */
 function StoredErrorNotice({
   busy,
   errorCode,
   onRetry,
-  onRetryWithCredits,
+
   t,
 }: {
   busy: boolean;
   errorCode: string;
   onRetry: () => void;
-  onRetryWithCredits: () => void;
+
   t: Translate;
 }) {
   const key = assistantErrorMessageKey(errorCode);
@@ -123,7 +116,7 @@ function StoredErrorNotice({
       disabled={busy}
       message={t(key)}
       onRetry={onRetry}
-      onRetryWithCredits={errorCode === "byok_error" ? onRetryWithCredits : null}
+
       t={t}
     />
   );
@@ -217,7 +210,7 @@ export function AssistantMessages({
   onAsk,
   onProposalAction,
   onRetry,
-  onRetryWithCredits,
+
   proposalStates,
   status,
   t,
@@ -274,7 +267,7 @@ export function AssistantMessages({
                 busy={busy}
                 errorCode={errorCode}
                 onRetry={onRetry}
-                onRetryWithCredits={onRetryWithCredits}
+
                 t={t}
               />
             ) : text.trim() !== "" ? (

@@ -251,8 +251,8 @@ describe("embedTexts through the gateway", () => {
     assert.deepEqual(costLines(), [{ costSource: "gateway", costUsdMicros: 4, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" }]);
   });
 
-  test("a BYOK batch: the cost is the marketCost of the /v1/embeddings body, not the zero cost", async () => {
-    // The 2026-10-17 live shape: credentialType "byok".
+  test("a gateway batch: the cost is the marketCost of the /v1/embeddings body, not the zero cost", async () => {
+    // The 2026-10-17 live shape: a provider credential.
     const fake = fakeFetch(gatewayResponse({ cost: "0", marketCost: "0.00000008", surchargeCost: "0", gatewayCost: "0", enabledDisallowPromptTraining: true }));
     await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });
     // 0.00000008 USD = 0.08 micros, rounded up to 1; not the 0 of cost.

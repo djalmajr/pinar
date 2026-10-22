@@ -41,10 +41,9 @@ import {
 import { chooseCollection, FILING_TIMEOUT_MS, type FilingChoice, type FilingCreditMeter, type FilingEngine } from "./choose";
 import { collectionCentroid } from "./similarity";
 
-/** The engine a runtime detected, before the centroids are attached. `byok` marks the user's endpoint (F5/S3c, contract §5): its embedding runs without a credit reservation, and its failure records the cause in the choice's result instead of the gateway's reason. */
 export type FilingEngineChoice =
   | { endpoint: AssistantEndpoint; kind: "decisions" }
-  | { byok?: true; embedding: EmbeddingEndpoint; kind: "similarity" };
+  | { embedding: EmbeddingEndpoint; kind: "similarity" };
 
 export interface FilingCapture {
   captureId: string;
@@ -186,16 +185,11 @@ export async function fileCapture(input: {
     );
     const remaining = left();
     if (remaining <= 0) return inbox("timeout");
-    // F5/S3c (contract §5): the BYOK engine (the user's embeddings ok) runs
-    // without a reservation and without a credit — the automatic
-    // destination has no request of the person, so it has no useCredits
-    // either; the deployment's meter stays with the deployment's engines.
-    const byokEngine = engine.kind === "similarity" && engine.byok === true;
     const choice = await chooseCollection({
       candidates: filingCandidates(collections, sessions),
       engine: engine.kind === "decisions" ? engine : similarityEngine(engine.embedding, sessions, input.source),
       ...(input.fetch ? { fetch: input.fetch } : {}),
-      ...(!byokEngine && input.meter ? { meter: input.meter } : {}),
+      ...(input.meter ? { meter: input.meter } : {}),
       signal: deadline,
       text: captureFilingText({ page: input.capture.page, pins: input.capture.pins }),
       timeoutMs: remaining,

@@ -553,8 +553,7 @@ describe("fillManifest", () => {
     assert.equal(manifest.env.DATABASE_URL, "http://pinar-stg.edger.svc.cluster.local:8080");
     assert.equal(manifest.env.AUTH_PEPPER, "pepper-staging-000000");
     assert.equal(manifest.env.AI_API_KEY, "");
-    assert.ok(!("BYOK_MASTER_KEY" in manifest.env), "the secret name does not sit in env");
-    assert.deepEqual(manifest.secrets, ["BYOK_MASTER_KEY"], "the secrets block of the template survives the fill");
+    assert.equal(manifest.secrets, undefined);
     assert.ok(manifest.allowNet.includes("pinar-stg.edger.svc.cluster.local:8080"));
     assert.ok(manifest.allowNet.includes("api.stripe.com:443"));
     const templateAllowNet = (Bun.YAML.parse(TEMPLATE) as { allowNet: string[] }).allowNet;
@@ -566,19 +565,19 @@ describe("fillManifest", () => {
     // in secrets, and its value is written by the operator to the EdgeR
     // vault (EDG-38 §3), never by the installer.
     const synthetic = Buffer.alloc(32, 7).toString("base64");
-    const text = fillManifest(TEMPLATE, {
+    const text = fillManifest(`${TEMPLATE}\nsecrets:\n  - TEST_SECRET\n`, {
       databaseUrl: "http://db.example.invalid:8080",
       env: new Map<string, string>([
         ["DEPLOYMENT_ENV", "staging"],
-        ["BYOK_MASTER_KEY", synthetic],
+        ["TEST_SECRET", synthetic],
       ]),
       hosts: ["stg.pinar.dev"],
       name: "pinar-stg",
       version: "1.0.0",
     });
     const manifest = Bun.YAML.parse(text) as { env: Record<string, string>; secrets: string[] };
-    assert.deepEqual(manifest.secrets, ["BYOK_MASTER_KEY"]);
-    assert.ok(!("BYOK_MASTER_KEY" in manifest.env));
+    assert.deepEqual(manifest.secrets, ["TEST_SECRET"]);
+    assert.ok(!("TEST_SECRET" in manifest.env));
     assert.ok(!text.includes(synthetic), "the secret value must not appear in the installed manifest");
   });
 
@@ -608,9 +607,7 @@ describe("fillManifest", () => {
     assert.deepEqual(manifest.hosts, ["pinar.dev", "www.pinar.dev"]);
     assert.equal(manifest.env.DEPLOYMENT_ENV, "production");
     assert.ok(manifest.allowNet.includes("pinar-prd.edger.svc.cluster.local:443"));
-    // The BYOK egress guard (EDG-38) is on, HTTPS only, and the guard's
-    // precondition holds: allowNet stays declared next to it.
-    assert.deepEqual(manifest.egress, { enabled: true, ports: [443] });
+    assert.equal(manifest.egress, undefined);
     assert.ok(manifest.allowNet.length > 0);
   });
 });
@@ -687,13 +684,6 @@ describe("manifest env", () => {
     assert.deepEqual([...read].filter((name) => !declared.has(name)).sort(), []);
   });
 
-  test("declares the BYOK master key as a secret, not in env", () => {
-    // The value would sit in plain text on disk and in the version export
-    // in env: (EDG-38 §3): the name belongs to the vault block only.
-    assert.ok(!manifestEnvKeys(WORKTREE_ROOT).includes("BYOK_MASTER_KEY"));
-    assert.ok(manifestSecretNames(WORKTREE_ROOT).includes("BYOK_MASTER_KEY"));
-  });
-
   test("no name appears in both env and secrets", () => {
     // EdgeR refuses a manifest that declares a name in the two blocks at
     // once; the installer would install a manifest it cannot run.
@@ -750,24 +740,6 @@ describe("assembleEnv", () => {
       message = (error as Error).message;
     }
     assert.equal(message, "DEPLOYMENT_ENV in env file does not match --env");
-  });
-
-  test("rejects an env file with BYOK_MASTER_KEY: the value belongs to the EdgeR vault, not to env", () => {
-    // The master key is a secrets: name (EDG-38 §3): it is not in env:, so
-    // the env file may not carry it; its value goes to the vault through
-    // the admin API, never through the installer.
-    let message = "";
-    try {
-      assembleEnv({
-        envFileEntries: parseEnvFile("DEPLOYMENT_ENV=staging\nBYOK_MASTER_KEY=QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n"),
-        envName: "staging",
-        manifestKeys,
-        wrangler,
-      });
-    } catch (error) {
-      message = (error as Error).message;
-    }
-    assert.equal(message, "unknown key in env file: BYOK_MASTER_KEY");
   });
 });
 
@@ -1180,18 +1152,6 @@ describe("runEdgerInstall", () => {
     assert.equal(code, 1);
     assert.equal(captures.length, 0);
     assert.deepEqual(lines, ["DEPLOYMENT_ENV in env file does not match --env"]);
-  });
-
-  test("refuses an env file with BYOK_MASTER_KEY before any server call", async () => {
-    // The value of the master key must never reach the installer: the key
-    // is a secrets: name of the manifest (EDG-38 §3), written to the EdgeR
-    // vault by the operator, so the env file is refused by name.
-    writeEnvFile(fixture, `${STAGING_ENV_FILE}\nBYOK_MASTER_KEY=QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n`);
-    const captures: Capture[] = [];
-    const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
-    assert.equal(code, 1);
-    assert.equal(captures.length, 0);
-    assert.deepEqual(lines, ["unknown key in env file: BYOK_MASTER_KEY"]);
   });
 
   test("rejects an env file without DEPLOYMENT_ENV with the exact message", async () => {

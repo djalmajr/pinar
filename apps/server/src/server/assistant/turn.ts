@@ -1,28 +1,3 @@
-// Assistant turn runtime: history window, outcome classification and the
-// streamed turn itself.
-//
-// runAssistantTurn runs streamText over the caller-supplied model and
-// exposes the result two ways at once:
-// - `response`: an AI SDK UI message stream (createUIMessageStreamResponse)
-//   whose first part is { type: "data-thread", data: { id, title } };
-// - `outcome`: a promise that always settles, even if the client cancels
-//   the response body (a consumeStream over a second tee branch keeps the
-//   model call running to the end).
-//
-// Tools may write their own data parts (data-proposal, data-ask) through
-// the `emit` the turn hands to a `tools` function: it writes to the same
-// UI message stream writer, after the data-thread part. A pinar_ask call
-// ends the loop on its step, and a valid one makes the outcome `final`
-// with the question as the text.
-//
-// The deadlines are deadline.ts's: 60 s of inactivity, the 180 s attempt
-// cap and the turn's 240 s budget. A failed turn ends its stream with one
-// typed final error part (lib/assistant-turn-terminal.ts: the
-// AssistantErrorCode, the phase and retryable), or with the caller's
-// classification (the BYOK cause); nothing from the provider (URLs, keys,
-// messages) crosses the boundary. There is deliberately no console.* with
-// provider content in this module.
-
 import {
   consumeStream,
   createUIMessageStream,
@@ -123,18 +98,6 @@ export type AssistantStreamEmit = (part:
   | { data: { options: string[]; question: string }; type: "data-ask" }
   | { data: Record<string, unknown>; type: `data-${string}` }) => void;
 
-// What the stream's error part carries when the caller classifies it
-// (the BYOK cause, F5/S3): the error code and one data part with the
-// details, written before the error part.
-export interface AssistantTurnStreamError {
-  code: string;
-  part?: { data: Record<string, unknown>; type: `data-${string}` };
-}
-
-// The plan's outcomes map onto two kinds: final (ask null), intentional
-// stop (final with the pinar_ask question) and missing final (error
-// ASSISTANT_TURN_INCOMPLETE). Each carries `billing` when the steps that
-// ran report it.
 export type AssistantTurnOutcome =
   | { ask: AssistantAsk | null; billing?: AssistantTurnBilling; kind: "final"; steps: number; text: string; usage: AssistantTurnUsage }
   | { billing?: AssistantTurnBilling; code: AssistantErrorCode; kind: "error"; steps: number; usage: AssistantTurnUsage };
@@ -146,9 +109,7 @@ export interface AssistantTurnInput {
   budget?: AssistantTurnBudget;
   // The deadlines' clock (tests); the system clock by default.
   clock?: AssistantTurnClock;
-  // F5/S3: the origin of the turn (the user's BYOK endpoint or Pinar's own),
-  // recorded in the turn's first data part for the UI.
-  source?: "byok" | "pinar";
+  source?: "pinar";
   history: AssistantHistoryEntry[];
   maxSteps?: number;
   model: LanguageModel;
@@ -160,9 +121,6 @@ export interface AssistantTurnInput {
   // deadline.ts's.
   timeoutMs?: number;
   tools: ToolSet | ((emit: AssistantStreamEmit) => ToolSet);
-  // The stream's error part: the AssistantErrorCode by default, or the
-  // caller's classification (F5/S3: the BYOK cause and its data part).
-  onStreamError?: (error: unknown) => AssistantTurnStreamError | undefined;
 }
 
 const ASK_TOOL_NAME = toLlmToolName(ASSISTANT_ASK_TOOL.name);
@@ -311,16 +269,10 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     stopTimers();
     const timeoutError = new AssistantTurnTimeoutError(phase);
     controller.abort(timeoutError);
-    // The deadline never reaches the SDK's onError (the stream ends with
-    // its abort part): the turn writes the final error part itself — once.
-    // The transform marks the chunk when a fatal part already went out, so
-    // the timer skips it then. With the caller's classification (the BYOK
-    // cause, F5/S3) the part is the caller's; otherwise the typed terminal.
     if (streamErrorChunkSent) return;
     streamErrorChunkSent = true;
-    const classified = classifyStreamError(timeoutError);
     writeUiPart({
-      errorText: classified?.code ?? encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase, retryable: true }),
+      errorText: encodeAssistantTurnTerminal({ code: "ASSISTANT_TURN_TIMEOUT", phase, retryable: true }),
       type: "error",
     });
   };
@@ -348,45 +300,19 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   // A timeout names its limit; any other failure says where the turn was.
   const phaseFor = (): AssistantTurnPhase => timeoutPhase ?? (toolsInFlight > 0 ? "tool" : "model");
 
-  // The stream's error parts. Fatality is never inferred from the onError
-  // callback: the SDK calls it for the model's fatal failure AND for a tool
-  // error it formats as tool-input-error / tool-output-error while the turn
-  // continues (a malformed JSON argument is a JSONParseError, a chain the
-  // BYOK classifier recognizes — R1 recheck). Instead, onError returns a
-  // token, and the transform below resolves the tokens on the SSE parts
-  // that actually go out: only a fatal `error` part becomes the final error
-  // (once per turn, marking the chunk) — the typed terminal, or with the
-  // caller's classification (F5/S3: the BYOK cause) its data part and its
-  // code (byok_error); a tool-error part always goes out with the default
-  // code — no data part, no chunk, the turn continues. The token never
-  // reaches the client.
-  let streamErrorPartSent = false;
-  // The final error chunk, at most once: marked when it is actually
-  // written — by the transform (a fatal part going out), by a deadline's
-  // timer (which the SDK's onError never sees) or by the missing final at
-  // the end of the stream.
   let streamErrorChunkSent = false;
+  // Resolve SDK error tokens only when they become fatal SSE events;
+  // recoverable tool errors keep their normal protocol.
   let fatalTokenCounter = 0;
-  const fatalTokens = new Map<string, { defaultCode: AssistantErrorCode; phase: AssistantTurnPhase; streamError: AssistantTurnStreamError | undefined }>();
+  const fatalTokens = new Map<string, { defaultCode: AssistantErrorCode; phase: AssistantTurnPhase }>();
   const streamError = (error: unknown): string => {
     noteTimeoutOf(error);
-    const classified = input.onStreamError?.(error);
-    const token = `${classified === undefined ? "turn" : "byok"}:fatal:${fatalTokenCounter += 1}`;
-    fatalTokens.set(token, { defaultCode: errorCodeFor(), phase: phaseFor(), streamError: classified });
+    const token = `turn:fatal:${fatalTokenCounter += 1}`;
+    fatalTokens.set(token, { defaultCode: errorCodeFor(), phase: phaseFor() });
     return token;
   };
   // The deadline's classification (the timer above): writes the data part
   // (once per turn) and returns the code for the fatal part it writes.
-  const classifyStreamError = (error: unknown): { code: string } | undefined => {
-    const classified = input.onStreamError?.(error);
-    if (classified === undefined) return undefined;
-    if (classified.part !== undefined && !streamErrorPartSent) {
-      streamErrorPartSent = true;
-      emit({ data: classified.part.data, type: classified.part.type });
-    }
-    return { code: classified.code };
-  };
-
   // Data parts tools emit go to the UI stream writer. createUIMessageStream
   // runs `execute` synchronously below, before any tool can run; parts that
   // would arrive earlier wait for the writer and keep their order.
@@ -511,21 +437,9 @@ export function runAssistantTurn(input: AssistantTurnInput): {
       // duplicate goes nowhere.
       if (streamErrorChunkSent) return null;
       streamErrorChunkSent = true;
-      if (entry.streamError === undefined) {
-        const terminal = encodeAssistantTurnTerminal({ code: entry.defaultCode, phase: entry.phase, retryable: true });
-        return `data: ${JSON.stringify({ errorText: terminal, type: "error" })}`;
-      }
-      let out = "";
-      if (entry.streamError.part !== undefined && !streamErrorPartSent) {
-        streamErrorPartSent = true;
-        // Its own SSE event: the blank line ends it before the error.
-        out += `data: ${JSON.stringify(entry.streamError.part)}\n\n`;
-      }
-      return `${out}data: ${JSON.stringify({ errorText: entry.streamError.code, type: "error" })}`;
+      const terminal = encodeAssistantTurnTerminal({ code: entry.defaultCode, phase: entry.phase, retryable: true });
+      return `data: ${JSON.stringify({ errorText: terminal, type: "error" })}`;
     }
-    // tool-input-error / tool-output-error (and any other part the SDK
-    // formats with the code): the default code, no BYOK data part, no
-    // chunk — the turn continues.
     part.errorText = entry.defaultCode;
     return `data: ${JSON.stringify(part)}`;
   };

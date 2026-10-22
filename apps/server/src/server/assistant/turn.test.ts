@@ -6,7 +6,6 @@ import { ASSISTANT_PROPOSAL_TTL_MS, newAssistantProposalId, prepareProposal, pub
 import { FIXTURE_ID_PREFIX, fixtureReader, fixtureWorld } from "./proposals.test-helpers";
 import { createAssistantConversation } from "../../components/assistant/assistant-conversation";
 import { encodeAssistantTurnTerminal, parseAssistantTurnTerminal } from "../../lib/assistant-turn-terminal";
-import { byokStreamErrorPart } from "../byok/route";
 import { createAssistantTurnBudget } from "./deadline";
 import { fakeTurnClock, pushableStream, settleIo } from "./deadline.test-helpers";
 import { newAssistantMessageId } from "./store";
@@ -899,28 +898,6 @@ describe("the turn's deadlines", () => {
     assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
     assert.deepEqual(errorPartsOf(body), [{ errorText: timeoutTerminal("turn"), type: "error" }]);
     budget.dispose();
-  });
-
-  test("BYOK: the deadline keeps the byok_error protocol with the timeout cause", async () => {
-    const clock = fakeTurnClock();
-    const feed = pushableStream();
-    const { outcome, response } = runAssistantTurn({
-      clock,
-      history: [{ role: "user", text: "?" }],
-      model: mockModel(() => ({ stream: feed.stream })),
-      onStreamError: byokStreamErrorPart,
-      system: "sys",
-      thread: THREAD,
-      tools: {},
-    });
-    const reading = readSse(response);
-    await clock.advance(60_000);
-    const body = await reading;
-    const parts = sseDataParts(body) as Array<{ data?: unknown; errorText?: string; type: string }>;
-    assert.deepEqual(parts.filter((part) => part.type === "data-byok-error").map((part) => part.data), [{ canUseCredits: true, cause: "timeout" }]);
-    assert.deepEqual(errorPartsOf(body), [{ errorText: "byok_error", type: "error" }]);
-    const result = await outcome;
-    assert.equal(result.kind === "error" && result.code, "ASSISTANT_TURN_TIMEOUT");
   });
 
   test("the caller's abort stops every deadline: no timeout, no final error part", async () => {

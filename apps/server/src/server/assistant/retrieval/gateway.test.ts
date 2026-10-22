@@ -25,7 +25,6 @@ describe("gateway call options", () => {
 
 describe("gateway costs", () => {
   test("providerMetadata.gateway in USD micros, rounded up: marketCost wins, else cost; anything else is null", () => {
-    // BYOK: cost is 0 and the real cost is marketCost (the 2026-10-17 live shape).
     assert.equal(
       gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0", marketCost: "0.0000035", surchargeCost: "0", gatewayCost: "0", enabledDisallowPromptTraining: true } } }),
       4,

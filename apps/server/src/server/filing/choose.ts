@@ -21,7 +21,6 @@
 
 import type { AssistantEndpoint } from "../assistant/models";
 import type { EmbeddingEndpoint } from "../assistant/retrieval/embeddings";
-import { ByokCallError, type ByokCauseCode } from "../byok/cause";
 import {
   FILING_DECISIONS_MIN,
   FILING_NONE_OPTION,
@@ -59,12 +58,7 @@ export interface FilingChoice {
   collectionId: string | null; // null → Inbox
   confidence: number; // 0..1
   engine: FilingEngine["kind"] | "none";
-  // The engine's not-chosen reasons; the BYOK cause codes (F5/S3c) ride the
-  // same channel — the format the choice already has for "not chosen": a
-  // short cause, collectionId null, no credit (the BYOK failure never
-  // falls to the gateway and never reserves, so it never replays through
-  // parseFilingChoice, which keeps the deployment's list).
-  reason: "chosen" | "low_confidence" | "no_candidates" | "timeout" | "error" | "no_credits" | ByokCauseCode;
+  reason: "chosen" | "low_confidence" | "no_candidates" | "timeout" | "error" | "no_credits";
   /**
    * Set only by the `existing` meter state (an open or a refunded usage of
    * the capture): the run makes no decision, so the upload must not move a
@@ -372,15 +366,6 @@ export async function chooseCollection(input: {
       void refund.catch(settleLog);
       if (!signal.aborted) await Promise.race([refund, aborted]).catch(() => {});
     }
-    // F5/S3c (contract §5): a failure of the BYOK capture's embedding
-    // never falls to the gateway and never charges (no reservation was
-    // taken): the capture keeps the default destination and the cause of
-    // the common table goes in the choice's result, the format the result
-    // already has for "not chosen". The provider's body never crosses.
-    const byokCause = error instanceof ByokCallError ? error.cause : null;
-    if (byokCause !== null) return { collectionId: null, confidence: 0, engine: input.engine.kind, reason: byokCause };
-    // The reason keeps the contract: this deadline is "timeout", the
-    // caller's signal is "error" (the caller relabels its own budget).
     return failed();
   } finally {
     signal.removeEventListener("abort", onAbort);

@@ -673,8 +673,8 @@ describe("cost", () => {
     assert.deepEqual(billing.usage, { inputTokens: 10, outputTokens: 5, totalTokens: 15 });
   });
 
-  test("BYOK: cost is 0 and the real cost is the marketCost, rounded up", async () => {
-    // The 2026-10-17 live shape: anthropic/claude-haiku-5.5, credentialType "byok".
+  test("gateway market cost: cost is 0 and the real cost is the marketCost, rounded up", async () => {
+    // The 2026-10-17 live shape: anthropic/claude-haiku-5.5, a provider credential.
     const fake = fakeFetch({ [HAIKU]: [answers("ok", { cost: "0", marketCost: "0.0000035" })] });
     const { outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU), fetch: fake.fetch }));
     const billing = billingOf(outcome);

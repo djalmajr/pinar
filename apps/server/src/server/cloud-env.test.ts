@@ -57,7 +57,7 @@ describe("runtimeEnv", () => {
     const kept = runtimeEnv(source) as Record<string, unknown>;
     const dropped = Object.keys(source).filter((key) => source[key] !== undefined && kept[key] !== source[key]);
     assert.deepEqual(dropped, []);
-    for (const key of ["AI_TEXT_CHAIN", "AI_TRANSCRIPTION_CHAIN", "BYOK_MASTER_KEY", "FILING_SIMILARITY_MARGIN", "FILING_SIMILARITY_MIN"]) {
+    for (const key of ["AI_TEXT_CHAIN", "AI_TRANSCRIPTION_CHAIN", "FILING_SIMILARITY_MARGIN", "FILING_SIMILARITY_MIN"]) {
       assert.equal(kept[key], key, key);
     }
   });

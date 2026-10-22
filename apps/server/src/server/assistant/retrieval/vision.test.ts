@@ -85,10 +85,10 @@ describe("captionSessionPins", () => {
     assert.deepEqual(item.required, ["number", "caption", "ocr"]);
   });
 
-  test("a BYOK endpoint without thinking control sends no chat_template_kwargs", async () => {
+  test("a local user endpoint without thinking control sends no chat_template_kwargs", async () => {
     const fake = fakeFetch();
-    const byok: AssistantEndpoint = { baseUrl: "https://byok.example/v1", kind: "openai-compatible", model: "gpt-vision", thinkingControl: false };
-    await captionSessionPins({ endpoint: byok, fetch: fake.fetch, image: { ...png, mimeType: "image/webp" }, pins });
+    const endpoint: AssistantEndpoint = { baseUrl: "https://provider.example/v1", kind: "openai-compatible", model: "gpt-vision", thinkingControl: false };
+    await captionSessionPins({ endpoint, fetch: fake.fetch, image: { ...png, mimeType: "image/webp" }, pins });
     const body = fake.calls[0]!.body;
     assert.equal(body["chat_template_kwargs"], undefined);
     assert.equal(new Headers(fake.calls[0]!.init.headers).get("authorization"), null);
@@ -220,7 +220,6 @@ describe("captionSessionPins through the gateway", () => {
   test("one assistant_index_cost line: the gateway's cost, else ASSISTANT_MODEL_PRICES × usage, else none", async () => {
     const cases: Array<[Record<string, unknown>, VisionEndpoint, unknown]> = [
       [{ providerMetadata: { gateway: { cost: "0.000321" } }, usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["gateway", 321]],
-      // BYOK (the 2026-10-17 live shape): cost is 0, the real cost is marketCost.
       [{ providerMetadata: { gateway: { cost: "0", marketCost: "0.0000035", surchargeCost: "0", gatewayCost: "0", enabledDisallowPromptTraining: true } }, usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["gateway", 4]],
       // a malformed marketCost falls back to the cost.
       [{ providerMetadata: { gateway: { cost: "0.000005", marketCost: "n/a" } }, usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["gateway", 5]],

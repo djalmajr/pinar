@@ -27,18 +27,13 @@ export function AssistantRetryButton({ disabled = false, onRetry, t }: { disable
   );
 }
 
-/**
- * A failed turn, as the SkiaTurnError: the destructive text and the retry
- * icon beside it. A BYOK failure adds its own line (the Retry-After) and
- * keeps "Usar créditos do Pinar" next to the retry when it is offered.
- */
 export function AssistantTurnErrorText({
   className,
   detail = null,
   disabled = false,
   message,
   onRetry,
-  onRetryWithCredits = null,
+
   t,
 }: {
   className?: string;
@@ -46,8 +41,7 @@ export function AssistantTurnErrorText({
   disabled?: boolean;
   message: string;
   onRetry: () => void;
-  /** The BYOK fallback; null when the credits are not offered. */
-  onRetryWithCredits?: (() => void) | null;
+
   t: Translate;
 }) {
   return (
@@ -55,11 +49,6 @@ export function AssistantTurnErrorText({
       <div className="flex min-w-0 items-center justify-between gap-2">
         <p className="min-w-0 text-sm text-destructive [overflow-wrap:anywhere]">{message}</p>
         <div className="flex shrink-0 items-center gap-1">
-          {onRetryWithCredits !== null ? (
-            <Button disabled={disabled} onClick={onRetryWithCredits} size="xs" type="button" variant="outline">
-              {t("byok.useCredits")}
-            </Button>
-          ) : null}
           <AssistantRetryButton disabled={disabled} onRetry={onRetry} t={t} />
         </div>
       </div>

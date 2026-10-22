@@ -1,35 +1,3 @@
-// Voice and text chains (D5, decision of 17/10): AI_TRANSCRIPTION_CHAIN
-// (voice transcription) and AI_TEXT_CHAIN (the short text calls without
-// tools: the reproduction steps and the voice-note structuring), in the
-// same CSV `hub:model` format as ASSISTANT_CHAIN (assistant/chain.ts).
-// The environment never decides the provider (A50): an "appliance" link
-// uses the OpenAI-compatible endpoint of AI_BASE_URL with the link's own
-// model (its own adapter; F4c — the env.AI adapter would replace the model
-// by the configured one) or, without that pair, the AI binding, and a
-// "gateway" link uses the AI SDK's Vercel AI Gateway provider
-// (createGateway().transcriptionModel(id) / .languageModel(id)) with
-// AI_GATEWAY_API_KEY.
-//
-// The per-call privacy options are the assistant's: disallowPromptTraining
-// always, zeroDataRetention only when AI_GATEWAY_ZERO_DATA_RETENTION is
-// "true" (gatewayPrivacyOptions, assistant/retrieval/gateway.ts).
-//
-// Link switching: a transient error (429, 5xx, network, timeout) before
-// any result moves to the next link; 400/401/403 (and 402) end the call
-// (classifyAssistantChainError, assistant/chain.ts). The appliance's HTTP
-// status rides on the link's error as statusCode (openai-compatible-ai.ts,
-// F4c), so the classification is not lost.
-//
-// Cost: a gateway call reports providerMetadata.gateway.marketCost (with
-// BYOK the cost is 0 and the real cost is in marketCost), else cost;
-// without either the caller keeps its own estimate.
-//
-// The AI SDK imports stay lazy (loaded only when a chain is actually
-// used), as the assistant's chain.
-//
-// Errors never carry the provider's URL, key or body: the chain throws
-// VoiceChainError with a fixed message and no cause.
-
 import type { AssistantChainLink, AssistantHub } from "../assistant/chain";
 import { cloudflareAiProvider, type AiInferenceResult, type AiPrompt } from "./inference";
 import type { CloudEnv } from "../cloud-api";
@@ -143,10 +111,6 @@ async function runLinks<T>(
 
 // ---------- cost ----------
 
-/**
- * The USD micros of providerMetadata.gateway: marketCost (the real cost
- * with BYOK, where cost comes 0), else cost. Null without a usable one.
- */
 async function gatewayCostMicros(providerMetadata: Record<string, unknown> | undefined): Promise<number | null> {
   if (providerMetadata === undefined) return null;
   // The same rule as the assistant's turns and the index (chain.ts).

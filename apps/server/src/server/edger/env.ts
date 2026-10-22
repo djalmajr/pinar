@@ -8,28 +8,6 @@ import { createOpenAiCompatibleAi } from "./openai-compatible-ai";
 
 const CLOUDFLARE_ACCOUNT_ID = /^[0-9a-f]{32}$/;
 
-// The fake host the EdgeR injects as EDGER_EGRESS_HOST: a simple DNS name
-// (letters, digits, dots and hyphens) — no scheme, port or path. Anything
-// else counts as absent (EDG-38 §2).
-const EGRESS_HOST = /^[A-Za-z0-9.-]+$/;
-
-/** The opaque handle of the guard's HTTP client (Deno.HttpClient). */
-type EgressHttpClient = object;
-/**
- * The minimal shape of Deno.createHttpClient (the project has no Deno
- * types): the unix-socket proxy of the EdgeR's per-worker guard client
- * (EDG-38 §2).
- */
-type CreateEgressHttpClient = (options: { proxy: { path: string; transport: "unix" } }) => EgressHttpClient;
-
-// The minimal shape of the Deno global this file relies on (the project
-// does not depend on Deno's types). Read at call time, never at module
-// top, so the bundle also loads in Bun (the EdgeR smoke imports every
-// chunk there).
-interface DenoLike {
-  createHttpClient?: CreateEgressHttpClient;
-}
-
 // The CloudEnv string fields read from a variable of the same name.
 const STRING_FIELDS = [
   "ADMIN_API_KEY",
@@ -42,13 +20,6 @@ const STRING_FIELDS = [
   "ASSISTANT_CHAIN",
   "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
-  // The BYOK master key (F5/S1): 32 bytes, base64. It is an EdgeR app
-  // secret (EDG-38): the manifest lists its name under secrets and the
-  // EdgeR vault injects the value into this worker's env at spawn. Absent
-  // or invalid keeps the BYOK answering 503 byok_unavailable. The egress
-  // guard's signal is the EDGER_EGRESS_SOCKET the EdgeR itself injects
-  // (S6), not a variable of the Cloud env.
-  "BYOK_MASTER_KEY",
   "CLOUD_TRIAL_ENABLED",
   "COMPLIMENTARY_PRO_USER_IDS",
   "EXTENSION_ORIGIN",
@@ -74,24 +45,8 @@ const STRING_FIELDS = [
   "STRIPE_WEBHOOK_SECRET",
 ] as const;
 
-/**
- * Builds the CloudEnv for the self-hosted EdgeR runtime from environment
- * variables (the worker has no bindings). `read` is injected so the tests
- * control the values; nothing here reads `process.env` or `Deno.env`
- * directly. An empty or blank value counts as absent. Error messages carry
- * only variable names, never values.
- *
- * `createHttpClient` is the factory of the BYOK egress guard's client
- * (EDG-38 §2): in production it is the EdgeR's Deno global (read at call
- * time when the parameter is not given); the tests inject a fake. Without
- * it — or without the socket or a valid host — the BYOK_EGRESS field is
- * absent and byokFetch keeps refusing; nothing here throws over a missing
- * guard, and the socket path never enters an error or a log.
- */
-export function edgerCloudEnv(
-  read: (name: string) => string | undefined,
-  createHttpClient?: CreateEgressHttpClient,
-): CloudEnv {
+// Read only declared deployment fields; errors contain names, never values.
+export function edgerCloudEnv(read: (name: string) => string | undefined): CloudEnv {
   const value = (name: string) => {
     const raw = read(name);
     return raw === undefined || raw.trim() === "" ? undefined : raw;
@@ -214,37 +169,6 @@ export function edgerCloudEnv(
   if (filingSimilarityMin !== undefined) env.FILING_SIMILARITY_MIN = filingSimilarityMin;
   const filingSimilarityMargin = value("FILING_SIMILARITY_MARGIN");
   if (filingSimilarityMargin !== undefined) env.FILING_SIMILARITY_MARGIN = filingSimilarityMargin;
-
-  // The BYOK egress guard (F5/S6a, EDG-38 §2): the EdgeR injects the
-  // per-worker Unix socket and the fake host into this worker's env, and
-  // only where its Deno runtime can create the guard's client. The client
-  // is created once, with the unix-socket proxy, and the fetch is bound to
-  // it (Deno's `client` init, absent from the standard RequestInit): the
-  // destination crosses only the x-edger-egress-url header, never as the
-  // fetch's target. The names are read only when the factory is available:
-  // in a runtime without it (Bun, the local and the smoke runtimes) the
-  // guard cannot exist, so the env is never queried for them. Any missing
-  // piece (the factory, the socket, a valid host) keeps the field absent
-  // and byokFetch refusing — absence is the refusal, and a client the
-  // runtime cannot build is not surfaced (the error may quote the socket
-  // path, which never enters a log).
-  const createEgressClient =
-    createHttpClient ?? (globalThis as { Deno?: DenoLike }).Deno?.createHttpClient;
-  if (typeof createEgressClient === "function") {
-    const egressSocket = value("EDGER_EGRESS_SOCKET");
-    const egressHost = value("EDGER_EGRESS_HOST");
-    if (egressSocket !== undefined && egressHost !== undefined && EGRESS_HOST.test(egressHost)) {
-      try {
-        const client = createEgressClient({ proxy: { path: egressSocket, transport: "unix" } });
-        env.BYOK_EGRESS = {
-          host: egressHost,
-          fetch: (input, init) => fetch(input, { ...init, client } as RequestInit & { client: unknown }),
-        };
-      } catch {
-        // The field stays absent: the refusal stands.
-      }
-    }
-  }
 
   return env;
 }

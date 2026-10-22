@@ -1,19 +1,4 @@
-// The assistant turn's final error (the Skia's terminal event, ZOM-184),
-// shared by the server (assistant/turn.ts, assistant/http.ts) and the
-// panel (AssistantPanel.tsx).
-//
-// Once the stream has started, a failed turn ends with one `error` part
-// whose errorText is encodeAssistantTurnTerminal({ code, phase, retryable }):
-// a JSON object with a fixed code, never the provider's message. Before the
-// stream, the same code goes out as a 504 JSON body (the turn's budget ran
-// out while the request was still being prepared). The BYOK route keeps its
-// own protocol (the `data-byok-error` cause part, then errorText
-// "byok_error"), so the panel can offer "Usar créditos do Pinar".
-//
-// The codes are the AssistantErrorCode the turn already stores with the
-// assistant message and refunds with: the panel's older readers (the stored
-// message's errorCode, a JSON body's `code`) keep mapping them.
-
+// Shared terminal errors for the assistant HTTP layer, stream and panel.
 export const ASSISTANT_TURN_TERMINAL_CODES = [
   "ASSISTANT_TURN_TIMEOUT",
   "ASSISTANT_TURN_INCOMPLETE",

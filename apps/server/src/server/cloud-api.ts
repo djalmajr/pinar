@@ -84,7 +84,6 @@ import { generateReproduction } from "./ai/reproduction";
 import { transcribeVoicePin } from "./ai/voice-pin";
 import { voiceAvailability } from "./ai/voice-chain";
 import { AiInferenceError } from "./ai/inference";
-import { ByokCallError } from "./byok/call";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { cloudTrialAccess, newCloudTrialWindow, type CloudTrialAccess } from "../lib/cloud-trial";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
@@ -180,24 +179,6 @@ interface R2Bucket {
   put(key: string, value: Uint8Array, options: { httpMetadata: { contentType: string } }): Promise<unknown>;
 }
 
-/**
- * The BYOK egress guard (F5/S6a, EDG-38 §2): present only when the EdgeR
- * injects the guard into this worker's env — the per-worker Unix socket
- * (EDGER_EGRESS_SOCKET) and the fake host (EDGER_EGRESS_HOST, a name that
- * never resolves); edgerCloudEnv builds it once from the pair. The fetch is
- * bound to the client the EdgeR's Deno runtime created for the socket
- * (Deno's `client` init): the destination crosses only in the
- * x-edger-egress-url header, never as the fetch's target. Absent — the
- * production of today — byokFetch refuses (ByokEgressUnavailableError): the
- * egress never bypasses the guard, not on error.
- */
-export interface ByokEgressGuard {
-  /** The injected fake host (EDGER_EGRESS_HOST); the guard call is http://<host>/. */
-  host: string;
-  /** The fetch bound to the guard's client; the destination is never its input. */
-  fetch: (input: string, init?: RequestInit) => Promise<Response>;
-}
-
 // The filing thresholds (F3.5 §1) are part of the env, so runtimeEnv keeps them.
 export interface CloudEnv extends FilingThresholdEnv {
   ADMIN_API_KEY?: string;
@@ -230,19 +211,6 @@ export interface CloudEnv extends FilingThresholdEnv {
   // "true" switches the assistant on; every other value (or absence) is off.
   ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
-  // The BYOK master key (F5/S1): 32 bytes in base64. It is an EdgeR app
-  // secret (EDG-38): the manifest declares the name under secrets and the
-  // vault injects the value into this worker's env at spawn. Absent or
-  // invalid keeps the BYOK answering 503 byok_unavailable while the rest of
-  // the Cloud goes on. Never logged; the ciphertext it guards carries its
-  // key_id for rotation. The egress guard's presence is signalled by the
-  // EdgeR itself (EDGER_EGRESS_SOCKET, S6), not by a CloudEnv variable.
-  BYOK_MASTER_KEY?: string;
-  // The BYOK egress guard (F5/S6a, EDG-38 §2): built by edgerCloudEnv when
-  // the EdgeR injects the per-worker Unix socket and the fake host
-  // (EDGER_EGRESS_SOCKET and EDGER_EGRESS_HOST) into this worker's env.
-  // Absent, byokFetch refuses: the egress never bypasses the guard.
-  BYOK_EGRESS?: ByokEgressGuard;
   CLOUD_TRIAL_ENABLED?: string;
   COMPLIMENTARY_PRO_USER_IDS?: string;
   DB?: D1Database;
@@ -4512,7 +4480,6 @@ async function recordAccountLegalAcceptance(
   return acceptance;
 }
 
-
 async function recordCheckoutLegalAcceptance(
   env: CloudEnv,
   account: AccountRecord,
@@ -6509,118 +6476,12 @@ export interface RunMeteredAiFeatureInput<T> {
   resourceId: string;
   spec: AiFeatureSpec;
   unavailableMessage: string;
-  /**
-   * F5/S3b (contract §5): the availability gate the metered path runs
-   * before the reservation (the route's today `!env.AI` check, the
-   * feature-specific one: the voice's transcription, the reproduction's
-   * text). The BYOK route never passes it: with a route and without
-   * useCredits the request runs on the user's endpoint. null: available.
-   */
+
   unavailable?: () => Promise<Response | null>;
-  /**
-   * F5/S3b (contract §5): useCredits: true — the request opts out of the
-   * BYOK route and keeps today's metered path (the gateway, the credits).
-   * The voice's multipart form carries the string "true"/"false"; the
-   * reproduction's JSON body the boolean (the handlers validate and 400
-   * any other value).
-   */
-  useCredits?: boolean;
-  /**
-   * F5/S3b (contract §5): the per-request BYOK route, resolved after the
-   * plan and the per-minute limit (the same checks as today, on both
-   * paths). null: no route (or not taken) — the metered path, unchanged.
-   * With a route the request runs on the user's endpoint: no availability
-   * gate, no reservation, no ledger, the concurrency slot released in the
-   * closure's finally; the failure answers byok_error (byokErrorResponse)
-   * and never falls to the gateway.
-   */
-  byok?: () => Promise<Response | null>;
 }
 
-/** F5/S3b (contract §5): the metered path's input (the pre-checks out). */
-export type MeteredAiFeaturePathInput<T> = Omit<RunMeteredAiFeatureInput<T>, "byok" | "useCredits"> & {
-  /**
-   * The success's origin (the response's source field). "byok" on the
-   * mixed voice: the transcription ran on the user's endpoint and this
-   * metered call is the structuring (one credit, the gateway).
-   */
-  origin?: "byok";
-  /**
-   * Maps the inference error into the answer after the refund has resolved
-   * — the BYOK error keeps the provider's sanitized cause and status (the
-   * 429/502 `byok_error`); the caller never receives the error because this
-   * path converts it into a Response. Not consulted when the refund fails:
-   * the answer keeps the `ai_refund_pending` it had before. A falsy return
-   * (`null`/`undefined`) keeps the default 503 (the gateway's error stays
-   * as-is).
-   */
-  onInferenceError?: (error: unknown) => Response | null | undefined;
-};
-
-/**
- * F5/S3b (contract §5): the success of the request that ran on the user's
- * endpoint: today's format plus source: "byok", creditsCharged 0 and
- * usage.provider "byok"; the aiCredits shows the balance, which did not
- * move (the BYOK route never reserves or consumes — no ledger row).
- */
-export async function byokSuccessJson<T>(
-  env: CloudEnv,
-  principal: Principal,
-  result: T,
-  usage: { costUsdMicros: number; inputTokens: number; model: string; outputTokens: number },
-): Promise<Response> {
-  // F4d round 2's rule: a balance-read failure never refunds — the BYOK
-  // path has nothing to refund anyway, so the 200 stands with a null
-  // balance (the client reads only the result).
-  let aiCredits: Awaited<ReturnType<typeof aiCreditBalance>> | null;
-  try {
-    aiCredits = await aiCreditBalance(env, principal);
-  } catch (balanceError) {
-    console.error("ai_credit_balance_failed", JSON.stringify({ error: String(balanceError) }));
-    aiCredits = null;
-  }
-  return json({
-    aiCredits,
-    creditsCharged: 0,
-    idempotent: false,
-    ok: true,
-    result,
-    source: "byok",
-    usage: { ...usage, provider: "byok" },
-  }, 200, { "Cache-Control": "no-store" });
-}
-
-/**
- * F5/S3b (contract §5): the BYOK failure of the JSON requests (voice,
- * reproduction): byok_error, the cause of the common table (byok/cause),
- * the retryAfter in seconds when there is one, and canUseCredits. 429
- * when the cause is rate_limited (the provider's limit or the per-user
- * concurrency), 502 the rest. null: not a BYOK failure. The provider's
- * body, the URL and the key never cross it.
- */
-export function byokErrorResponse(error: unknown): Response | null {
-  if (!(error instanceof ByokCallError)) return null;
-  return json({
-    canUseCredits: true,
-    cause: error.cause,
-    code: "byok_error",
-    ...(error.retryAfterSeconds !== null ? { retryAfter: error.retryAfterSeconds } : {}),
-  }, error.cause === "rate_limited" ? 429 : 502);
-}
-
-/** F5/S3b: the per-user concurrency cap of the BYOK route (no queue). */
-export function byokRateLimitedResponse(): Response {
-  return json({ canUseCredits: true, cause: "rate_limited", code: "byok_error" }, 429);
-}
-
-/** Voice transcription and the written reproduction steps (A53) use the
- * metered gate: plan, per-minute limit and, with the BYOK route out,
- * reservation and refund (F5/S3b, contract §5). */
 export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>): Promise<Response> {
   const { env, principal, request, spec } = input;
-  // F5/S3b (contract §5): the order of the decision — the plan, the
-  // per-minute limit (the same as today, on both paths), then the BYOK
-  // route. D2: no Pro, no AI — neither on the gateway nor on BYOK.
   if (principal.kind !== "account" || !planIncludesAi(principal.plan)) {
     return json({
       code: "ai_requires_paid",
@@ -6632,31 +6493,11 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
     { limit: 30, scope: `ip:${clientIp(request)}` },
   ], 60_000);
   if (!allowed) return json({ code: "ai_rate_limited", error: "Too many AI requests" }, 429);
-  // F5/S3b (contract §5): with a capability route and without useCredits
-  // the request runs on the user's endpoint — no availability gate, no
-  // reservation, no ledger, one link, no fallback to the gateway, the
-  // concurrency slot released in the closure's finally.
-  if (input.byok !== undefined && input.useCredits !== true) {
-    const byokResponse = await input.byok();
-    if (byokResponse !== null) return byokResponse;
-  }
   return runMeteredAiFeaturePath(input);
 }
 
-/**
- * The metered path of runMeteredAiFeature: the availability gate, the
- * reservation (the idempotent replay of the repeated request id), the
- * settlement and the response. runMeteredAiFeature runs the pre-checks
- * (the plan, the per-minute limit and the BYOK route) first; the mixed
- * voice (contract §5) runs its structuring through this path directly —
- * the pre-checks already ran, and the transcription is already on the
- * user's endpoint (origin byok, one credit).
- */
-export async function runMeteredAiFeaturePath<T>(input: MeteredAiFeaturePathInput<T>): Promise<Response> {
+async function runMeteredAiFeaturePath<T>(input: RunMeteredAiFeatureInput<T>): Promise<Response> {
   const { env, principal, requestId, resourceId, spec } = input;
-  // D5 + F5/S3b: the availability gate (the route's today `!env.AI`
-  // check) runs only on the metered path — the BYOK route never passes
-  // it (contract §5). The environment never decides the provider (A50).
   const gate = input.unavailable !== undefined
     ? await input.unavailable()
     : (!env.AI && !(await voiceAvailability(env)).any ? json({ code: "ai_unavailable", error: "AI is not configured" }, 503) : null);
@@ -6696,22 +6537,13 @@ export async function runMeteredAiFeaturePath<T>(input: MeteredAiFeaturePathInpu
     if (reservation.usage.status === "succeeded" && reservation.usage.resultJson) {
       const result = input.parse(reservation.usage.resultJson);
       if (result) {
-        // F5/S3b review (F3): the replay returns the stored result's
-        // origin, not the current request's: the mixed voice's reservation
-        // keeps its own identity (voice:mixed:<requestId>), so a stored
-        // mixed result is source byok even when the repeated request
-        // arrives on the metered path, and the full path's result stays
-        // pinar.
-        const storedOrigin = reservation.usage.resourceId === `voice:mixed:${requestId}`
-          ? "byok"
-          : (input.origin ?? "pinar");
         return json({
           aiCredits: await aiCreditBalance(env, principal),
           creditsCharged: reservation.usage.credits,
           idempotent: true,
           ok: true,
           result,
-          source: storedOrigin,
+          source: "pinar",
           usage: {
             costUsdMicros: reservation.usage.costUsdMicros,
             inputTokens: reservation.usage.inputTokens,
@@ -6802,7 +6634,7 @@ export async function runMeteredAiFeaturePath<T>(input: MeteredAiFeaturePathInpu
       idempotent: false,
       ok: true,
       result,
-      source: input.origin ?? "pinar",
+      source: "pinar",
       usage: { ...telemetry, model: spec.model, provider: "pinar_cloud" },
     }, 200, { "Cache-Control": "no-store" });
   } catch (error) {
@@ -6827,14 +6659,6 @@ export async function runMeteredAiFeaturePath<T>(input: MeteredAiFeaturePathInpu
       status: refunded ? "refunded" : "refund_pending",
       usageId: reservation.usage.id,
     }));
-    // F5/S3b round 2 (R1): after the refund has resolved, the caller can
-    // map its own error into the answer (a BYOK error keeps the cause and
-    // the 429/502); if the refund failed, the answer keeps the
-    // `ai_refund_pending` it had before.
-    if (refunded) {
-      const mapped = input.onInferenceError?.(error);
-      if (mapped) return mapped;
-    }
     return json({
       code: refunded ? errorCode : "ai_refund_pending",
       error: refunded
@@ -7014,11 +6838,11 @@ async function fileCloudShot(
     // capabilities ok) make the capture's embedding run on the user's
     // endpoint — one link, without a reservation and without a credit;
     // without them the gateway's path is unchanged (1 credit).
-    const { byokRetrievalEndpoints } = await import("./byok/endpoints");
+
     const { fileCloudCapture } = await import("./filing/runtime-cloud");
     return await fileCloudCapture({
       batchId,
-      byok: await byokRetrievalEndpoints(env, principal),
+
       capture,
       env,
       meter: cloudCaptureFilingMeter(env, principal, capture.captureId),
@@ -7261,11 +7085,8 @@ async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Pr
   const startedAt = Date.now();
   try {
     const filing = await import("./filing/runtime-cloud");
-    const { byokRetrievalEndpoints } = await import("./byok/endpoints");
-    // F5/S3c: the owner's BYOK endpoints answer the availability too (the
-    // Pro gate and the no-decrypt rule are inside byokRetrievalEndpoints):
-    // the user's embeddings ok make the automatic destination available.
-    return await filing.cloudAutoCaptureDestinationAvailable(env, await byokRetrievalEndpoints(env, principal), FILING_TIMEOUT_MS - (Date.now() - startedAt));
+
+    return await filing.cloudAutoCaptureDestinationAvailable(env, FILING_TIMEOUT_MS - (Date.now() - startedAt));
   } catch {
     return false;
   }
@@ -9123,14 +8944,8 @@ export async function cloudPinSearch(
   if (!(await cloudAssistantStatus(env, principal)).available) return undefined;
   // Loaded lazily, like the assistant HTTP layer: it pulls in the AI SDK.
   const { createCloudPinSearch } = await import("./assistant/retrieval/runtime-cloud");
-  // F5/S3c (contract §5): the vectors and the captions follow the user's
-  // BYOK capabilities, not the turn — with them ok, the index and the query
-  // run on the user's endpoints without a credit, even in a useCredits turn
-  // (whose chat still goes the gateway and charges); without them the
-  // gateway's path is unchanged. null: no BYOK route, the gateway only.
-  const { byokRetrievalEndpoints } = await import("./byok/endpoints");
+
   return createCloudPinSearch({
-    byok: await byokRetrievalEndpoints(env, principal),
     data: cloudPinSourceData(env, principal, { shared: true }),
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -9252,8 +9067,6 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
   const { assistantChainLinkName, assistantChainModel, assistantChainOpen, createAssistantCircuitBreaker } = await import("./assistant/chain");
-  // F5/S3: the BYOK routing (lazily, like the assistant: it pulls in the AI SDK).
-  const { byokAssistantModel, byokAssistantRoute, byokAssistantRouteExists } = await import("./byok/route");
   const breaker = cloudAssistantBreaker ??= createAssistantCircuitBreaker();
   const origin = new URL(request.url).origin;
   const pinSearch = await cloudPinSearch(env, principal);
@@ -9262,56 +9075,6 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
     // null (503 assistant_unavailable) with the gate off or every link's
     // breaker open.
     endpoint: async () => (chain && !assistantChainOpen(chain, breaker) ? cloudAssistantEndpoint(env, chain[0]) : null),
-    // F5/S3: the BYOK route of the turn (the user's endpoint, one link, no
-    // credits). useCredits: true opts this request out of it and keeps
-    // today's path (the gateway, the credits).
-    byokTurn: async ({ conversationId, requestId, useCredits }) => {
-      if (useCredits) return { kind: "none" };
-      const byokRoute = await byokAssistantRoute(env, principal);
-      if (byokRoute === null) return { kind: "none" };
-      if ("cause" in byokRoute) return { kind: "rate_limited" };
-      // The turn's pin search (F5/S3, contract §5): the BYOK turn makes no
-      // gateway call — the route carries the text-only ranking over the
-      // sessions' current documents (no hub detection, no indexing, no
-      // captions from the model, no query embedding, no pin_index write).
-      // The gateway's cloudPinSearch stays with the useCredits turns.
-      // The slot was taken by byokAssistantRoute above: a synchronous
-      // failure before the route is handed over (the model's v4 contract,
-      // the search's build, the lazy import) must still free it — released
-      // here, once, and the turn gets the defined 503 (http.ts catch).
-      try {
-        // F5/S3c (contract §5): the turn's index and the query's embedding
-        // run on the user's endpoints when their capabilities are ok (the
-        // per-call slot rides inside them), without credits; without them
-        // the search is the text-only one over the current documents. The
-        // gateway's cloudPinSearch stays with the useCredits turns.
-        const { byokRetrievalEndpoints } = await import("./byok/endpoints");
-        const { createByokPinSearch, createByokTextPinSearch } = await import("./assistant/retrieval/runtime-cloud");
-        const byokData = cloudPinSourceData(env, principal, { shared: true });
-        const byokEndpoints = await byokRetrievalEndpoints(env, principal);
-        return {
-          endpoint: {
-            apiKey: byokRoute.apiKey,
-            baseUrl: byokRoute.baseUrl,
-            kind: "openai-compatible",
-            model: byokRoute.model,
-            thinkingControl: false,
-          },
-          kind: "route",
-          model: byokAssistantModel(byokRoute, { conversationId, requestId }),
-          pinSearch:
-            byokEndpoints === null
-              ? createByokTextPinSearch({ data: byokData, env, now: currentDate })
-              : createByokPinSearch({ byok: byokEndpoints, data: byokData, env, now: currentDate }),
-          release: byokRoute.release,
-        };
-      } catch (error) {
-        byokRoute.release();
-        throw error;
-      }
-    },
-    // The turn's model is the chain (assistant/chain.ts); the endpoint only
-    // names its first link.
     model: (_endpoint, context) =>
       assistantChainModel({
         appliance: env.AI_BASE_URL && env.AI_API_KEY ? { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL } : null,
@@ -9332,13 +9095,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
         { limit: 60, scope: `ip:${clientIp(request)}` },
       ], 60_000),
     reader: cloudAssistantStateReader(env, principal),
-    status: async () => {
-      // F5/S3: while the assistant is available, the status reports whether
-      // the turn would run on the user's endpoint (no key, no concurrency
-      // slot). Without availability there is no route to report.
-      if (!status.available) return status;
-      return { ...status, byok: { chat: await byokAssistantRouteExists(env, principal) } };
-    },
+    status: async () => status,
     store: cloudAssistantStore(env, principal.id),
     surface: "cloud",
     // The turn reads only (defense in depth: it never calls a write); the
@@ -9405,14 +9162,6 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   }
   if (method === "GET" && path === "/api/preferences") return readPreferences(request, env);
   if (method === "PATCH" && path === "/api/preferences") return updatePreferences(request, env);
-  // GET/PUT/DELETE /api/byok and POST /api/byok/test: the Pro BYOK endpoint
-  // (F5/S1) and the capability test (F5/S2). The egress interface refuses
-  // until the EdgeR guard exists (A55, S6); the route module is imported
-  // lazily, as the assistant's.
-  if (path === "/api/byok" || path === "/api/byok/test") {
-    const { handleByokRequest } = await import("./byok/api");
-    return handleByokRequest(request, env);
-  }
   if (method === "POST" && (path === "/api/auth/extension-codes" || path === "/api/auth/extension-codes/exchange")) {
     if (env.DEPLOYMENT_ENV || env.DB) return json({ error: "Sign in with an email code" }, 410);
     return path.endsWith("/exchange") ? exchangeExtensionCode(request, env) : createExtensionCode(request, env);

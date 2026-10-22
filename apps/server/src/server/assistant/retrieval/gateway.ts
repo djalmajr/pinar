@@ -1,30 +1,3 @@
-// Retrieval over the Vercel AI Gateway (F4 contract §4, decision A44): the
-// OpenAI-compatible endpoint, the privacy options of each call and the cost
-// log the margin monitor (S3) reads.
-//
-// The gateway's OpenAI-compatible API takes its options in the request
-// body as `providerOptions.gateway` (chat completions and embeddings) and
-// reports the cost of a call in the response body under
-// `providerMetadata.gateway`: `marketCost`, a decimal USD string, when the
-// provider credential is BYOK (`cost` then reads 0), else `cost`.
-// The calls send only what the chain sends for privacy: disallowPromptTraining
-// always, zeroDataRetention only when AI_GATEWAY_ZERO_DATA_RETENTION is
-// "true".
-//
-// The calls of a deployment with a recorder (GatewayCallOptions.record) also
-// hand each cost to it (recordIndexCost), for the margin monitor's durable
-// assistant_index_costs (F4 contract §3); a failing recorder is logged as
-// assistant_index_cost_record_failed and never fails the call.
-//
-// assistantIndexCostLog writes one JSON line per embedding batch or caption
-// that got a response body: the kind, the gateway model id, the cost in USD
-// micros and where it came from. costSource is "gateway" for
-// providerMetadata.gateway.marketCost (a valid decimal), else .cost,
-// "table" for the catalog price × tokens
-// (embeddings: the model's pricing.input × usage.prompt_tokens; captions:
-// ASSISTANT_MODEL_PRICES of chain.ts), and "none", with a null cost, without
-// either. It never carries the key, a URL or any text of the person.
-
 import { gatewayCostMicros } from "../chain";
 
 /** The gateway's OpenAI-compatible base URL (F4 contract §4). */

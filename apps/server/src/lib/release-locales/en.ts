@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.9.4": {
+      changes: {
+        "cloud-own-endpoint-removed": {
+          description:
+            "Pinar Cloud no longer offers your own AI endpoint in Settings → AI Assistant. The assistant, voice transcription, written reproduction steps, pin search, and the automatic collection choice now always use Pinar's AI with credits, and “Use Pinar credits” no longer appears. Endpoints and API keys saved in Pinar Cloud are deleted with this version. The local app keeps using the AI endpoint you configure there.",
+          title: "Your own AI endpoint leaves Pinar Cloud",
+        },
+        "ai-legal-shorter": {
+          description:
+            "The Privacy Policy, the Terms of Service, and the Service Providers and Subprocessors page no longer describe your own endpoint, and their AI section is shorter: for third-party data in what you capture, you are the controller and are responsible for its legal basis, also when you use the AI features of Pinar Cloud, and Pinar processes that content as a processor. If you use Pinar Cloud, you accept the updated documents again.",
+          title: "Shorter AI section in the legal documents",
+        },
+        "mobile-viewer-settings": {
+          description:
+            "On phones, the page link in the capture viewer is cut with an ellipsis inside its space and opens the page again, instead of sitting under the viewer's buttons. In Settings, each row shows its title and description above the field, which takes the full width, and the save notice no longer covers the Save button. On larger screens nothing changes.",
+          title: "Page link and Settings rows fixed on phones",
+        },
+      },
+      summary:
+        "Pinar Cloud no longer offers your own AI endpoint, and its saved keys are deleted. The legal documents have a shorter AI section, with renewed acceptance for Pinar Cloud. On phones, the page link in the capture viewer and the Settings rows work again.",
+      title: "Pinar Cloud AI runs on credits only, with shorter AI terms",
+    },
     "v0.9.3": {
       changes: {
         "collection-create-waits": {

@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.9.4": {
+      changes: {
+        "cloud-own-endpoint-removed": {
+          description:
+            "Pinar Cloud ya no ofrece tu propio endpoint de IA en Configuración → Asistente de IA. El asistente, la transcripción de voz, los pasos escritos de reproducción, la búsqueda en los pins y la elección automática de la colección usan siempre la IA de Pinar, con créditos, y “Usar créditos de Pinar” ya no aparece. Los endpoints y las claves de API guardados en Pinar Cloud se eliminan con esta versión. La app local sigue usando el endpoint de IA que configuras en ella.",
+          title: "Tu propio endpoint de IA sale de Pinar Cloud",
+        },
+        "ai-legal-shorter": {
+          description:
+            "La Política de Privacidad, los Términos del Servicio y la página Proveedores de Servicio y Subencargados ya no describen tu propio endpoint, y su sección de IA es más corta: para los datos de terceros en lo que capturas, tú eres el responsable del tratamiento y respondes por su base legal, también cuando usas las funciones de IA de Pinar Cloud, y Pinar trata ese contenido como encargado. Si usas Pinar Cloud, vuelves a aceptar los documentos actualizados.",
+          title: "Sección de IA más corta en los documentos legales",
+        },
+        "mobile-viewer-settings": {
+          description:
+            "En el móvil, el enlace de la página en el visor de capturas se corta con puntos suspensivos dentro de su espacio y vuelve a abrir la página, en lugar de quedar debajo de los botones del visor. En Configuración, cada fila muestra su título y su descripción encima del campo, que ocupa todo el ancho, y el aviso de guardado ya no tapa el botón Guardar. En pantallas más grandes, nada cambia.",
+          title: "Enlace de la página y filas de Configuración corregidos en el móvil",
+        },
+      },
+      summary:
+        "Pinar Cloud deja de ofrecer tu propio endpoint de IA, y las claves guardadas se eliminan. Los documentos legales tienen una sección de IA más corta, con nueva aceptación para Pinar Cloud. En el móvil, el enlace de la página en el visor de capturas y las filas de Configuración vuelven a funcionar.",
+      title: "La IA de Pinar Cloud solo con créditos y términos de IA más cortos",
+    },
     "v0.9.3": {
       changes: {
         "collection-create-waits": {

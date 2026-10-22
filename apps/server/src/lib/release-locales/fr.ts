@@ -23,6 +23,28 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.9.4": {
+      changes: {
+        "cloud-own-endpoint-removed": {
+          description:
+            "Pinar Cloud ne propose plus votre propre endpoint d’IA dans Paramètres → Assistant IA. L’assistant, la transcription vocale, les étapes écrites de reproduction, la recherche dans les pins et le choix automatique de la collection utilisent toujours l’IA de Pinar, avec des crédits, et « Utiliser les crédits Pinar » n’apparaît plus. Les endpoints et les clés d’API enregistrés dans Pinar Cloud sont supprimés avec cette version. L’application locale continue d’utiliser l’endpoint d’IA que vous y configurez.",
+          title: "Votre propre endpoint d’IA quitte Pinar Cloud",
+        },
+        "ai-legal-shorter": {
+          description:
+            "La Politique de confidentialité, les Conditions d’utilisation et la page Prestataires et sous-traitants ne décrivent plus votre propre endpoint, et leur section IA est plus courte : pour les données de tiers dans ce que vous capturez, vous êtes le responsable du traitement et répondez de sa base légale, y compris lorsque vous utilisez les fonctions d’IA de Pinar Cloud, et Pinar traite ce contenu en tant que sous-traitant. Si vous utilisez Pinar Cloud, vous acceptez à nouveau les documents mis à jour.",
+          title: "Section IA plus courte dans les documents juridiques",
+        },
+        "mobile-viewer-settings": {
+          description:
+            "Sur téléphone, le lien de la page dans la visionneuse de captures est coupé par des points de suspension dans son espace et rouvre la page, au lieu de se trouver sous les boutons de la visionneuse. Dans les Paramètres, chaque ligne affiche son titre et sa description au-dessus du champ, qui occupe toute la largeur, et l’avis d’enregistrement ne couvre plus le bouton Enregistrer. Sur les écrans plus grands, rien ne change.",
+          title: "Lien de la page et lignes des Paramètres corrigés sur téléphone",
+        },
+      },
+      summary:
+        "Pinar Cloud ne propose plus votre propre endpoint d’IA, et les clés enregistrées sont supprimées. Les documents juridiques ont une section IA plus courte, avec une nouvelle acceptation pour Pinar Cloud. Sur téléphone, le lien de la page dans la visionneuse de captures et les lignes des Paramètres fonctionnent à nouveau.",
+      title: "L’IA de Pinar Cloud uniquement avec des crédits, et des conditions d’IA plus courtes",
+    },
     "v0.9.3": {
       changes: {
         "collection-create-waits": {

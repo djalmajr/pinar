@@ -9,6 +9,24 @@
             "timeout": 8
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "soho hook doctor"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "soho hook reminder"
+          }
+        ]
       }
     ]
   }

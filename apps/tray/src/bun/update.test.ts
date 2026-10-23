@@ -46,7 +46,7 @@ function githubDownloadPath(file: string) {
 	return `/djalmajr/pinar/releases/latest/download/${file}`;
 }
 
-async function serveGitHubLayout(files: Record<string, string | Uint8Array | Blob>) {
+async function serveGitHubLayout(files: Record<string, string | Uint8Array<ArrayBuffer> | Blob>) {
 	const server = Bun.serve({
 		port: 0,
 		async fetch(request) {
@@ -200,7 +200,7 @@ describe("GitHub Releases update contract", () => {
 		}
 	});
 
-	test("GitHub-style host reports an update when the hash changes", async () => {
+	test.skipIf(!Bun.which("zstd"))("GitHub-style host reports an update when the hash changes (needs zstd)", async () => {
 		const tarball = await makeTinyTarball();
 		const bytes = await Bun.file(tarball).bytes();
 		const { baseUrl, server } = await serveGitHubLayout({

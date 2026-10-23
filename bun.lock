@@ -11,6 +11,7 @@
         "@svgr/core": "^8.1.0",
         "@svgr/plugin-jsx": "^8.1.0",
         "@tailwindcss/vite": "^4.0.6",
+        "@types/bun": "1.4.0",
         "@types/chrome": "^0.0.308",
         "@types/node": "^22.13.4",
         "@types/react": "^19.0.8",
@@ -25,11 +26,11 @@
     },
     "apps/cli": {
       "name": "@pinar/cli",
-      "version": "0.9.0",
+      "version": "0.9.4",
     },
     "apps/extension": {
       "name": "@pinar/extension",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "dependencies": {
         "@pinar/shared": "workspace:*",
         "@pinar/ui": "workspace:*",
@@ -50,7 +51,7 @@
     },
     "apps/server": {
       "name": "@pinar/server",
-      "version": "0.9.0",
+      "version": "0.9.4",
       "dependencies": {
         "@ai-sdk/openai-compatible": "^3.0.71",
         "@ai-sdk/react": "^4.0.147",

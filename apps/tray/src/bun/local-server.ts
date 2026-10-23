@@ -5,17 +5,28 @@ import { dirname, join } from "node:path";
 
 const PORTS = Array.from({ length: 10 }, (_, index) => 17373 + index);
 
-export async function findHealthyPort(): Promise<number | null> {
+export type HealthyServer = { port: number; version: string | null };
+
+export async function findHealthyServer(): Promise<HealthyServer | null> {
 	for (const port of PORTS) {
 		try {
 			const response = await fetch(`http://127.0.0.1:${port}/api/health`);
-			const body = (await response.json()) as { ok?: boolean; service?: string };
-			if (response.ok && body.ok === true && body.service === "pinar") return port;
+			const body = (await response.json()) as { ok?: boolean; service?: string; version?: unknown };
+			if (response.ok && body.ok === true && body.service === "pinar") {
+				return {
+					port,
+					version: typeof body.version === "string" && body.version.length > 0 ? body.version : null,
+				};
+			}
 		} catch {
 			// The helper is not on this port.
 		}
 	}
 	return null;
+}
+
+export async function findHealthyPort(): Promise<number | null> {
+	return (await findHealthyServer())?.port ?? null;
 }
 
 export function pinarHome() {
@@ -194,6 +205,35 @@ export async function restartServer() {
 	await stopServer();
 	startServer();
 	await waitUntilHealthy();
+}
+
+export type ReplaceServerDeps = {
+	healthyServer?: () => Promise<HealthyServer | null>;
+	helperPath?: () => string | null;
+	start?: () => void;
+	stop?: () => Promise<void>;
+	waitHealthy?: () => Promise<number | null>;
+};
+
+export async function replaceMismatchedServer(
+	expectedVersion: string,
+	deps: ReplaceServerDeps = {},
+): Promise<"none" | "match" | "replaced" | "unbundled" | "failed"> {
+	const helperPath = deps.helperPath ?? bundledHelperPath;
+	if (helperPath() == null) return "unbundled";
+	const healthyServer = deps.healthyServer ?? findHealthyServer;
+	const server = await healthyServer();
+	if (server == null) return "none";
+	if (server.version === expectedVersion) return "match";
+	const stop = deps.stop ?? stopServer;
+	const start = deps.start ?? startServer;
+	const waitHealthy = deps.waitHealthy ?? waitUntilHealthy;
+	await stop();
+	if ((await healthyServer()) != null) return "failed";
+	start();
+	await waitHealthy();
+	const replacement = await healthyServer();
+	return replacement?.version === expectedVersion ? "replaced" : "failed";
 }
 
 export function parseNetstatListeningPid(stdout: string, port: number) {

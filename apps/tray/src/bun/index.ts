@@ -13,6 +13,7 @@ import {
 	findHealthyPort,
 	installBundledHooks,
 	pinarHome,
+	replaceMismatchedServer,
 	restartServer,
 	startServer,
 	stopServer,
@@ -30,6 +31,7 @@ import {
 import { createQuitController } from "./tray-quit";
 import {
 	UPDATE_STATUS_DURATION_MS,
+	appVersion,
 	idleUpdateUi,
 	shouldOfferUpdate,
 	updateMenuItem,
@@ -260,6 +262,12 @@ void ensureDefaultLogin()
 			startServer();
 			await waitUntilHealthy();
 			await refresh();
+		} else {
+			await withBusy(async () => {
+				if ((await replaceMismatchedServer(appVersion())) === "failed") {
+					console.error("pinar tray could not replace the local server running another version");
+				}
+			});
 		}
 	})
 	.catch((error) => {

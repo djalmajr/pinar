@@ -1,13 +1,16 @@
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
 	bundledHelperCandidates,
 	bundledHelperPath,
 	ensurePinarHome,
+	findHealthyServer,
+	type HealthyServer,
 	parseNetstatListeningPid,
 	pinarBin,
+	replaceMismatchedServer,
 	runningAppBundle,
 	runningAppRoot,
 	stopServer,
@@ -135,6 +138,298 @@ describe("data home", () => {
 		expect(existsSync(root)).toBe(true);
 		expect(existsSync(join(root, "shots"))).toBe(true);
 		expect(ensurePinarHome(root)).toBe(root);
+	});
+});
+
+describe("findHealthyServer", () => {
+	test("returns the healthy port and normalizes missing, numeric and empty versions without network access", async () => {
+		const cases = [
+			{ version: "1.0.0", expected: "1.0.0" },
+			{ version: undefined, expected: null },
+			{ version: 123, expected: null },
+			{ version: "", expected: null },
+		];
+		const fetchMock = spyOn(globalThis, "fetch");
+		try {
+			for (const { version, expected } of cases) {
+				fetchMock.mockResolvedValue(new Response(JSON.stringify({
+					ok: true,
+					service: "pinar",
+					version,
+				})));
+
+				const server = await findHealthyServer();
+
+				expect(server).toEqual({ port: 17373, version: expected });
+			}
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+});
+
+describe("replaceMismatchedServer", () => {
+	test("returns unbundled without consulting other dependencies when no helper is bundled", async () => {
+		const calls: string[] = [];
+		const deps = {
+			helperPath: () => null,
+			healthyServer: async () => {
+				calls.push("healthyServer");
+				return null;
+			},
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return null;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("unbundled");
+		expect(calls).toEqual([]);
+	});
+
+	test("returns none without stopping or starting when no healthy server exists", async () => {
+		const calls: string[] = [];
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => null,
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return null;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("none");
+		expect(calls).toEqual([]);
+	});
+
+	test("returns match without stopping or starting when the server version matches", async () => {
+		const calls: string[] = [];
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => ({ port: 17373, version: "1.0.0" }),
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return null;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("match");
+		expect(calls).toEqual([]);
+	});
+
+	test("replaces a different server version by stopping, starting and waiting in order", async () => {
+		const calls: string[] = [];
+		const servers: (HealthyServer | null)[] = [
+			{ port: 17373, version: "0.9.0" },
+			null,
+			{ port: 17373, version: "1.0.0" },
+		];
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => servers.shift() ?? null,
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return 17373;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("replaced");
+		expect(calls).toEqual(["stop", "start", "waitHealthy"]);
+		expect(servers).toEqual([]);
+	});
+
+	test("replaces a server whose version is unknown", async () => {
+		const calls: string[] = [];
+		const servers: (HealthyServer | null)[] = [
+			{ port: 17373, version: null },
+			null,
+			{ port: 17373, version: "1.0.0" },
+		];
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => servers.shift() ?? null,
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return 17373;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("replaced");
+		expect(calls).toEqual(["stop", "start", "waitHealthy"]);
+		expect(servers).toEqual([]);
+	});
+
+	test("does not start the replacement until stop has finished", async () => {
+		const calls: string[] = [];
+		const servers: (HealthyServer | null)[] = [
+			{ port: 17373, version: "0.9.0" },
+			null,
+			{ port: 17373, version: "1.0.0" },
+		];
+		let releaseStop = () => {};
+		let notifyStop = () => {};
+		const stopped = new Promise<void>((resolve) => {
+			releaseStop = resolve;
+		});
+		const stopStarted = new Promise<void>((resolve) => {
+			notifyStop = resolve;
+		});
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => servers.shift() ?? null,
+			stop: async () => {
+				calls.push("stop");
+				notifyStop();
+				await stopped;
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return 17373;
+			},
+		};
+
+		const replacement = replaceMismatchedServer("1.0.0", deps);
+		await stopStarted;
+		try {
+			expect(calls).toEqual(["stop"]);
+			expect(servers).toHaveLength(2);
+		} finally {
+			releaseStop();
+			await replacement;
+		}
+
+		expect(await replacement).toBe("replaced");
+		expect(calls).toEqual(["stop", "start", "waitHealthy"]);
+		expect(servers).toEqual([]);
+	});
+
+	test("returns failed without starting when the old server remains healthy after stop", async () => {
+		const calls: string[] = [];
+		let healthReads = 0;
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => {
+				healthReads += 1;
+				return { port: 17373, version: "0.9.0" };
+			},
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return 17373;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("failed");
+		expect(calls).toEqual(["stop"]);
+		expect(healthReads).toBe(2);
+	});
+
+	test.each(["0.9.0", null])("returns failed when the replacement version is %s", async (version) => {
+		const calls: string[] = [];
+		const servers: (HealthyServer | null)[] = [
+			{ port: 17373, version: "0.9.0" },
+			null,
+			{ port: 17373, version },
+		];
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => servers.shift() ?? null,
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return 17373;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("failed");
+		expect(calls).toEqual(["stop", "start", "waitHealthy"]);
+		expect(servers).toEqual([]);
+	});
+
+	test("returns failed when no server is healthy after starting", async () => {
+		const calls: string[] = [];
+		const servers: (HealthyServer | null)[] = [
+			{ port: 17373, version: "0.9.0" },
+			null,
+			null,
+		];
+		const deps = {
+			helperPath: () => "bundled-pinar",
+			healthyServer: async () => servers.shift() ?? null,
+			stop: async () => {
+				calls.push("stop");
+			},
+			start: () => {
+				calls.push("start");
+			},
+			waitHealthy: async () => {
+				calls.push("waitHealthy");
+				return null;
+			},
+		};
+
+		const result = await replaceMismatchedServer("1.0.0", deps);
+
+		expect(result).toBe("failed");
+		expect(calls).toEqual(["stop", "start", "waitHealthy"]);
+		expect(servers).toEqual([]);
 	});
 });
 

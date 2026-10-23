@@ -20,7 +20,7 @@ Any composer / editor
 
 **macOS:** download [Pinar.app](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), open the disk image, and drag **Pinar.app** to `~/Applications`. The menu-bar app starts the local server and registers agent hooks. Shots stay in `~/.pinar/shots`.
 
-**Windows:** download [Pinar Setup](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.zip), extract, and run **Pinar-Setup.exe**. The tray app lands in `%LOCALAPPDATA%\Programs\Pinar` and starts the local server. The standalone helper remains:
+**Windows:** download [Pinar Setup](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.zip), extract, and run **Pinar-Setup.exe**. The tray app lands in `%LOCALAPPDATA%\dev.pinar.local\stable\app` and starts the local server. To upgrade, quit Pinar from the tray (Quit) before running a newer Setup: a running helper locks the install folder. The standalone helper remains:
 
 ```powershell
 irm https://pinar.dev/install.ps1 | iex

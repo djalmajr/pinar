@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { localPinIndexStore, type LocalPinIndexDatabase } from "./store-local";
 import { assertPinIndexReplaceAtomic, assertPinIndexStore, pinIndexEntry, pinIndexVector } from "./store.test-helpers";
+import { releaseClosedDatabases } from "../../../../tests/helpers/native-handles";
 
 type HistoryDb = LocalPinIndexDatabase & {
   clearHistory(): boolean;
@@ -39,6 +40,7 @@ for (const backend of BACKENDS) {
 
     afterEach(async () => {
       db.close();
+      await releaseClosedDatabases();
       await rm(tempDir, { force: true, recursive: true });
     });
 

@@ -7,6 +7,7 @@ import { describe, test } from "node:test";
 import { createClient, type Client } from "@libsql/client";
 import { createLibsqlD1 } from "./libsql-d1";
 import type { CloudEnv } from "../cloud-api";
+import { releaseClosedDatabases } from "../../../tests/helpers/native-handles";
 
 function tempDatabaseFile() {
   return join(tmpdir(), `pinar-libsql-d1-${process.pid}-${randomBytes(8).toString("hex")}.db`);
@@ -16,8 +17,9 @@ function openClient(file: string, intMode: "number" | "bigint" = "number"): Clie
   return createClient({ intMode, url: `file:${file}` });
 }
 
-function closeDatabase(client: Client, file: string) {
+async function closeDatabase(client: Client, file: string) {
   client.close();
+  await releaseClosedDatabases();
   for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
 }
 
@@ -31,7 +33,7 @@ describe("createLibsqlD1", () => {
       await db.prepare("INSERT INTO t (name) VALUES (?)").bind("seed").run();
       assert.deepEqual(await db.prepare("SELECT name FROM t").first(), { name: "seed" });
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -46,7 +48,7 @@ describe("createLibsqlD1", () => {
       await db.prepare("INSERT INTO t (name) VALUES (?)").bind("b").run();
       assert.deepEqual(await db.prepare("SELECT name FROM t ORDER BY id").first(), { name: "a" });
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -68,7 +70,7 @@ describe("createLibsqlD1", () => {
       // Rows are plain objects with only their named columns.
       assert.deepEqual(Object.keys(result.results[0]), ["id", "name"]);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -88,7 +90,7 @@ describe("createLibsqlD1", () => {
       const none = await db.prepare("UPDATE t SET name = ? WHERE id = ?").bind("c", 99).run();
       assert.equal(none.meta.changes, 0);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -106,7 +108,7 @@ describe("createLibsqlD1", () => {
       assert.equal(upsert.meta.changes, 1);
       assert.deepEqual(await db.prepare("SELECT v FROM kv WHERE k = ?").bind("k").first(), { v: 2 });
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -123,7 +125,7 @@ describe("createLibsqlD1", () => {
         { name: "b" },
       );
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -139,7 +141,7 @@ describe("createLibsqlD1", () => {
         { name: "Nova" },
       );
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -162,7 +164,7 @@ describe("createLibsqlD1", () => {
       ]);
       assert.ok(rows.results[0].data instanceof Uint8Array);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -184,7 +186,7 @@ describe("createLibsqlD1", () => {
           error.message === "D1_TYPE_ERROR: Type 'undefined' not supported for value at index 1",
       );
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -203,7 +205,7 @@ describe("createLibsqlD1", () => {
       // The original statement was never modified by either bind.
       assert.deepEqual(await statement.first(), { value: null });
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -233,7 +235,7 @@ describe("createLibsqlD1", () => {
       const rows = await db.prepare("SELECT name FROM t ORDER BY id").all();
       assert.deepEqual(rows.results, [{ name: "first" }]);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -249,7 +251,7 @@ describe("createLibsqlD1", () => {
           error.message.includes("missing_table"),
       );
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -267,7 +269,7 @@ describe("createLibsqlD1", () => {
       assert.equal(insert.meta.last_row_id, 2);
       assert.equal(typeof insert.meta.last_row_id, "number");
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 });

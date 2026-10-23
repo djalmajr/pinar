@@ -202,6 +202,9 @@ function unzipList(zipFile: string): string {
   return execFileSync("unzip", ["-l", zipFile], { encoding: "utf8" });
 }
 
+// edger-install refuses key and env files that are not mode 0600; Windows has no POSIX modes.
+const POSIX_FILE_MODES = { skip: process.platform === "win32" };
+
 describe("parseInstallArgs", () => {
   test("parses the staging form", () => {
     const args = parseInstallArgs([
@@ -418,7 +421,7 @@ describe("parseInstallArgs", () => {
             "--artifact-dir",
             area,
           ]),
-        new RegExp(`--artifact-dir ${area} has no manifest\\.yaml`),
+        (error: unknown) => error instanceof Error && error.message.includes(`--artifact-dir ${area} has no manifest.yaml`),
       );
     } finally {
       rmSync(area, { recursive: true, force: true });
@@ -454,19 +457,19 @@ describe("readApiKey", () => {
     rmSync(area, { recursive: true, force: true });
   });
 
-  test("reads a 0600 file", () => {
+  test("reads a 0600 file (POSIX file modes)", POSIX_FILE_MODES, () => {
     const file = join(area, "key");
     writeFileSync(file, " file-key \n", { mode: 0o600 });
     assert.equal(readApiKey(file, {}), "file-key");
   });
 
-  test("accepts a more restrictive mode", () => {
+  test("accepts a more restrictive mode (POSIX file modes)", POSIX_FILE_MODES, () => {
     const file = join(area, "key");
     writeFileSync(file, "file-key\n", { mode: 0o400 });
     assert.equal(readApiKey(file, {}), "file-key");
   });
 
-  test("rejects a 0644 file", () => {
+  test("rejects a 0644 file (POSIX file modes)", POSIX_FILE_MODES, () => {
     const file = join(area, "key");
     writeFileSync(file, "file-key\n");
     assert.throws(() => readApiKey(file, {}), new RegExp(`${file} must be mode 0600`));
@@ -483,7 +486,7 @@ describe("readApiKey", () => {
     );
   });
 
-  test("rejects an empty file", () => {
+  test("rejects an empty file (POSIX file modes)", POSIX_FILE_MODES, () => {
     const file = join(area, "key");
     writeFileSync(file, "  \n", { mode: 0o600 });
     assert.throws(() => readApiKey(file, {}), new RegExp(`${file} is empty`));
@@ -769,7 +772,7 @@ describe("runEdgerInstall", () => {
     rmSync(fixture.area, { recursive: true, force: true });
   });
 
-  test("installs staged and promotes for staging", async () => {
+  test("installs staged and promotes for staging (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const fake = fakeFetch(captures, () => ({
@@ -821,7 +824,7 @@ describe("runEdgerInstall", () => {
     noTempLeftovers(fixture);
   });
 
-  test("skips promote with --no-promote", async () => {
+  test("skips promote with --no-promote (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(
@@ -838,7 +841,7 @@ describe("runEdgerInstall", () => {
     noTempLeftovers(fixture);
   });
 
-  test("defaults the version to the root package.json", async () => {
+  test("defaults the version to the root package.json (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(
@@ -854,7 +857,7 @@ describe("runEdgerInstall", () => {
     ]);
   });
 
-  test("reports a non-2xx install with the json code and never the body", async () => {
+  test("reports a non-2xx install with the json code and never the body (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(
@@ -871,7 +874,7 @@ describe("runEdgerInstall", () => {
     noTempLeftovers(fixture);
   });
 
-  test("reports a non-2xx install without a code as the status", async () => {
+  test("reports a non-2xx install without a code as the status (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const { code, lines } = await run(
       fixture,
@@ -882,7 +885,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines, ["install failed: 500"]);
   });
 
-  test("keeps a base url prefix on every endpoint", async () => {
+  test("keeps a base url prefix on every endpoint (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(
@@ -914,7 +917,7 @@ describe("runEdgerInstall", () => {
     );
   });
 
-  test("never prints the api key or the env values", async () => {
+  test("never prints the api key or the env values (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(
@@ -987,7 +990,7 @@ describe("runEdgerInstall", () => {
     noTempLeftovers(fixture);
   });
 
-  test("production with a clean release check installs pinar on both hosts", async () => {
+  test("production with a clean release check installs pinar on both hosts (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, PRODUCTION_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(
@@ -1029,7 +1032,7 @@ describe("runEdgerInstall", () => {
     noTempLeftovers(fixture);
   });
 
-  test("staging never calls the release check", async () => {
+  test("staging never calls the release check (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     let calls = 0;
     const { code } = await run(
@@ -1047,7 +1050,7 @@ describe("runEdgerInstall", () => {
     assert.equal(calls, 0);
   });
 
-  test("requires dist/edger with --no-build", async () => {
+  test("requires dist/edger with --no-build (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     rmSync(join(fixture.rootDir, "apps/server/dist/edger"), { recursive: true, force: true });
     const captures: Capture[] = [];
@@ -1057,7 +1060,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines, ["dist/edger is missing; run bun run build:edger"]);
   });
 
-  test("--artifact-dir installs from the given directory, never building", async () => {
+  test("--artifact-dir installs from the given directory, never building (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     // A distinct artifact dir (a marker file) proves the given directory is
     // the source; the fixture root has no `bun run build:edger`, so a build
@@ -1116,7 +1119,7 @@ describe("runEdgerInstall", () => {
     noTempLeftovers(fixture);
   });
 
-  test("rejects a 0644 env file", async () => {
+  test("rejects a 0644 env file (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeFileSync(fixture.envFile, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
@@ -1125,7 +1128,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines, [`${fixture.envFile} must be mode 0600`]);
   });
 
-  test("rejects an unknown key in the env file", async () => {
+  test("rejects an unknown key in the env file (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, `${STAGING_ENV_FILE}\nNOPE=1\n`);
     const captures: Capture[] = [];
     const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
@@ -1134,7 +1137,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines, ["unknown key in env file: NOPE"]);
   });
 
-  test("rejects a key that comes from the wrangler vars", async () => {
+  test("rejects a key that comes from the wrangler vars (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, `${STAGING_ENV_FILE}\nCLOUD_TRIAL_ENABLED=false\n`);
     const captures: Capture[] = [];
     const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
@@ -1145,7 +1148,7 @@ describe("runEdgerInstall", () => {
     ]);
   });
 
-  test("rejects a DEPLOYMENT_ENV that does not match --env", async () => {
+  test("rejects a DEPLOYMENT_ENV that does not match --env (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, `${STAGING_ENV_FILE}\nDEPLOYMENT_ENV=production\n`);
     const captures: Capture[] = [];
     const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
@@ -1154,7 +1157,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines, ["DEPLOYMENT_ENV in env file does not match --env"]);
   });
 
-  test("rejects an env file without DEPLOYMENT_ENV with the exact message", async () => {
+  test("rejects an env file without DEPLOYMENT_ENV with the exact message (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE.replace("DEPLOYMENT_ENV=staging\n", ""));
     const captures: Capture[] = [];
     const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
@@ -1163,7 +1166,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines, ["env file must declare DEPLOYMENT_ENV=staging"]);
   });
 
-  test("rejects a staging env file with --env production before any fetch", async () => {
+  test("rejects a staging env file with --env production before any fetch (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     let fetchCalls = 0;
@@ -1193,7 +1196,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines, ["DEPLOYMENT_ENV in env file does not match --env"]);
   });
 
-  test("reports every missing required env", async () => {
+  test("reports every missing required env (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, "DEPLOYMENT_ENV=staging\n");
     const captures: Capture[] = [];
     const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
@@ -1204,7 +1207,7 @@ describe("runEdgerInstall", () => {
     ]);
   });
 
-  test("reports only the missing required envs", async () => {
+  test("reports only the missing required envs (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(
       fixture,
       "DEPLOYMENT_ENV=staging\nDATABASE_URL=http://pinar-stg.edger.svc.cluster.local:8080\n",
@@ -1218,7 +1221,7 @@ describe("runEdgerInstall", () => {
     ]);
   });
 
-  test("lets the edgerCloudEnv group error out on a partial group", async () => {
+  test("lets the edgerCloudEnv group error out on a partial group (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(
       fixture,
       "DEPLOYMENT_ENV=staging\nS3_ENDPOINT=https://pinar-stg.r2.cloudflarestorage.com\n",
@@ -1232,7 +1235,7 @@ describe("runEdgerInstall", () => {
     ]);
   });
 
-  test("lets the invalid DATABASE_URL error out", async () => {
+  test("lets the invalid DATABASE_URL error out (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, `${STAGING_ENV_FILE.replace("DATABASE_URL=http://pinar-stg.edger.svc.cluster.local:8080", "DATABASE_URL=not a url")}`);
     const captures: Capture[] = [];
     const { code, lines } = await run(fixture, stagingArgs(fixture), fakeFetch(captures, () => ({ status: 201 })));
@@ -1261,7 +1264,7 @@ describe("runEdgerInstall", () => {
     }
   }
 
-  test("an error field that echoes a secret is never printed", async () => {
+  test("an error field that echoes a secret is never printed (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, REVIEWER_ENV_FILE);
     writeFileSync(fixture.keyFile, "FAKE_API_SENTINEL", { mode: 0o600 });
     const captures: Capture[] = [];
@@ -1290,7 +1293,7 @@ describe("runEdgerInstall", () => {
     assert.deepEqual(lines2, ["install failed: 400"]);
   });
 
-  test("a matching code field that is the api key is printed redacted", async () => {
+  test("a matching code field that is the api key is printed redacted (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, REVIEWER_ENV_FILE);
     writeFileSync(fixture.keyFile, "FAKE_API_SENTINEL", { mode: 0o600 });
     const captures: Capture[] = [];
@@ -1308,7 +1311,7 @@ describe("runEdgerInstall", () => {
     assertNoSentinel(lines);
   });
 
-  test("a transport error that echoes the api key is redacted", async () => {
+  test("a transport error that echoes the api key is redacted (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, REVIEWER_ENV_FILE);
     writeFileSync(fixture.keyFile, "FAKE_API_SENTINEL", { mode: 0o600 });
     const { code, lines } = await run(fixture, stagingArgs(fixture, ["--version", "1.2.3"]), async () => {
@@ -1319,7 +1322,7 @@ describe("runEdgerInstall", () => {
     assertNoSentinel(lines);
   });
 
-  test("keeps a machine code and never prints the error field", async () => {
+  test("keeps a machine code and never prints the error field (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(
@@ -1339,7 +1342,7 @@ describe("runEdgerInstall", () => {
     assert.ok(!lines.some((line) => line.includes("pepper-staging-000000")));
   });
 
-  test("drops a code that does not look like a machine code", async () => {
+  test("drops a code that does not look like a machine code (POSIX file modes)", POSIX_FILE_MODES, async () => {
     writeEnvFile(fixture, STAGING_ENV_FILE);
     const captures: Capture[] = [];
     const { code, lines } = await run(

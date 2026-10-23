@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { historyDatabase, resetLocalApiForTests } from "../api.local";
 import { localMcpHandlers } from "../local-mcp";
 import { localAssistantStateReader } from "./state-reader-local";
+import { releaseClosedDatabases } from "../../../tests/helpers/native-handles";
 
 const ORIGIN = "http://127.0.0.1:17373";
 
@@ -37,6 +38,7 @@ describe("localAssistantStateReader", () => {
     resetLocalApiForTests();
     if (previousHome === undefined) delete process.env.PINAR_HOME;
     else process.env.PINAR_HOME = previousHome;
+    await releaseClosedDatabases();
     await rm(root, { force: true, recursive: true });
   });
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { type ComponentProps, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 // Module mocks exist only in Bun, which runs this file (bun test), and the
@@ -15,7 +16,7 @@ import { translations } from "@pinar/shared";
 // is wrapped to record its props, so a test reads what the field asked for
 // and selects through the real handler; Bun shares module mocks across the
 // run, so the wrapper keeps the real exports and is put back after this file.
-const ROOTS = [new URL("..", import.meta.url).pathname, new URL("../../../../packages/ui/src", import.meta.url).pathname];
+const ROOTS = [fileURLToPath(new URL("..", import.meta.url)), fileURLToPath(new URL("../../../../packages/ui/src", import.meta.url))];
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);

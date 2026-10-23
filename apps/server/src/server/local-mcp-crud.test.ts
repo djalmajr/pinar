@@ -10,6 +10,7 @@ import { openHistoryDb } from "@pinar/cli/history";
 import { parseHandoffJson } from "@pinar/shared";
 import { handleApiRequest, handlePublicRequest, resetLocalApiForTests } from "./api.local";
 import { isUsableSessionShotPath } from "./local-session-files";
+import { releaseClosedDatabases } from "../../tests/helpers/native-handles";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -1339,6 +1340,7 @@ describe("local MCP CRUD deletes (SQLite)", () => {
     resetLocalApiForTests();
     if (previousHome === undefined) delete process.env.PINAR_HOME;
     else process.env.PINAR_HOME = previousHome;
+    await releaseClosedDatabases();
     await rm(root, { force: true, recursive: true });
     await rm(victimDir, { force: true, recursive: true });
   });
@@ -1613,6 +1615,7 @@ describe("local MCP CRUD deletes (forced JSON fallback)", () => {
     resetLocalApiForTests();
     if (previousHome === undefined) delete process.env.PINAR_HOME;
     else process.env.PINAR_HOME = previousHome;
+    await releaseClosedDatabases();
     await rm(root, { force: true, recursive: true });
     await rm(victimDir, { force: true, recursive: true });
   });

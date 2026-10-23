@@ -41,6 +41,8 @@ bun run build:tray
 bun apps/cli/src/cli.mjs install
 ```
 
+`bun run test` also runs the CLI and extension tests under Node, which needs a Node.js build with TypeScript type stripping: `node -p process.features.typescript` must print `strip` or `transform` (official Node.js 22.18+ and 24 builds do; Ubuntu's `nodejs` package prints `false`). The tray update tests use `zstd` when it is on `PATH`; macOS-only tests are skipped elsewhere.
+
 ## Install the extension
 
 Install the official [Pinar extension from the Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo). A GitHub checkout or unpacked extension folder is not required for normal use.

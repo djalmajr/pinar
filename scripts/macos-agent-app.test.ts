@@ -15,7 +15,7 @@ const MINIMAL_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `;
 
-describe("macos agent Info.plist", () => {
+describe.skipIf(process.platform !== "darwin")("macos agent Info.plist (macOS PlistBuddy)", () => {
   test("marks the bundle as an LSUIElement agent app", () => {
     const root = mkdtempSync(join(tmpdir(), "pinar-agent-"));
     const app = join(root, "Pinar.app");

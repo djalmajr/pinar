@@ -71,7 +71,7 @@ describe("install-desktop", () => {
     assert.equal(found.exe, join(root, "Pinar.exe"));
   });
 
-  test("findBuiltWindowsApp ignores the Electrobun setup stub without cottontail", async () => {
+  test("findBuiltWindowsApp ignores the Electrobun setup stub without bun.exe", async () => {
     const source = await mkdtemp(join(tmpdir(), "pinar-win-stub-"));
     const folder = windowsBuildFolderNames("stable")[0];
     const app = join(source, "apps", "tray", "build", folder, "Pinar");
@@ -88,7 +88,7 @@ describe("install-desktop", () => {
     const app = join(root, "Pinar");
     await mkdir(join(app, "bin"), { recursive: true });
     await writeFile(join(app, "bin", "launcher.exe"), "launcher");
-    await writeFile(join(app, "bin", "cottontail.exe"), "runtime");
+    await writeFile(join(app, "bin", "bun.exe"), "runtime");
     await writeFile(join(root, "Pinar-Setup.exe"), "setup");
     await writeFile(join(root, "Pinar-Setup.tar.zst"), "archive");
     const found = findBuiltWindowsApp(source);
@@ -116,7 +116,7 @@ describe("install-desktop", () => {
     const src = join(tmp, "src");
     await mkdir(join(src, "Pinar", "bin"), { recursive: true });
     await writeFile(join(src, "Pinar", "bin", "launcher.exe"), "launcher");
-    await writeFile(join(src, "Pinar", "bin", "cottontail.exe"), "runtime");
+    await writeFile(join(src, "Pinar", "bin", "bun.exe"), "runtime");
     const tarPath = join(tmp, "app.tar");
     execFileSync("tar", ["-cf", tarPath, "Pinar"], { cwd: src, windowsHide: true });
     const archive = join(tmp, "app.tar.zst");
@@ -124,7 +124,7 @@ describe("install-desktop", () => {
     const dest = join(tmp, "dest");
     await extractWindowsTrayArchive(archive, dest);
     assert.equal(await readFile(join(dest, "bin", "launcher.exe"), "utf8"), "launcher");
-    assert.equal(await readFile(join(dest, "bin", "cottontail.exe"), "utf8"), "runtime");
+    assert.equal(await readFile(join(dest, "bin", "bun.exe"), "utf8"), "runtime");
     assert.equal(existsSync(join(dest, "Pinar")), false);
   });
 

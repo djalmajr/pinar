@@ -1,4 +1,6 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { win32 } from "node:path";
+import { APP_IDENTIFIER } from "./update";
 
 type InstanceLockOptions = {
 	isProcessAlive?: (pid: number) => boolean | Promise<boolean>;
@@ -19,11 +21,40 @@ function imageName(path: string) {
 	return path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
 }
 
+/** Runtimes the Windows tray has shipped: Bun since Electrobun 2.0.4, Cottontail before. */
+const TRAY_RUNTIMES = new Set(["bun.exe", "cottontail.exe"]);
+
+type TrayImageOptions = {
+	exists?: (path: string) => boolean;
+	readText?: (path: string) => string;
+};
+
 /**
- * Whether `pid` is a running process with the same executable as this one.
- * OpenProcess also opens a process that already exited while some handle
- * still keeps its object alive, and a recycled PID may belong to another
- * program, so both the exit code and the image name are checked.
+ * Whether `image` is the runtime of an installed Pinar tray: a known runtime
+ * beside the app's launcher.exe, in an app whose Resources/version.json has
+ * Pinar's identifier. The runtime name alone is not enough, since any Bun
+ * script also runs as bun.exe.
+ */
+export function isPinarTrayImage(
+	image: string,
+	{ exists = existsSync, readText = (path) => readFileSync(path, "utf8") }: TrayImageOptions = {},
+) {
+	if (!TRAY_RUNTIMES.has(imageName(image))) return false;
+	const bin = win32.dirname(image);
+	if (!exists(win32.join(bin, "launcher.exe"))) return false;
+	try {
+		const info = JSON.parse(readText(win32.join(bin, "..", "Resources", "version.json")));
+		return info?.identifier === APP_IDENTIFIER;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Whether `pid` is a running process with this executable or another Pinar
+ * tray's. OpenProcess also opens a process that already exited while some
+ * handle still keeps its object alive, and a recycled PID may belong to
+ * another program, so both the exit code and the image are checked.
  */
 async function windowsProcessExists(pid: number) {
 	const { dlopen, FFIType, ptr } = await import("bun:ffi");
@@ -54,7 +85,7 @@ async function windowsProcessExists(pid: number) {
 			const size = new Uint32Array([MAX_IMAGE_PATH]);
 			if (!kernel32.symbols.QueryFullProcessImageNameW(handle, 0, ptr(buffer), ptr(size))) return true;
 			const image = String.fromCharCode(...buffer.subarray(0, size[0]));
-			return imageName(image) === imageName(process.execPath);
+			return image.toLowerCase() === process.execPath.toLowerCase() || isPinarTrayImage(image);
 		} finally {
 			kernel32.symbols.CloseHandle(handle);
 		}

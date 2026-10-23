@@ -59,7 +59,7 @@ describe("bundled helper paths", () => {
 
 	test("runningAppRoot finds a Windows app folder with Helpers/pinar.exe", () => {
 		const root = mkdtempSync(join(tmpdir(), "pinar-win-bundle-"));
-		const execPath = join(root, "runtime", "cottontail.exe");
+		const execPath = join(root, "runtime", "bun.exe");
 		const helper = join(root, "Helpers", "pinar.exe");
 		mkdirSync(dirname(execPath), { recursive: true });
 		mkdirSync(join(root, "Helpers"), { recursive: true });
@@ -80,7 +80,7 @@ describe("bundled helper paths", () => {
 	test("runningAppRoot finds the Setup app folder with Resources/app/Helpers/pinar.exe", () => {
 		const root = mkdtempSync(join(tmpdir(), "pinar-setup-bundle-"));
 		const app = join(root, "app");
-		const execPath = join(app, "bin", "cottontail.exe");
+		const execPath = join(app, "bin", "bun.exe");
 		const helper = join(app, "Resources", "app", "Helpers", "pinar.exe");
 		mkdirSync(dirname(execPath), { recursive: true });
 		mkdirSync(dirname(helper), { recursive: true });
@@ -101,7 +101,7 @@ describe("bundled helper paths", () => {
 	test("runningAppRoot ignores a Resources/app dir without Helpers/pinar.exe", () => {
 		const root = mkdtempSync(join(tmpdir(), "pinar-setup-partial-"));
 		const app = join(root, "app");
-		const execPath = join(app, "bin", "cottontail.exe");
+		const execPath = join(app, "bin", "bun.exe");
 		mkdirSync(dirname(execPath), { recursive: true });
 		mkdirSync(join(app, "Resources", "app"), { recursive: true });
 		writeFileSync(execPath, "");

@@ -66,15 +66,15 @@ describe("default login configuration", () => {
 });
 
 describe("running Windows launcher", () => {
-	test("runningWindowsLauncher finds launcher.exe next to cottontail.exe", () => {
+	test("runningWindowsLauncher finds launcher.exe next to bun.exe", () => {
 		const bin = join(mkdtempSync(join(tmpdir(), "pinar-setup-launcher-")), "bin");
 		mkdirSync(bin);
 		writeFileSync(join(bin, "launcher.exe"), "");
-		writeFileSync(join(bin, "cottontail.exe"), "");
-		expect(runningWindowsLauncher(join(bin, "cottontail.exe"))).toBe(join(bin, "launcher.exe"));
+		writeFileSync(join(bin, "bun.exe"), "");
+		expect(runningWindowsLauncher(join(bin, "bun.exe"))).toBe(join(bin, "launcher.exe"));
 	});
 
-	test("runningWindowsLauncher is null without cottontail.exe", () => {
+	test("runningWindowsLauncher is null without bun.exe", () => {
 		const bin = join(mkdtempSync(join(tmpdir(), "pinar-setup-launcher-")), "bin");
 		mkdirSync(bin);
 		writeFileSync(join(bin, "launcher.exe"), "");
@@ -84,8 +84,8 @@ describe("running Windows launcher", () => {
 	test("runningWindowsLauncher is null without launcher.exe", () => {
 		const bin = join(mkdtempSync(join(tmpdir(), "pinar-setup-launcher-")), "bin");
 		mkdirSync(bin);
-		writeFileSync(join(bin, "cottontail.exe"), "");
-		expect(runningWindowsLauncher(join(bin, "cottontail.exe"))).toBeNull();
+		writeFileSync(join(bin, "bun.exe"), "");
+		expect(runningWindowsLauncher(join(bin, "bun.exe"))).toBeNull();
 	});
 
 	test("loginExePath prefers the running Setup launcher over an installed app", () => {
@@ -93,15 +93,15 @@ describe("running Windows launcher", () => {
 		const bin = join(root, "app", "bin");
 		mkdirSync(bin, { recursive: true });
 		writeFileSync(join(bin, "launcher.exe"), "");
-		writeFileSync(join(bin, "cottontail.exe"), "");
+		writeFileSync(join(bin, "bun.exe"), "");
 		const installed = join(root, "local", "Programs", "Pinar");
 		mkdirSync(join(installed, "bin"), { recursive: true });
 		writeFileSync(join(installed, "bin", "launcher.exe"), "");
-		writeFileSync(join(installed, "bin", "cottontail.exe"), "");
+		writeFileSync(join(installed, "bin", "bun.exe"), "");
 		const previous = process.env.LOCALAPPDATA;
 		process.env.LOCALAPPDATA = join(root, "local");
 		try {
-			expect(loginExePath(join(bin, "cottontail.exe"))).toBe(join(bin, "launcher.exe"));
+			expect(loginExePath(join(bin, "bun.exe"))).toBe(join(bin, "launcher.exe"));
 		} finally {
 			if (previous == null) delete process.env.LOCALAPPDATA;
 			else process.env.LOCALAPPDATA = previous;

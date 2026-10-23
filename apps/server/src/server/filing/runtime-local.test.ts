@@ -20,6 +20,7 @@ import { embeddingIdentity } from "../assistant/retrieval/index";
 import { setLocalPinIndexOptionsForTests } from "../assistant/retrieval/runtime-local";
 import { FILING_NONE_OPTION } from "./choose";
 import { setLocalFilingFetchForTests } from "./runtime-local";
+import { releaseClosedDatabases } from "../../../tests/helpers/native-handles";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const BASE_URL = "http://127.0.0.1:9/v1";
@@ -206,6 +207,7 @@ describe("local capture filing (POST /api/shots)", () => {
     resetThinkingControlCacheForTests();
     if (previousHome === undefined) delete process.env.PINAR_HOME;
     else process.env.PINAR_HOME = previousHome;
+    await releaseClosedDatabases();
     await rm(root, { force: true, recursive: true });
   });
 
@@ -567,6 +569,7 @@ describe("local GET /api/preferences autoCaptureDestinationAvailable", () => {
     resetThinkingControlCacheForTests();
     if (previousHome === undefined) delete process.env.PINAR_HOME;
     else process.env.PINAR_HOME = previousHome;
+    await releaseClosedDatabases();
     await rm(root, { force: true, recursive: true });
   });
 

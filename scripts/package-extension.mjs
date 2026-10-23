@@ -2,23 +2,19 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  copyFileSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
   statSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVELOPMENT_EXTENSION_KEY } from "../extension/environment.js";
+import { readZipDirectory, readZipEntry, writeStoredZip } from "../packages/shared/src/archive/stored-zip.ts";
 
-const ARCHIVE_EPOCH = new Date("1980-01-01T00:00:00.000Z");
 // The official Chrome Web Store extension's public key, preserved from the previous
 // tracked manifest. Manual --unpacked releases keep this stable production identity.
 export const OFFICIAL_EXTENSION_PUBLIC_KEY = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs4GNk+Y7qUYEDxmfXQid38tICmGg81x+EpHftKZ+JsnLjqPE24eWNmyM8muS2hzcT8UjFNWHxAvm0RTDCodMzu0QaE9hWSflU/pLVch8EDzo3y8MSHH5VuBzWsTlCdbxUkM8LoBB7r//B2F5Q62h7CYjaWON1OcJpiFlP7oByMoWwNCdT6lgBU/3IrrgAnCvD3wQMfd9DAwJtalr/uqu8LWgHzmyiHVHRZGww9EUO0jPw2dn9FIpqPM2JbP/r/svJqrC02ygewWASLx83cOjJMDzySGfxCBaB+aFfrk5mC+Vl5Sb8LAJL8aaU0BeNlZrv+bc5u6mBhf9tJIoicQEwwIDAQAB";
@@ -164,7 +160,7 @@ export function parseOptions(args) {
   return options;
 }
 
-export function packageExtension({ expectedVersion, output, unpacked = false, rootDirectory = root, runBuild = true } = {}) {
+export async function packageExtension({ expectedVersion, output, unpacked = false, rootDirectory = root, runBuild = true } = {}) {
   if (runBuild) execFileSync("bun", ["run", "build:ext"], { cwd: rootDirectory, stdio: "inherit" });
   const { manifest, version } = extensionVersions(rootDirectory);
   if (expectedVersion && expectedVersion !== version) {
@@ -180,28 +176,28 @@ export function packageExtension({ expectedVersion, output, unpacked = false, ro
   const outputPath = resolve(rootDirectory, output ?? `extension/pinar-extension-${version}${suffix}.zip`);
   const outputDirectory = dirname(outputPath);
   mkdirSync(outputDirectory, { recursive: true });
-  const stagingDirectory = mkdtempSync(join(tmpdir(), "pinar-extension-package-"));
   const temporaryArchive = join(outputDirectory, `.pinar-extension-${version}-${process.pid}.zip`);
 
   try {
-    for (const entry of entries) {
-      const source = join(rootDirectory, "extension", entry);
-      const destination = join(stagingDirectory, entry);
-      mkdirSync(dirname(destination), { recursive: true });
-      if (entry === "manifest.json") writeFileSync(destination, `${JSON.stringify(packagedManifest, null, 2)}\n`);
-      else copyFileSync(source, destination);
-      utimesSync(destination, ARCHIVE_EPOCH, ARCHIVE_EPOCH);
+    function* archiveContents() {
+      for (const entry of entries) {
+        const data = entry === "manifest.json"
+          ? Buffer.from(`${JSON.stringify(packagedManifest, null, 2)}\n`)
+          : readFileSync(join(rootDirectory, "extension", entry));
+        yield { name: entry, data };
+      }
     }
-    execFileSync("zip", ["-q", "-X", temporaryArchive, ...entries], {
-      cwd: stagingDirectory,
-      env: { ...process.env, TZ: "UTC" },
-    });
-    const archiveEntries = execFileSync("unzip", ["-Z1", temporaryArchive], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    const chunks = [];
+    for await (const chunk of writeStoredZip(archiveContents())) chunks.push(chunk);
+    writeFileSync(temporaryArchive, Buffer.concat(chunks));
+    const archive = new Blob([readFileSync(temporaryArchive)]);
+    const directory = await readZipDirectory(archive);
+    const archiveEntries = directory.map((entry) => entry.name);
     validateEntryPaths(archiveEntries);
     if (archiveEntries.join("\n") !== entries.join("\n")) throw new Error("archive entries differ from the validated runtime file list");
+    for (const entry of directory) await readZipEntry(archive, entry);
     renameSync(temporaryArchive, outputPath);
   } finally {
-    rmSync(stagingDirectory, { force: true, recursive: true });
     rmSync(temporaryArchive, { force: true });
   }
 
@@ -211,7 +207,7 @@ export function packageExtension({ expectedVersion, output, unpacked = false, ro
 }
 
 if (import.meta.main) {
-  const result = packageExtension(parseOptions(process.argv.slice(2)));
+  const result = await packageExtension(parseOptions(process.argv.slice(2)));
   console.log(`package-extension: ${result.version}`);
   console.log(`file: ${result.outputPath}`);
   console.log(`entries: ${result.entries.length}`);

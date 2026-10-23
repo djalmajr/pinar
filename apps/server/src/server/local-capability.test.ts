@@ -36,15 +36,19 @@ describe("local capability store", () => {
     await rm(root, { force: true, recursive: true });
   });
 
-  test("mints a 0600 store on first bootstrap and reuses it", async () => {
+  test("mints a store on first bootstrap and reuses it", async () => {
     const created = await readOrCreateLocalCapability();
     const again = await readOrCreateLocalCapability();
     assert.equal(again.current.secret, created.current.secret);
-    const info = await stat(localCapabilityPath(root));
-    assert.equal(info.mode & 0o777, 0o600);
     assert.equal(await localCapabilityMatches(created.current.secret), true);
     assert.equal(await localCapabilityMatches("not-the-secret"), false);
     assert.equal(await localCapabilityMatches(""), false);
+  });
+
+  test("the minted store has mode 0600 (POSIX file modes)", { skip: process.platform === "win32" }, async () => {
+    await readOrCreateLocalCapability();
+    const info = await stat(localCapabilityPath(root));
+    assert.equal(info.mode & 0o777, 0o600);
   });
 
   test("rotation accepts the previous secret until the grace window elapses", async () => {

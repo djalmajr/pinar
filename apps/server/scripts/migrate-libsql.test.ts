@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 import { createClient, type Client } from "@libsql/client";
 import { Database } from "bun:sqlite";
+import { releaseClosedDatabases } from "../tests/helpers/native-handles";
 import { defaultMigrationsDir, databaseTarget, migrateLibsql, parseMigrateArgs, safeErrorMessage } from "./migrate-libsql";
 
 const SERVER_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,8 +27,9 @@ function openClient(file: string): Client {
   return createClient({ intMode: "number", url: `file:${file}` });
 }
 
-function closeDatabase(client: Client, file: string) {
+async function closeDatabase(client: Client, file: string) {
   client.close();
+  await releaseClosedDatabases();
   for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
 }
 
@@ -192,7 +194,7 @@ describe("migrateLibsql", () => {
       history = await client.execute("SELECT name FROM d1_migrations");
       assert.equal(history.rows.length, 36);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -207,7 +209,7 @@ describe("migrateLibsql", () => {
       assert.deepEqual(await libsqlTableNames(client), sqliteTableNames(canonical));
     } finally {
       canonical.close();
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -240,7 +242,7 @@ describe("migrateLibsql", () => {
       const seed = await client.execute("SELECT note FROM ok_table");
       assert.equal(String(seed.rows[0].note), "seed");
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
       rmSync(dir, { force: true, recursive: true });
     }
   });
@@ -267,7 +269,7 @@ describe("migrateLibsql", () => {
       const history = await client.execute("SELECT name FROM d1_migrations");
       assert.deepEqual(history.rows.map((row) => String(row.name)), ["0001_ghost.sql"]);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -295,7 +297,7 @@ describe("migrateLibsql", () => {
       ]);
       assert.deepEqual(await libsqlTableNames(client), []);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
       rmSync(dir, { force: true, recursive: true });
     }
   });
@@ -321,7 +323,7 @@ describe("migrateLibsql", () => {
       const history = await base.execute("SELECT name FROM d1_migrations");
       assert.deepEqual(history.rows, []);
     } finally {
-      closeDatabase(base, file);
+      await closeDatabase(base, file);
       rmSync(dir, { force: true, recursive: true });
     }
   });
@@ -352,7 +354,7 @@ describe("migrateLibsql", () => {
           /foreign key/i.test(error.message),
       );
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
       rmSync(dir, { force: true, recursive: true });
     }
   });
@@ -407,9 +409,10 @@ describe("migrate-libsql CLI", () => {
       try {
         assert.deepEqual(await libsqlTableNames(client), []);
       } finally {
-        closeDatabase(client, file);
+        await closeDatabase(client, file);
       }
     } finally {
+      await releaseClosedDatabases();
       for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
     }
   });
@@ -434,9 +437,10 @@ describe("migrate-libsql CLI", () => {
         const history = await client.execute("SELECT name FROM d1_migrations");
         assert.equal(history.rows.length, 36);
       } finally {
-        closeDatabase(client, file);
+        await closeDatabase(client, file);
       }
     } finally {
+      await releaseClosedDatabases();
       for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
     }
   });
@@ -457,7 +461,7 @@ describe("migrate-libsql CLI", () => {
       assert.equal(run.code, 1);
       assert.ok(run.stderr.includes("database has migrations unknown to this checkout: 0001_ghost.sql"));
     } finally {
-      for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
+      await closeDatabase(client, file);
     }
   });
 });

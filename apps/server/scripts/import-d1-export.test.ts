@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 import { createClient, type Client, type InStatement, type Transaction } from "@libsql/client";
 import { Database } from "bun:sqlite";
-import { defaultMigrationsDir } from "./migrate-libsql";
+import { releaseClosedDatabases } from "../tests/helpers/native-handles";
+import { databaseTarget, defaultMigrationsDir } from "./migrate-libsql";
 import { importD1Export, parseImportArgs } from "./import-d1-export";
 
 const SERVER_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,8 +30,9 @@ function openClient(file: string): Client {
   return createClient({ intMode: "number", url: `file:${file}` });
 }
 
-function closeDatabase(client: Client, file: string) {
+async function closeDatabase(client: Client, file: string) {
   client.close();
+  await releaseClosedDatabases();
   for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
 }
 
@@ -280,7 +282,7 @@ describe("importD1Export", () => {
       );
       assert.deepEqual(triggers.sort(), ["consume_ai_credit_usage", "refund_ai_credit_usage"]);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -297,7 +299,7 @@ describe("importD1Export", () => {
           error.message.includes("users"),
       );
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -314,7 +316,7 @@ describe("importD1Export", () => {
       assert.deepEqual(await dataTableNames(client), ["junk"]);
       assert.equal((await client.execute("SELECT * FROM junk")).rows.length, 1);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -334,7 +336,7 @@ describe("importD1Export", () => {
       );
       assert.deepEqual(await dataTableNames(client), []);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -350,7 +352,7 @@ describe("importD1Export", () => {
       );
       assert.deepEqual(await dataTableNames(client), []);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -367,7 +369,7 @@ describe("importD1Export", () => {
       );
       assert.deepEqual(await dataTableNames(base), []);
     } finally {
-      closeDatabase(base, file);
+      await closeDatabase(base, file);
     }
   });
 
@@ -389,7 +391,7 @@ describe("importD1Export", () => {
         (error: unknown) => error instanceof Error && error.message === "target database is not empty: junk",
       );
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -449,7 +451,7 @@ describe("importD1Export", () => {
         staging.close();
       }
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -468,7 +470,7 @@ describe("importD1Export", () => {
       const next = (await client.execute("SELECT id FROM d1_migrations WHERE name = '0099_probe.sql'")).rows[0]?.id;
       assert.equal(Number(next), 27);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -494,7 +496,7 @@ describe("importD1Export", () => {
       assert.equal((await client.execute("SELECT * FROM child")).rows.length, 1);
       assert.equal((await client.execute("SELECT * FROM parent")).rows.length, 1);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -516,7 +518,7 @@ describe("importD1Export", () => {
       const foreignKeys = await client.execute("PRAGMA foreign_key_check");
       assert.deepEqual(foreignKeys.rows, []);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -536,7 +538,7 @@ describe("importD1Export", () => {
       const schema = await client.execute("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'");
       assert.deepEqual(schema.rows, []);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -552,7 +554,7 @@ describe("importD1Export", () => {
       assert.ok(!tables.includes("_cf_KV"));
       assert.equal(tables.length, EXPECTED_TABLES);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -575,7 +577,7 @@ describe("importD1Export", () => {
       assert.equal(row.rows[0].v, 9007199254740993n);
     } finally {
       big.close();
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -604,7 +606,7 @@ describe("importD1Export", () => {
       const baseCount = Number((await client.execute("SELECT COUNT(*) AS n FROM base")).rows[0]?.n);
       assert.equal(baseCount, 2);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -628,7 +630,7 @@ describe("importD1Export", () => {
       const objects = await client.execute("SELECT name, type FROM sqlite_master WHERE type IN ('index', 'trigger')");
       assert.deepEqual(objects.rows, []);
     } finally {
-      closeDatabase(client, file);
+      await closeDatabase(client, file);
     }
   });
 
@@ -647,7 +649,7 @@ describe("importD1Export", () => {
       // The commit happened: the data is in the target despite the failure.
       assert.equal((await dataTableNames(base)).length, EXPECTED_TABLES);
     } finally {
-      closeDatabase(base, file);
+      await closeDatabase(base, file);
     }
   });
 
@@ -666,7 +668,7 @@ describe("importD1Export", () => {
       );
       assert.equal((await dataTableNames(base)).length, EXPECTED_TABLES, "the commit wrote the target before the error");
     } finally {
-      closeDatabase(base, file);
+      await closeDatabase(base, file);
     }
   });
 
@@ -686,7 +688,7 @@ describe("importD1Export", () => {
       // the target carries the data, so a retry must not assume it is empty.
       assert.equal((await dataTableNames(base)).length, EXPECTED_TABLES);
     } finally {
-      closeDatabase(base, file);
+      await closeDatabase(base, file);
     }
   });
 });
@@ -711,16 +713,17 @@ describe("import-d1-export CLI", () => {
     try {
       const run = await runCli([FIXTURE_PATH], { DATABASE_AUTH_TOKEN: "", DATABASE_URL: `file:${file}` });
       assert.equal(run.code, 0, `CLI failed:\n${run.stderr}`);
-      assert.ok(run.stdout.includes(`import ${file}`));
+      assert.ok(run.stdout.includes(`import ${databaseTarget(`file:${file}`)}`));
       assert.ok(run.stdout.includes("d1_migrations 26"));
       assert.ok(run.stdout.includes(`import ok: ${EXPECTED_TABLES} tables, ${EXPECTED_ROWS} rows`));
       const client = openClient(file);
       try {
         assert.equal((await dataTableNames(client)).length, EXPECTED_TABLES);
       } finally {
-        closeDatabase(client, file);
+        await closeDatabase(client, file);
       }
     } finally {
+      await releaseClosedDatabases();
       for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
     }
   });
@@ -730,15 +733,16 @@ describe("import-d1-export CLI", () => {
     try {
       const run = await runCli([FIXTURE_PATH, "--dry-run"], { DATABASE_AUTH_TOKEN: "", DATABASE_URL: `file:${file}` });
       assert.equal(run.code, 0, `CLI failed:\n${run.stderr}`);
-      assert.ok(run.stdout.includes(`import ${file} (dry run)`));
+      assert.ok(run.stdout.includes(`import ${databaseTarget(`file:${file}`)} (dry run)`));
       assert.ok(run.stdout.includes(`dry run ok: ${EXPECTED_TABLES} tables, ${EXPECTED_ROWS} rows`));
       const client = openClient(file);
       try {
         assert.deepEqual(await dataTableNames(client), []);
       } finally {
-        closeDatabase(client, file);
+        await closeDatabase(client, file);
       }
     } finally {
+      await releaseClosedDatabases();
       for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
     }
   });
@@ -754,7 +758,7 @@ describe("import-d1-export CLI", () => {
       assert.equal(run.code, 1);
       assert.ok(run.stderr.includes("target database is not empty: junk"));
     } finally {
-      for (const suffix of ["", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
+      await closeDatabase(client, file);
     }
   });
 

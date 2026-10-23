@@ -28,6 +28,7 @@ import {
 } from "./runtime-local";
 import { localPinSource } from "./source-local";
 import { localPinIndexStore } from "./store-local";
+import { releaseClosedDatabases } from "../../../../tests/helpers/native-handles";
 
 const ORIGIN = "http://127.0.0.1:17373";
 const BASE_URL = "http://127.0.0.1:9/v1";
@@ -249,6 +250,7 @@ describe("local pin index runtime", () => {
       resetRetrievalCapabilitiesCacheForTests();
       if (previousHome === undefined) delete process.env.PINAR_HOME;
       else process.env.PINAR_HOME = previousHome;
+      await releaseClosedDatabases();
       await rm(root, { force: true, recursive: true });
     }
   });
@@ -666,6 +668,7 @@ describe("observePinIndexWrites", () => {
   });
 
   afterEach(async () => {
+    await releaseClosedDatabases();
     await rm(rawRoot, { force: true, recursive: true });
   });
 

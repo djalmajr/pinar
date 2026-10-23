@@ -18,6 +18,7 @@ import {
   classifyLocalApiRequest,
   localHealthDiscoveryBody,
 } from "./local-api-trust";
+import { releaseClosedDatabases } from "../../tests/helpers/native-handles";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const HOSTILE_ORIGIN = "https://evil.example";
@@ -68,6 +69,7 @@ describe("local API trust enforcement", () => {
     else process.env.PINAR_HOME = previousHome;
     if (previousGrace === undefined) delete process.env.PINAR_CAPABILITY_GRACE_MS;
     else process.env.PINAR_CAPABILITY_GRACE_MS = previousGrace;
+    await releaseClosedDatabases();
     await rm(root, { force: true, recursive: true });
   });
 

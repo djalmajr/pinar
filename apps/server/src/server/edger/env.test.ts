@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { edgerCloudEnv } from "./env";
+import { releaseClosedDatabases } from "../../../tests/helpers/native-handles";
 
 type Vars = Record<string, string>;
 
@@ -105,10 +106,13 @@ describe("edgerCloudEnv", () => {
     const dir = mkdtempSync(join(tmpdir(), `pinar-env-${process.pid}-`));
     try {
       const file = join(dir, `env-${randomBytes(4).toString("hex")}.db`);
-      const withDb = edgerCloudEnv(readVars({ DATABASE_URL: `file:${file}`, DATABASE_AUTH_TOKEN: "" }));
-      assert.ok(withDb.DB, "DB must be defined with DATABASE_URL");
-      assert.equal(typeof withDb.DB.batch, "function");
-      assert.deepEqual(await withDb.DB.prepare("select 1 as x").first(), { x: 1 });
+      // Own scope: the adapter exposes no close, so its client must be unreachable before the cleanup.
+      await (async () => {
+        const withDb = edgerCloudEnv(readVars({ DATABASE_URL: `file:${file}`, DATABASE_AUTH_TOKEN: "" }));
+        assert.ok(withDb.DB, "DB must be defined with DATABASE_URL");
+        assert.equal(typeof withDb.DB.batch, "function");
+        assert.deepEqual(await withDb.DB.prepare("select 1 as x").first(), { x: 1 });
+      })();
 
       const withBucket = edgerCloudEnv(
         readVars({
@@ -143,6 +147,7 @@ describe("edgerCloudEnv", () => {
       assert.equal(withAi.AI_BASE_URL, "https://ai.example.invalid/v1", "the assistant reads the raw strings too");
       assert.equal(withAi.AI_MODEL, "chat-model");
     } finally {
+      await releaseClosedDatabases();
       rmSync(dir, { force: true, recursive: true });
     }
   });

@@ -1,11 +1,12 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ReactElement } from "react";
 
 const ROOTS = [
-  new URL("..", import.meta.url).pathname,
-  new URL("../../../../packages/ui/src", import.meta.url).pathname,
+  fileURLToPath(new URL("..", import.meta.url)),
+  fileURLToPath(new URL("../../../../packages/ui/src", import.meta.url)),
 ];
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

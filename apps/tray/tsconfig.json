@@ -13,7 +13,11 @@
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
 		"noFallthroughCasesInSwitch": true,
-		"moduleResolution": "bundler"
+		"moduleResolution": "bundler",
+		// The generated devkit config sets baseUrl, deprecated in TypeScript 6.
+		"ignoreDeprecations": "6.0",
+		"skipLibCheck": true,
+		"types": ["bun"]
 	},
 	"include": ["src"],
 	"exclude": ["node_modules", "dist", "build"]

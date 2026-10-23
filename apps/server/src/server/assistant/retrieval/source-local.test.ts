@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { openHistoryDb } from "@pinar/cli/history";
 import { shotsDir } from "@pinar/cli/paths";
 import { localPinSource, shotMimeType, type LocalPinSourceDatabase } from "./source-local";
+import { releaseClosedDatabases } from "../../../../tests/helpers/native-handles";
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]);
@@ -34,6 +35,7 @@ describe("localPinSource", () => {
   afterEach(async () => {
     db?.close();
     db = null;
+    await releaseClosedDatabases();
     await rm(root, { force: true, recursive: true });
   });
 

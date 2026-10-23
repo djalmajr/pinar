@@ -43,6 +43,7 @@
     "build:bin": "bun scripts/build-binaries.mjs",
     "build": "bun run build:server && bun run build:local && bun --filter @pinar/extension build",
     "typecheck": "bun --filter @pinar/server typecheck && tsc --noEmit",
+    "typecheck:tray": "tsc --noEmit -p apps/tray",
     "release": "bun scripts/release.mjs",
     "release:check": "bun scripts/release-check.mjs --production"
   },
@@ -53,6 +54,7 @@
     "@svgr/core": "^8.1.0",
     "@svgr/plugin-jsx": "^8.1.0",
     "@tailwindcss/vite": "^4.0.6",
+    "@types/bun": "1.4.0",
     "@types/chrome": "^0.0.308",
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.8",

@@ -2,6 +2,7 @@ import { type ComponentProps, createElement, type ReactElement, type ReactNode }
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Session } from "@pinar/shared";
 import { ServerI18nProvider } from "@/lib/i18n";
@@ -14,7 +15,7 @@ import enUi from "@/lib/ui-locales/en";
 // renders nothing on the server, so the real TooltipContent is wrapped to
 // record its text; Bun shares module mocks across the run, so the wrapper
 // keeps the real exports and is put back after this file.
-const ROOTS = [new URL("..", import.meta.url).pathname, new URL("../../../../packages/ui/src", import.meta.url).pathname];
+const ROOTS = [fileURLToPath(new URL("..", import.meta.url)), fileURLToPath(new URL("../../../../packages/ui/src", import.meta.url))];
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);

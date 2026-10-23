@@ -2,6 +2,7 @@ import { type ComponentProps, createElement, type ReactNode } from "react";
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DEFAULT_DELIVERY_PREFERENCES, type DeliveryPreferences, type ProjectTreeProject } from "@pinar/shared";
 import { ServerI18nProvider } from "@/lib/i18n";
@@ -12,7 +13,7 @@ import enUi from "@/lib/ui-locales/en";
 // resolve under Vite alone, become empty components. Bun's module mocks are
 // shared by every file of the run, so the two modules wrapped here keep their
 // real exports, only observe the props, and are put back after this file.
-const ROOTS = [new URL("..", import.meta.url).pathname, new URL("../../../../packages/ui/src", import.meta.url).pathname];
+const ROOTS = [fileURLToPath(new URL("..", import.meta.url)), fileURLToPath(new URL("../../../../packages/ui/src", import.meta.url))];
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);

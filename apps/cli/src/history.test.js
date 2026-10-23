@@ -7,6 +7,9 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { openHistoryDb } from "./history.mjs";
 
+// Renaming a file over a directory fails with EISDIR on POSIX and EPERM on Windows.
+const RENAME_OVER_DIRECTORY = process.platform === "win32" ? "EPERM" : "EISDIR";
+
 describe("history", () => {
   let tempDir;
 
@@ -713,7 +716,7 @@ describe("history", () => {
     const goodBytes = readFileSync(historyPath, "utf8");
 
     // Break the only write target the JSON store has: the file path becomes
-    // a directory, so the atomic rename fails with EISDIR.
+    // a directory, so the atomic rename fails.
     const backup = join(tempDir, "fault-backup.json");
     renameSync(historyPath, backup);
     mkdirSync(historyPath);
@@ -729,7 +732,7 @@ describe("history", () => {
             text: "Must not persist",
             threadId: "ath_fault",
           }),
-        (error) => error.code === "EISDIR",
+        (error) => error.code === RENAME_OVER_DIRECTORY,
       );
 
       // Memory and disk stay exactly as they were.
@@ -959,7 +962,7 @@ describe("history", () => {
     const goodBytes = readFileSync(historyPath, "utf8");
 
     // Break the only write target the JSON store has: the file path becomes
-    // a directory, so the atomic rename fails with EISDIR.
+    // a directory, so the atomic rename fails.
     const backup = join(tempDir, "fault-backup.json");
     renameSync(historyPath, backup);
     mkdirSync(historyPath);
@@ -972,7 +975,7 @@ describe("history", () => {
             now: "2026-10-04T00:02:00.000Z",
             to: "executing",
           }),
-        (error) => error.code === "EISDIR",
+        (error) => error.code === RENAME_OVER_DIRECTORY,
       );
 
       // Memory and disk stay exactly as they were.
@@ -1293,16 +1296,16 @@ describe("history", () => {
     const historyPath = join(tempDir, "history.json");
     const goodBytes = readFileSync(historyPath, "utf8");
 
-    // The file path becomes a directory, so the atomic rename fails with EISDIR.
+    // The file path becomes a directory, so the atomic rename fails.
     const backup = join(tempDir, "pin-index-fault-backup.json");
     renameSync(historyPath, backup);
     mkdirSync(historyPath);
     try {
       assert.throws(
         () => db.replacePinIndexSession("idx_fault", [pinIndexEntry("idx_fault", "idx_fault_p2")]),
-        (error) => error.code === "EISDIR",
+        (error) => error.code === RENAME_OVER_DIRECTORY,
       );
-      assert.throws(() => db.deletePinIndexSession("idx_fault"), (error) => error.code === "EISDIR");
+      assert.throws(() => db.deletePinIndexSession("idx_fault"), (error) => error.code === RENAME_OVER_DIRECTORY);
       assert.deepEqual(db.listPinIndexEntries("idx_fault"), previous);
       assert.equal(readFileSync(backup, "utf8"), goodBytes, "the persisted bytes are untouched by the failed write");
       assert.ok(!existsSync(join(tempDir, "history.json.pin-state")), "no torn temp file may be left behind");

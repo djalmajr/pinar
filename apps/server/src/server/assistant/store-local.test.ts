@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { assistantThreadTitle, newAssistantMessageId, newAssistantThreadId, newAssistantProposalId, type AssistantMessage, type AssistantProposalRecord } from "./store";
 import { localAssistantStore, type LocalAssistantDatabase } from "./store-local";
+import { releaseClosedDatabases } from "../../../tests/helpers/native-handles";
 
 describe("localAssistantStore", () => {
   let tempDir: string;
@@ -15,6 +16,7 @@ describe("localAssistantStore", () => {
   });
 
   afterEach(async () => {
+    await releaseClosedDatabases();
     await rm(tempDir, { force: true, recursive: true });
   });
 

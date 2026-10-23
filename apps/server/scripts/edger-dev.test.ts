@@ -139,6 +139,10 @@ function textResponse(status: number, body: string, contentType = "text/plain"):
   };
 }
 
+// The dev loop writes 0600 env files and stops children by POSIX process group;
+// Windows has neither, so those suites run on macOS and Linux only.
+const isWindows = process.platform === "win32";
+
 describe("parseDevArgs", () => {
   test("accepts the three flags, alone or combined, and skips --", () => {
     expect(parseDevArgs([])).toEqual({ build: true, once: false, platformProofs: false });
@@ -210,7 +214,7 @@ describe("edgerEnvError", () => {
   });
 });
 
-describe("buildStagingEnvFile + writePrivateFile", () => {
+describe.skipIf(isWindows)("buildStagingEnvFile + writePrivateFile (POSIX file modes)", () => {
   test("the env file comes out at mode 0600 with exactly the expected keys", () => {
     const dir = tempDir("pinar-edger-dev-test-env-");
     const path = join(dir, "stg.env");
@@ -342,7 +346,7 @@ describe("runProofs", () => {
   });
 });
 
-describe("shutdown of child groups", () => {
+describe.skipIf(isWindows)("shutdown of child groups (POSIX process groups)", () => {
   test("a group whose leader already exited receives TERM then KILL, and its descendant dies", async () => {
     const dir = tempDir("pinar-edger-shutdown-");
     cleanups.push(() => {

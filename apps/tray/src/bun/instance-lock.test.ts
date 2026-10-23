@@ -1,8 +1,8 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { claimInstanceLock, processIsAlive } from "./instance-lock";
+import { claimInstanceLock, isPinarTrayImage, processIsAlive } from "./instance-lock";
 
 function lockPath() {
 	return join(mkdtempSync(join(tmpdir(), "pinar-instance-lock-")), "tray.pid");
@@ -110,5 +110,59 @@ describe("tray instance lock", () => {
 			),
 		).toBe(true);
 		expect(readFileSync(path, "utf8")).toBe("202\n");
+	});
+});
+
+describe("Pinar tray image", () => {
+	const localAppData = win32.join("C:", "Users", "me", "AppData", "Local");
+	const app = win32.join(localAppData, "dev.pinar.local", "stable", "app");
+	const pinarVersion = JSON.stringify({ identifier: "dev.pinar.local", version: "0.9.4" });
+
+	function layout(files: Record<string, string>) {
+		return {
+			exists: (path: string) => path in files,
+			readText: (path: string) => {
+				if (!(path in files)) throw new Error(`missing ${path}`);
+				return files[path];
+			},
+		};
+	}
+
+	function installedApp(root: string, version: string) {
+		return layout({
+			[win32.join(root, "bin", "launcher.exe")]: "",
+			[win32.join(root, "Resources", "version.json")]: version,
+		});
+	}
+
+	test("accepts the Bun runtime of an installed Pinar app", () => {
+		const fs = installedApp(app, pinarVersion);
+		expect(isPinarTrayImage(win32.join(app, "bin", "bun.exe"), fs)).toBe(true);
+	});
+
+	test("accepts the Cottontail runtime of a Pinar app from before Electrobun 2.0.4", () => {
+		const fs = installedApp(app, pinarVersion);
+		expect(isPinarTrayImage(win32.join(app, "bin", "cottontail.exe"), fs)).toBe(true);
+	});
+
+	test("rejects a plain bun.exe that took over a recycled PID", () => {
+		const fs = layout({});
+		expect(isPinarTrayImage(win32.join("C:", "Users", "me", ".bun", "bin", "bun.exe"), fs)).toBe(false);
+	});
+
+	test("rejects the Bun runtime of another Electrobun app", () => {
+		const other = win32.join(localAppData, "com.example.app", "stable", "app");
+		const fs = installedApp(other, JSON.stringify({ identifier: "com.example.app" }));
+		expect(isPinarTrayImage(win32.join(other, "bin", "bun.exe"), fs)).toBe(false);
+	});
+
+	test("rejects a Pinar app folder without a readable version.json", () => {
+		const fs = layout({ [win32.join(app, "bin", "launcher.exe")]: "" });
+		expect(isPinarTrayImage(win32.join(app, "bin", "bun.exe"), fs)).toBe(false);
+	});
+
+	test("rejects an executable that is not a tray runtime", () => {
+		const fs = installedApp(app, pinarVersion);
+		expect(isPinarTrayImage(win32.join(app, "bin", "launcher.exe"), fs)).toBe(false);
 	});
 });

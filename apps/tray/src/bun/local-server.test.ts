@@ -152,7 +152,7 @@ describe("findHealthyServer", () => {
 		const fetchMock = spyOn(globalThis, "fetch");
 		try {
 			for (const { version, expected } of cases) {
-				fetchMock.mockImplementation(async () => new Response(JSON.stringify({
+				fetchMock.mockResolvedValue(new Response(JSON.stringify({
 					ok: true,
 					service: "pinar",
 					version,

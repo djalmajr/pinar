@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL https://hutch.blackboard.sh/hutch/install.sh | sh -s -- --version 0.25.0 --no-modify-path
+          curl -fsSL https://hutch.blackboard.sh/hutch/install.sh | sh -s -- --version 0.28.1 --no-modify-path
           echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
       - name: Validate release tag
         env:
@@ -182,7 +182,7 @@ jobs:
       - name: Install Hutch
         run: |
           $ErrorActionPreference = "Stop"
-          & ([scriptblock]::Create((irm https://hutch.blackboard.sh/hutch/install.ps1))) -Version 0.25.0 -NoModifyPath
+          & ([scriptblock]::Create((irm https://hutch.blackboard.sh/hutch/install.ps1))) -Version 0.28.1 -NoModifyPath
           Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\bin")
       - name: Validate release tag
         env:

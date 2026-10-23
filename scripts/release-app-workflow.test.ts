@@ -18,7 +18,7 @@ describe("Pinar.app release workflow", () => {
     expect(workflow).toContain("ref: ${{ needs.classify.outputs.tag }}");
     expect(workflow).toContain("runs-on: macos-14");
     expect(workflow).toContain("hutch/install.sh");
-    expect(workflow).toContain("--version 0.25.0");
+    expect(workflow).toContain("--version 0.28.1");
     expect(workflow).toContain('echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"');
     expect(workflow).toContain("bun run release:check");
     expect(workflow).toContain("bun run build:tray");
@@ -54,7 +54,7 @@ describe("Pinar.app release workflow", () => {
   test("builds an unsigned Windows installer on a Windows runner", () => {
     expect(workflow).toContain("runs-on: windows-latest");
     expect(workflow).toContain("hutch/install.ps1");
-    expect(workflow).toContain("-Version 0.25.0");
+    expect(workflow).toContain("-Version 0.28.1");
     expect(workflow).toContain("-NoModifyPath");
     expect(workflow).toContain(
       'Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\\bin")',

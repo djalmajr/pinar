@@ -59,7 +59,7 @@ export function windowsBuildFolderNames(env, arch = "x64") {
 }
 
 export function isRunnableWindowsApp(root) {
-  return existsSync(join(root, "bin", "launcher.exe")) && existsSync(join(root, "bin", "cottontail.exe"));
+  return existsSync(join(root, "bin", "launcher.exe")) && existsSync(join(root, "bin", "bun.exe"));
 }
 
 export function windowsTrayExe(root) {
@@ -78,7 +78,7 @@ export async function extractWindowsTrayArchive(archive, dest) {
     const nested = join(staging, "Pinar");
     const from = isRunnableWindowsApp(nested) ? nested : staging;
     if (!isRunnableWindowsApp(from)) {
-      throw new Error(`pinar tray archive is missing launcher.exe and cottontail.exe: ${archive}`);
+      throw new Error(`pinar tray archive is missing launcher.exe and bun.exe: ${archive}`);
     }
     await rm(dest, { recursive: true, force: true });
     await mkdir(join(dest, ".."), { recursive: true });

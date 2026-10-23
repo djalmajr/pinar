@@ -56,10 +56,10 @@ export default {
 			"icon.iconset/icon_32x32.png": "views/assets/tray-win.png",
 			...helperCopy,
 		},
-		cottontail: {
+		bun: {
 			entrypoint: "src/bun/index.ts",
 		},
-		mainProcess: "cottontail",
+		mainProcess: "bun",
 	},
 	scripts: {
 		postBuild: "scripts/post-build.mjs",

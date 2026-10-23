@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { readZipDirectory, readZipEntry } from "../packages/shared/src/archive/stored-zip.ts";
 import {
   DEVELOPMENT_EXTENSION_ID,
   DEVELOPMENT_EXTENSION_KEY,
@@ -100,7 +100,7 @@ describe("extension package", () => {
     expect(unpacked.version).toBe(manifest.version);
   });
 
-  test("rejects missing, malformed, and unrecognized source keys without writing archives", () => {
+  test("rejects missing, malformed, and unrecognized source keys without writing archives", async () => {
     const missingMessage = "source manifest.key is missing; the repository extension must carry the recognized development key";
     const unrecognizedMessage = "source manifest.key is not the recognized development key; refusing unrecognized key material";
     const invalidKeys = [
@@ -118,8 +118,8 @@ describe("extension package", () => {
         try {
           createPackagingFixture(fixture, "0.6.5", key);
           const archive = join(fixture, `extension/pinar-extension-0.6.5${unpacked ? "-unpacked" : ""}.zip`);
-          expect(() => packageExtension({ rootDirectory: fixture, runBuild: false, unpacked }))
-            .toThrow(message);
+          await expect(packageExtension({ rootDirectory: fixture, runBuild: false, unpacked }))
+            .rejects.toThrow(message);
           expect(existsSync(archive)).toBe(false);
         } finally {
           rmSync(fixture, { recursive: true, force: true });
@@ -128,26 +128,32 @@ describe("extension package", () => {
     }
   });
 
-  test("creates reproducible Store and unpacked archives with identical runtime entries", () => {
+  test("creates reproducible Store and unpacked archives with identical runtime entries", async () => {
     const directory = mkdtempSync(join(tmpdir(), "pinar-extension-artifacts-"));
     try {
       const fixture = join(directory, "repo");
       const { manifest: sourceManifest, version } = extensionVersions(root);
       createPackagingFixture(fixture, version, sourceManifest.key);
       const { manifest } = extensionVersions(fixture);
-      const store = packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false });
-      const unpacked = packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false, unpacked: true });
-      const storeAgain = packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false });
-      const unpackedAgain = packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false, unpacked: true });
-      const entries = (archive: string) => execFileSync("unzip", ["-Z1", archive], { encoding: "utf8" }).trim().split("\n");
-      const archivedManifest = (archive: string) => JSON.parse(execFileSync("unzip", ["-p", archive, "manifest.json"], { encoding: "utf8" }));
-      const storeManifest = archivedManifest(store.outputPath);
-      const unpackedManifest = archivedManifest(unpacked.outputPath);
+      const store = await packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false });
+      const unpacked = await packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false, unpacked: true });
+      const storeAgain = await packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false });
+      const unpackedAgain = await packageExtension({ expectedVersion: version, rootDirectory: fixture, runBuild: false, unpacked: true });
+      const inspectArchive = async (path: string) => {
+        const archive = new Blob([readFileSync(path)]);
+        const directory = await readZipDirectory(archive);
+        let manifest;
+        for (const entry of directory) {
+          const data = await readZipEntry(archive, entry);
+          if (entry.name === "manifest.json") manifest = JSON.parse(new TextDecoder().decode(data));
+        }
+        return { entries: directory.map((entry) => entry.name), manifest };
+      };
+      const { entries: storeEntries, manifest: storeManifest } = await inspectArchive(store.outputPath);
+      const { entries: unpackedEntries, manifest: unpackedManifest } = await inspectArchive(unpacked.outputPath);
 
-      expect(execFileSync("unzip", ["-t", store.outputPath], { encoding: "utf8" })).toContain("No errors detected");
-      expect(execFileSync("unzip", ["-t", unpacked.outputPath], { encoding: "utf8" })).toContain("No errors detected");
-      expect(entries(store.outputPath)).toEqual(store.entries);
-      expect(entries(unpacked.outputPath)).toEqual(unpacked.entries);
+      expect(storeEntries).toEqual(store.entries);
+      expect(unpackedEntries).toEqual(unpacked.entries);
       expect(store.entries).toEqual(unpacked.entries);
       expect(store.outputPath).toBe(join(fixture, `extension/pinar-extension-${version}.zip`));
       expect(unpacked.outputPath).toBe(join(fixture, `extension/pinar-extension-${version}-unpacked.zip`));

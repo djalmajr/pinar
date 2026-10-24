@@ -751,7 +751,7 @@ const locale = {
         {
           heading: "Transcribe un comentario por voz",
           paragraphs: [
-            "Inicia el comentario de un pin y elige el micrófono. Graba hasta 120 segundos y detén para insertar la transcripción en el comentario o envíala directamente. En Pinar Cloud, la transcripción por voz requiere una cuenta Pro y usa créditos de IA; la guía Créditos de IA de Pinar Cloud para la voz y el asistente explica los tramos de cobro y los reembolsos. En la aplicación local, la voz usa el modelo de transcripción definido en Configuración → Asistente de IA en tu propio endpoint compatible con OpenAI, sin créditos. La clave de API del endpoint debe permitir transcripción de audio.",
+            "Inicia el comentario de un pin y elige el micrófono. Graba hasta 120 segundos y elige ■ para insertar la transcripción en el comentario. Revisa el texto y elige Añadir para guardar el pin; ✕ descarta la grabación. En Pinar Cloud, la transcripción por voz requiere una cuenta Pro y usa créditos de IA; la guía Créditos de IA de Pinar Cloud para la voz y el asistente explica los tramos de cobro y los reembolsos. En la aplicación local, la voz usa el modelo de transcripción definido en Configuración → Asistente de IA en tu propio endpoint compatible con OpenAI, sin créditos. La clave de API del endpoint debe permitir transcripción de audio.",
           ],
         },
         {
@@ -780,12 +780,12 @@ const locale = {
         {
           heading: "Limpiar la transcripción con IA",
           paragraphs: [
-            "Por defecto, un comentario por voz grabado coloca la transcripción sin procesar en el pin. El interruptor “Limpiar la transcripción con IA” en las opciones de la extensión — y el interruptor “Limpiar transcripciones de voz” en Configuración → “Uso de IA” en Pinar Cloud — envían la transcripción primero por el modelo de IA, para que el pin reciba el comentario que tú pretendías: se eliminan las muletillas y los falsos inicios, y el modelo puede añadir criterios de aceptación breves junto al comentario.",
+            "Por defecto, un comentario por voz grabado coloca la transcripción sin procesar en el pin. El interruptor “Limpiar la transcripción con IA” en las opciones de la extensión, en Captura → Entrega al agente — y el interruptor “Limpiar transcripciones de voz” en Configuración → “Uso de IA” en Pinar Cloud — envían la transcripción primero por el modelo de IA, para que el pin reciba el comentario que tú pretendías: se eliminan las muletillas y los falsos inicios, y el modelo puede añadir criterios de aceptación breves junto al comentario.",
             "Con el interruptor desactivado, la transcripción se usa directamente como comentario, hasta el límite de longitud del comentario, sin reescritura con IA. En la aplicación local, la limpieza usa el modelo que configuraste en Configuración → Asistente de IA. En Pinar Cloud se ejecuta con los mismos créditos de IA que ya usa la transcripción por voz.",
           ],
           bullets: [
-            "Antes de guardar el pin, revisa la transcripción original en el panel de voz o elige “Usar transcripción” para insertarla en el comentario. La transcripción original también se copia al portapapeles; no se guarda por separado con el pin.",
-            "La limpieza está desactivada por defecto. Actívala en las opciones de la extensión para capturas locales, o en Configuración → “Uso de IA” para Pinar Cloud.",
+            "El resultado se inserta directamente en el campo de comentario. Revisa el texto y elige Añadir para guardar el pin. La transcripción original también se copia al portapapeles; no se guarda por separado con el pin.",
+            "La limpieza está desactivada por defecto. Actívala en las opciones de la extensión, en Captura → Entrega al agente para capturas locales, o en Configuración → “Uso de IA” para Pinar Cloud.",
           ],
         },
       ],

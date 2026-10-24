@@ -54,8 +54,6 @@ const MV3_KEYS = [
   "overlay_voice_recording",
   "overlay_voice_duration",
   "overlay_voice_processing",
-  "overlay_voice_transcript",
-  "overlay_voice_use_transcript",
   "overlay_voice_ready",
   "overlay_voice_local_only",
   "overlay_voice_local_ai_required",

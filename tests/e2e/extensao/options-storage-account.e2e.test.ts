@@ -288,6 +288,20 @@ async function expectActionPopup(page: Page, buttonName: string, pathname: strin
   await popup.close();
 }
 
+async function expectVoicePreference(page: Page, visible: boolean) {
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Capture", exact: true }).click();
+  const toggle = page.getByRole("switch", { name: "Clean up transcription with AI" });
+  if (visible) {
+    await expect(toggle).toHaveCount(1);
+    await expect(toggle).toBeVisible();
+    await expect(page.getByText("Agent handoff", { exact: true }).locator("..").getByRole("switch", { name: "Clean up transcription with AI" })).toBeVisible();
+  } else {
+    await expect(toggle).toHaveCount(0);
+  }
+  await page.getByRole("tab", { name: "Preferences", exact: true }).click();
+}
+
 test("selecting remote saves the destination and shows signed-in controls inline", async ({ page }) => {
   await installOptionsHarness(page);
   await page.getByRole("radio", { name: /Remote Server/ }).check();
@@ -299,7 +313,8 @@ test("selecting remote saves the destination and shows signed-in controls inline
   await expect(remoteCard.getByRole("link", { name: "Create account" })).toHaveCount(0);
   await expect(remoteCard.getByText("Account and plan", { exact: true })).toHaveCount(0);
   await expect(remoteCard.getByText("Voice comments", { exact: true })).toHaveCount(0);
-  await expect(remoteCard.getByText("Clean up transcription with AI", { exact: true })).toBeVisible();
+  await expect(remoteCard.getByText("Clean up transcription with AI", { exact: true })).toHaveCount(0);
+  await expectVoicePreference(page, true);
   await expect(remoteCard.locator("[data-slot=separator]")).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-settings") || "{}").storageMode)).toBe("cloud");
   await expectActionPopup(page, "Open app", "/extension-open/cloud/account");
@@ -330,7 +345,7 @@ test("remote account stays hidden until its storage status arrives", async ({ pa
   await expect(page.getByRole("link", { name: "Create account", exact: true })).toHaveCount(0);
   await expect(page.getByPlaceholder("you@example.com")).toHaveCount(0);
   await expect(page.getByRole("switch", { name: "Save Annotation History" })).toHaveCount(0);
-  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+  await expectVoicePreference(page, false);
 
   await releaseStorageStatus(page, 1);
 
@@ -338,7 +353,7 @@ test("remote account stays hidden until its storage status arrives", async ({ pa
   await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
-  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toBeVisible();
+  await expectVoicePreference(page, true);
 });
 
 test("email sign-in stays pending until its storage status arrives", async ({ page }) => {
@@ -362,7 +377,7 @@ test("email sign-in stays pending until its storage status arrives", async ({ pa
   await expect(page.getByRole("link", { name: "Create account", exact: true })).toHaveCount(0);
   await expect(page.getByPlaceholder("you@example.com")).toHaveCount(0);
   await expect(page.getByRole("switch", { name: "Save Annotation History" })).toHaveCount(0);
-  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+  await expectVoicePreference(page, false);
 
   await releaseStorageStatus(page, 1);
 
@@ -370,7 +385,7 @@ test("email sign-in stays pending until its storage status arrives", async ({ pa
   await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
-  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toBeVisible();
+  await expectVoicePreference(page, true);
 });
 
 test("an older account status cannot finish a newer storage mode load", async ({ page }) => {
@@ -411,12 +426,12 @@ test("an older account status cannot finish a newer storage mode load", async ({
 test("local mode shows the voice preference only when the local AI is configured", async ({ page }) => {
   await installOptionsHarness(page);
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
-  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+  await expectVoicePreference(page, false);
 
   await page.evaluate(() => localStorage.setItem("pinar-e2e-local-voice-available", "1"));
   await page.reload();
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
-  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toBeVisible();
+  await expectVoicePreference(page, true);
 });
 
 test("storage mode persists immediately and opens the matching app", async ({ page }) => {
@@ -719,7 +734,7 @@ test("remote Free account shows its plan but does not show Pro voice preferences
   await expect(page.getByText("contato@pinar.dev (FREE)", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
-  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+  await expectVoicePreference(page, false);
 });
 
 test("capture tab picks the destination collection and saves it through the background sync", async ({ page }) => {
@@ -780,3 +795,23 @@ test("capture destination cascader keeps the search clean and expands a parent c
     .filter((message: { type?: string }) => message.type === "destination:set")
     .map((message: { collectionId?: string }) => message.collectionId))).toEqual(["account-local-scale-collection-5", "account-local-scale-collection-0"]);
 });
+
+for (const mode of ["local", "cloud"] as const) {
+  test(`${mode} voice cleanup saves from Capture and survives reload`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("pinar-e2e-local-voice-available", "1"));
+    await installOptionsHarness(page);
+    if (mode === "cloud") await page.getByRole("radio", { name: /Remote Server/ }).check();
+    await expectVoicePreference(page, true);
+    await page.getByRole("tab", { name: "Capture", exact: true }).click();
+    const toggle = page.getByRole("switch", { name: "Clean up transcription with AI" });
+    await toggle.check();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-messages") || "[]")
+      .some((message: { type?: string; voicePostProcessing?: boolean }) => message.type === "preferences:set" && message.voicePostProcessing === true))).toBe(true);
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-settings") || "{}").voicePostProcessing)).toBe(true);
+    await page.reload();
+    await expectVoicePreference(page, true);
+    await page.getByRole("tab", { name: "Capture", exact: true }).click();
+    await expect(toggle).toBeChecked();
+  });
+}

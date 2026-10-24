@@ -203,8 +203,6 @@
     overlay_voice_recording: "Listening… {seconds}s of {limit}s",
     overlay_voice_duration: "{seconds}s / {limit}s",
     overlay_voice_processing: "Transcribing and organizing…",
-    overlay_voice_transcript: "Transcription",
-    overlay_voice_use_transcript: "Use transcription",
     overlay_voice_ready: "Voice comment ready to review",
     overlay_voice_local_only: "Voice comments are available with Pinar Cloud on Pro.",
     overlay_voice_local_ai_required: "Configure a transcription model in Pinar Settings → AI to use voice comments.",
@@ -739,8 +737,6 @@
       .voice-session-button:hover { background: #E2E8F0; }
       .voice-session-button:disabled { cursor: not-allowed; opacity: .4; }
       .voice-session-button svg { height: 17px; width: 17px; }
-      .voice-session-send { background: ${MARK}; color: #fff; }
-      .voice-session-send:hover { background: #4F7DE0; }
       .voice-meter { align-items: center; display: flex; flex: 1 1 auto; gap: 7px; min-width: 0; }
       .voice-meta { align-items: center; color: #94A3B8; display: inline-flex; flex: 0 0 auto; font: 500 10px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; gap: 3px; }
       .voice-meta svg { height: 14px; width: 14px; }
@@ -785,17 +781,6 @@
         .voice-wave i { transition: none; }
         .voice-session.is-processing .voice-wave i { animation: none; opacity: .6; transform: none; }
       }
-      .voice-review {
-        background: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        border-radius: 6px;
-        color: #475569;
-        padding: 8px;
-      }
-      .voice-review[hidden] { display: none; }
-      .voice-review strong { color: #334155; display: block; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-bottom: 4px; }
-      .voice-review p { font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; max-height: 72px; overflow: auto; white-space: pre-wrap; }
-      .voice-review button { background: transparent; border: 0; color: ${MARK}; cursor: pointer; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-top: 6px; padding: 0; }
       .btn-cancel, .btn-add {
         border: 0;
         border-radius: 6px;
@@ -876,11 +861,6 @@
       <div class="composer-card">
         <span class="composer-target" data-ref="selectionTag" hidden></span>
         <textarea data-ref="input" rows="1" placeholder="${t("overlay_comment")}"></textarea>
-        <div class="voice-review" data-ref="voiceReview" hidden>
-          <strong data-ref="voiceTranscriptLabel">${t("overlay_voice_transcript")}</strong>
-          <p data-ref="voiceTranscript"></p>
-          <button type="button" data-ref="voiceUseTranscript">${t("overlay_voice_use_transcript")}</button>
-        </div>
         <div class="voice-session" data-ref="voiceSession" hidden>
           <button type="button" class="voice-session-button" data-ref="voiceCancel" title="${t("overlay_cancel")}" aria-label="${t("overlay_cancel")}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="m6 6 12 12M18 6 6 18"/></svg>
@@ -894,9 +874,6 @@
           </div>
           <button type="button" class="voice-session-button" data-ref="voiceStop" title="${t("overlay_voice_stop")}" aria-label="${t("overlay_voice_stop")}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor"/></svg>
-          </button>
-          <button type="button" class="voice-session-button voice-session-send" data-ref="voiceSend" title="${t("overlay_add")}" aria-label="${t("overlay_add")}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 12 7-7 7 7M12 5v14"/></svg>
           </button>
         </div>
         <div class="voice-feedback" data-ref="voiceFeedback" hidden>
@@ -957,17 +934,12 @@
     voiceElapsed: shadow.querySelector("[data-ref=voiceElapsed]"),
     voiceFeedback: shadow.querySelector("[data-ref=voiceFeedback]"),
     voiceMeta: shadow.querySelector("[data-ref=voiceMeta]"),
-    voiceReview: shadow.querySelector("[data-ref=voiceReview]"),
-    voiceSend: shadow.querySelector("[data-ref=voiceSend]"),
     voiceSession: shadow.querySelector("[data-ref=voiceSession]"),
     voiceStop: shadow.querySelector("[data-ref=voiceStop]"),
     voiceWave: shadow.querySelector("[data-ref=voiceWave]"),
     voiceWaveTrack: shadow.querySelector("[data-ref=voiceWaveTrack]"),
     voiceStatus: shadow.querySelector("[data-ref=voiceStatus]"),
     voiceTooltip: shadow.querySelector("[data-ref=voiceTooltip]"),
-    voiceTranscript: shadow.querySelector("[data-ref=voiceTranscript]"),
-    voiceTranscriptLabel: shadow.querySelector("[data-ref=voiceTranscriptLabel]"),
-    voiceUseTranscript: shadow.querySelector("[data-ref=voiceUseTranscript]"),
   };
 
   document.documentElement.append(host);
@@ -1993,16 +1965,10 @@
       ui.voiceCancel.title = t("overlay_cancel");
       ui.voiceCancel.setAttribute("aria-label", t("overlay_cancel"));
     }
-    if (ui.voiceSend) {
-      ui.voiceSend.title = t("overlay_add");
-      ui.voiceSend.setAttribute("aria-label", t("overlay_add"));
-    }
     if (ui.voiceStop) {
       ui.voiceStop.title = t("overlay_voice_stop");
       ui.voiceStop.setAttribute("aria-label", t("overlay_voice_stop"));
     }
-    if (ui.voiceTranscriptLabel) ui.voiceTranscriptLabel.textContent = t("overlay_voice_transcript");
-    if (ui.voiceUseTranscript) ui.voiceUseTranscript.textContent = t("overlay_voice_use_transcript");
     if (ui.voiceCreditRetry) ui.voiceCreditRetry.textContent = t("overlay_voice_byok_use_credits");
     ui.reviewPanel?.setAttribute("aria-label", t("overlay_session_review"));
     renderVoiceControls();
@@ -2347,13 +2313,10 @@
   let voiceProcessing = false;
   let voiceRequestGeneration = 0;
   let voiceElapsedSeconds = 0;
-  let voiceInsertedRange = null;
-  let voiceTranscriptComment = "";
   // F5/S4b: the same recording that a BYOK failure offers to resend with
   // Pinar credits; a null payload means there is no pending retry.
   let pendingCreditRetry = null;
   const cancelledVoiceRecorders = new WeakSet();
-  const submittedVoiceRecorders = new WeakSet();
 
   function voiceAvailabilityMessage() {
     return t(VOICE_AVAILABILITY_MESSAGE_KEYS[voiceAvailabilityReason] || "overlay_voice_unavailable");
@@ -2379,7 +2342,6 @@
     ui.voiceSession.classList.toggle("is-processing", voiceProcessing);
     ui.voiceSession.setAttribute("aria-label", voiceProcessing ? t("overlay_voice_processing") : formatVoiceRecordingLabel(voiceElapsedSeconds));
     ui.voiceStop.disabled = voiceProcessing;
-    ui.voiceSend.disabled = voiceProcessing;
     // F5/S4b: the "use Pinar credits" action lives with the BYOK failure
     // message and waits out the recording and the retry itself.
     ui.voiceCreditRetry.hidden = !(pendingCreditRetry && !active && state.draft);
@@ -2497,10 +2459,6 @@
 
   function resetVoiceUi() {
     discardVoiceRecording();
-    ui.voiceReview.hidden = true;
-    ui.voiceTranscript.textContent = "";
-    voiceTranscriptComment = "";
-    voiceInsertedRange = null;
     setVoiceStatus();
   }
 
@@ -2538,7 +2496,6 @@
       renderVoiceControls();
       return;
     }
-    const submitAfterTranscription = submittedVoiceRecorders.has(recorder);
     const durationSeconds = boundedVoiceDuration(voiceStartedAt, performance.now());
     const blob = new Blob(chunks, { type: recorder?.mimeType || "audio/webm" });
     if (!blob.size || !state.draft) {
@@ -2558,7 +2515,6 @@
         audioDataUrl: await blobDataUrl(blob),
         durationSeconds,
         requestGeneration,
-        submitAfterTranscription,
       });
     } catch (error) {
       if (requestGeneration !== voiceRequestGeneration) return;
@@ -2574,7 +2530,7 @@
   // The send of a voice recording: the first attempt and the "use Pinar
   // credits" retry share it (F5/S4b) — the retry resends the same recording
   // with useCredits, without asking the microphone again.
-  async function runVoiceTranscription({ audioDataUrl, durationSeconds, useCredits = false, requestGeneration, submitAfterTranscription = false }) {
+  async function runVoiceTranscription({ audioDataUrl, durationSeconds, useCredits = false, requestGeneration }) {
     // F5/S4b round 3: this may resume after a cancel happened during the
     // previous conversion (the FileReader read) — a stale generation must not
     // send and must not touch state at all: its busy state was already
@@ -2603,19 +2559,21 @@
         page: pageContext(),
         pins: [{ comment: structured }],
       }).pins[0]?.comment || "";
-      ui.voiceTranscript.textContent = transcript;
-      voiceTranscriptComment = sanitizeCapture({
+      const transcriptComment = sanitizeCapture({
         fields: activeScan().fields,
         page: pageContext(),
         pins: [{ comment: transcript }],
       }).pins[0]?.comment || "";
-      if (voiceTranscriptComment) {
+      if (transcriptComment) {
         await chrome.runtime.sendMessage({
-          text: voiceTranscriptComment,
+          text: transcriptComment,
           type: "voice:copy-transcript",
         }).catch(() => null);
       }
-      ui.voiceReview.hidden = transcript === structured;
+      // The clipboard copy is an await too: a cancel (✕ or Escape keeps the
+      // draft open) may have landed meanwhile, and the discarded text must
+      // not reach the field the user is editing.
+      if (requestGeneration !== voiceRequestGeneration || !state.draft) return;
       const insertion = insertVoiceComment(
         ui.input.value,
         sanitized,
@@ -2623,21 +2581,10 @@
         ui.input.selectionEnd,
       );
       ui.input.value = insertion.value;
-      voiceInsertedRange = {
-        end: insertion.insertedEnd,
-        start: insertion.insertedStart,
-        text: sanitized,
-      };
       fitInput();
       setVoiceStatus();
-      if (submitAfterTranscription) {
-        voiceProcessing = false;
-        renderVoiceControls();
-        saveDraft();
-      } else {
-        ui.input.focus({ preventScroll: true });
-        ui.input.setSelectionRange(insertion.cursor, insertion.cursor);
-      }
+      ui.input.focus({ preventScroll: true });
+      ui.input.setSelectionRange(insertion.cursor, insertion.cursor);
     } catch (error) {
       if (requestGeneration !== voiceRequestGeneration) return;
       // F5/S4b: only the BYOK failure that allows credits keeps the same
@@ -2668,9 +2615,8 @@
     });
   }
 
-  function stopVoiceRecording(submitAfterTranscription = false) {
+  function stopVoiceRecording() {
     if (voiceRecorder?.state !== "recording") return;
-    if (submitAfterTranscription) submittedVoiceRecorders.add(voiceRecorder);
     voiceRecorder.stop();
   }
 
@@ -2694,10 +2640,6 @@
     }
     try {
       setVoiceStatus();
-      ui.voiceReview.hidden = true;
-      ui.voiceTranscript.textContent = "";
-      voiceTranscriptComment = "";
-      voiceInsertedRange = null;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       voiceStream = stream;
       const mimeType = preferredVoiceMimeType(MediaRecorder);
@@ -2729,6 +2671,7 @@
         stopVoiceRecording();
       }, MAX_VOICE_SECONDS * 1_000);
       renderVoiceControls();
+      ui.voiceStop.focus({ preventScroll: true });
     } catch {
       closeVoiceStream();
       voiceRecorder = null;
@@ -3234,6 +3177,11 @@
       event.stopImmediatePropagation();
       ownedKeyCodes.add(event.code);
       if (host.hasAttribute("data-review-open")) { setReviewOpen(false); return; }
+      if (state.draft && (voiceRecorder?.state === "recording" || voiceProcessing)) {
+        resetVoiceUi();
+        ui.input.focus({ preventScroll: true });
+        return;
+      }
       if (state.draft) {
         cancelDraft();
         return;
@@ -3594,30 +3542,8 @@
   ui.deleteDraft.addEventListener("click", () => deleteDraft());
   ui.voice.addEventListener("click", () => void startVoiceRecording());
   ui.voiceCancel.addEventListener("click", () => resetVoiceUi());
-  ui.voiceSend.addEventListener("click", () => stopVoiceRecording(true));
   ui.voiceStop.addEventListener("click", () => stopVoiceRecording());
   ui.voiceCreditRetry.addEventListener("click", () => void retryVoiceWithCredits());
-  ui.voiceUseTranscript.addEventListener("click", () => {
-    if (!voiceTranscriptComment) return;
-    const rangeMatches = voiceInsertedRange
-      && ui.input.value.slice(voiceInsertedRange.start, voiceInsertedRange.end) === voiceInsertedRange.text;
-    const insertion = insertVoiceComment(
-      ui.input.value,
-      voiceTranscriptComment,
-      rangeMatches ? voiceInsertedRange.start : ui.input.selectionStart,
-      rangeMatches ? voiceInsertedRange.end : ui.input.selectionEnd,
-    );
-    ui.input.value = insertion.value;
-    voiceInsertedRange = {
-      end: insertion.insertedEnd,
-      start: insertion.insertedStart,
-      text: voiceTranscriptComment,
-    };
-    fitInput();
-    ui.input.focus({ preventScroll: true });
-    ui.input.setSelectionRange(insertion.cursor, insertion.cursor);
-    ui.voiceReview.hidden = true;
-  });
   ui.save.addEventListener("click", () => saveDraft());
   ui.layer.addEventListener("pointerover", (event) => {
     const button = event.target.closest("[data-pin]");

@@ -765,17 +765,6 @@ export function OptionsApp() {
                         </span>
                         {installPlatform === "other" ? null : <Button className="h-7 shrink-0 self-center text-xs" render={<a href={desktopInstallUrl} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button>}
                       </label>
-                      {settings.storageMode === "local" && authReady && voiceAvailable ? (
-                        <div className="flex flex-col gap-4 border-t p-3">
-                          <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
-                            <Switch
-                              aria-label={t.voice_post_processing_label}
-                              checked={settings.voicePostProcessing}
-                              onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
-                            />
-                          </SettingRow>
-                        </div>
-                      ) : null}
                     </div>
                     <div className="overflow-hidden rounded-lg border">
                       <div className="flex items-center gap-2 px-3 py-2">
@@ -835,15 +824,6 @@ export function OptionsApp() {
                         </section>
                           )}
                           {authReady && authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
-                          {authReady && voiceAvailable ? (
-                            <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
-                              <Switch
-                                aria-label={t.voice_post_processing_label}
-                                checked={settings.voicePostProcessing}
-                                onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
-                              />
-                            </SettingRow>
-                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -886,6 +866,15 @@ export function OptionsApp() {
                   <span className={SECTION_HEADER}>{t.section_handoff}</span>
                   <p className={SECTION_DESC}>{t.section_handoff_desc}</p>
                   <div className="flex flex-col gap-3">
+                  {authReady && voiceAvailable ? (
+                    <SettingRow description={t.voice_post_processing_desc} size="xs" title={t.voice_post_processing_label}>
+                      <Switch
+                        aria-label={t.voice_post_processing_label}
+                        checked={settings.voicePostProcessing}
+                        onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
+                      />
+                    </SettingRow>
+                  ) : null}
                   <SettingRow size="xs" description={t.handoff_mode_desc} title={`${t.handoff_mode_label}: ${settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}`}>
                     <Switch aria-label={t.handoff_mode_label} checked={settings.handoffMode === "full"} onCheckedChange={(checked) => setSettings((current) => ({ ...current, handoffMode: checked ? "full" : "compact" }))} />
                   </SettingRow>

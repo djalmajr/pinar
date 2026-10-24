@@ -125,6 +125,7 @@ function harness(contentSource = source) {
       }),
       seedRecorder: () => { const recorder = new MediaRecorder(); voiceRecorder = recorder; voiceStartedAt = 1000; return recorder; },
       getRecorder: () => voiceRecorder,
+      stopVoiceRecording,
       startVoiceRecording,
       finishVoiceRecording,
       discardVoiceRecording,
@@ -147,7 +148,29 @@ function harness(contentSource = source) {
 }
 
 describe("voice BYOK overlay lifecycle (F5/S4b review)", () => {
-  test("failure -> credits retry -> success: same audio, new ID, one double-click send, cleared payload", async () => {
+  test("stop inserts the cleaned comment without saving and preserves the raw clipboard transcript", async () => {
+    const h = harness();
+    h.setAnswer(async () => ({ ok: true, result: { acceptanceCriteria: [], comment: "Clean voice", transcript: "Raw voice" } }));
+    await h.api.startVoiceRecording();
+    const recorder = h.api.getRecorder();
+    h.api.stopVoiceRecording();
+    assert.equal(recorder.state, "inactive");
+    const finished = h.api.finishVoiceRecording(recorder, null, [new Blob(["audio"])], h.api.generation());
+    assert.equal(h.ui.voiceStop.disabled, true);
+    assert.equal(h.ui.composerActions.hidden, true);
+    h.readers[0].finish();
+    await finished;
+    assert.equal(h.ui.input.value, "Clean voice");
+    assert.deepEqual(h.copies, ["Raw voice"]);
+    assert.equal(h.state.pins.length, 0);
+    assert.ok(h.state.draft);
+    assert.equal(h.ui.composerActions.hidden, false);
+    assert.equal(h.api.saveDraft(), true);
+    assert.equal(h.state.pins.length, 1);
+    assert.equal(h.state.pins[0].comment, "Clean voice");
+  });
+
+  test("failure -> credits retry -> success: same audio, new ID, one double-click retry request, cleared payload", async () => {
     const h = harness();
     await h.api.runVoiceTranscription({ audioDataUrl: "data:audio/webm;base64,QQ==", durationSeconds: 4, requestGeneration: 0 });
     assert.equal(h.api.snapshot().hidden, false);
@@ -165,6 +188,8 @@ describe("voice BYOK overlay lifecycle (F5/S4b review)", () => {
     wait.resolve(success);
     await Promise.all([first, second]);
     assert.equal(h.ui.input.value, "New voice");
+    assert.equal(h.state.pins.length, 0);
+    assert.ok(h.state.draft);
     assert.equal(h.api.snapshot().pending, null);
   });
 

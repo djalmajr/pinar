@@ -750,7 +750,7 @@ const locale = {
         {
           heading: "Transcrire un commentaire vocal",
           paragraphs: [
-            "Commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, puis arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Dans Pinar Cloud, la transcription vocale nécessite un compte Pro et utilise des crédits IA ; le guide Crédits IA Pinar Cloud pour la voix et l’assistant détaille les paliers de facturation et les remboursements. Dans l’application locale, la voix utilise le modèle de transcription défini dans Paramètres → Assistant IA sur votre propre endpoint compatible OpenAI, sans crédits. La clé API de l’endpoint doit autoriser la transcription audio.",
+            "Commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, puis choisissez ■ pour insérer la transcription dans le commentaire. Relisez le texte et choisissez Ajouter pour enregistrer le pin ; ✕ supprime l’enregistrement. Dans Pinar Cloud, la transcription vocale nécessite un compte Pro et utilise des crédits IA ; le guide Crédits IA Pinar Cloud pour la voix et l’assistant détaille les paliers de facturation et les remboursements. Dans l’application locale, la voix utilise le modèle de transcription défini dans Paramètres → Assistant IA sur votre propre endpoint compatible OpenAI, sans crédits. La clé API de l’endpoint doit autoriser la transcription audio.",
           ],
         },
         {
@@ -779,12 +779,12 @@ const locale = {
         {
           heading: "Nettoyer la transcription avec l’IA",
           paragraphs: [
-            "Par défaut, un commentaire vocal enregistré place la transcription brute dans le pin. L’interrupteur « Nettoyer la transcription avec l’IA » dans les options de l’extension — et l’interrupteur « Nettoyer les transcriptions vocales » dans Paramètres → « Utilisation de l’IA » dans Pinar Cloud — envoient la transcription d’abord par le modèle d’IA, afin que le pin reçoive le commentaire que vous aviez à l’esprit : les mots de remplissage et les faux départs sont retirés, et le modèle peut ajouter de courts critères d’acceptation à côté du commentaire.",
+            "Par défaut, un commentaire vocal enregistré place la transcription brute dans le pin. L’interrupteur « Nettoyer la transcription avec l’IA » dans les options de l’extension, sous Capture → Transmission à l’agent — et l’interrupteur « Nettoyer les transcriptions vocales » dans Paramètres → « Utilisation de l’IA » dans Pinar Cloud — envoient la transcription d’abord par le modèle d’IA, afin que le pin reçoive le commentaire que vous aviez à l’esprit : les mots de remplissage et les faux départs sont retirés, et le modèle peut ajouter de courts critères d’acceptation à côté du commentaire.",
             "Avec l’interrupteur désactivé, la transcription sert directement de commentaire, dans la limite de longueur du commentaire, sans réécriture par l’IA. Dans l’application locale, le nettoyage utilise le modèle que vous avez configuré dans Paramètres → Assistant IA. Dans Pinar Cloud, il s’exécute avec les mêmes crédits IA que la transcription vocale utilise déjà.",
           ],
           bullets: [
-            "Avant d’enregistrer le pin, relisez la transcription d’origine dans le panneau vocal ou choisissez « Utiliser la transcription » pour l’insérer dans le commentaire. La transcription d’origine est aussi copiée dans le presse-papiers ; elle n’est pas enregistrée séparément avec le pin.",
-            "Le nettoyage est désactivé par défaut. Activez-le dans les options de l’extension pour les captures locales, ou dans Paramètres → « Utilisation de l’IA » pour Pinar Cloud.",
+            "Le résultat est inséré directement dans le champ de commentaire. Relisez-le, puis choisissez Ajouter pour enregistrer le pin. La transcription d’origine est aussi copiée dans le presse-papiers ; elle n’est pas enregistrée séparément avec le pin.",
+            "Le nettoyage est désactivé par défaut. Activez-le dans les options de l’extension, sous Capture → Transmission à l’agent pour les captures locales, ou dans Paramètres → « Utilisation de l’IA » pour Pinar Cloud.",
           ],
         },
       ],

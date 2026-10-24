@@ -750,7 +750,7 @@ const locale = {
         {
           heading: "Sprachkommentar transkribieren",
           paragraphs: [
-            "Beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe dann, um die Transkription in den Kommentar einzufügen, oder sende sie direkt. In Pinar Cloud benötigt die Sprachtranskription ein Pro-Konto und verbraucht KI-Credits; der Leitfaden Pinar-Cloud-KI-Credits für Sprache und Assistent erklärt die Kostenstufen und Erstattungen. In der lokalen App nutzt Sprache das in Einstellungen → KI-Assistent hinterlegte Transkriptionsmodell auf deinem eigenen OpenAI-kompatiblen Endpunkt, ohne Credits. Der API-Schlüssel des Endpunkts muss Audio-Transkription erlauben.",
+            "Beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, wähle dann ■, um die Transkription in den Kommentar einzufügen. Prüfe den Text und wähle Hinzufügen, um den Pin zu speichern; ✕ verwirft die Aufnahme. In Pinar Cloud benötigt die Sprachtranskription ein Pro-Konto und verbraucht KI-Credits; der Leitfaden Pinar-Cloud-KI-Credits für Sprache und Assistent erklärt die Kostenstufen und Erstattungen. In der lokalen App nutzt Sprache das in Einstellungen → KI-Assistent hinterlegte Transkriptionsmodell auf deinem eigenen OpenAI-kompatiblen Endpunkt, ohne Credits. Der API-Schlüssel des Endpunkts muss Audio-Transkription erlauben.",
           ],
         },
         {
@@ -779,12 +779,12 @@ const locale = {
         {
           heading: "Transkription mit KI bereinigen",
           paragraphs: [
-            "Standardmäßig setzt ein aufgenommener Sprachkommentar die rohe Transkription in den Pin. Der Schalter „Transkription mit KI bereinigen“ in den Erweiterungsoptionen — und der Schalter „Sprachtranskriptionen bereinigen“ in Einstellungen → „KI-Nutzung“ in Pinar Cloud — geben die Transkription zuerst durch das KI-Modell, sodass der Pin den Kommentar erhält, den du beabsichtigt hast: Füllwörter und Fehlstarts werden entfernt, und das Modell kann kurze Akzeptanzkriterien neben den Kommentar setzen.",
+            "Standardmäßig setzt ein aufgenommener Sprachkommentar die rohe Transkription in den Pin. Der Schalter „Transkription mit KI bereinigen“ in den Erweiterungsoptionen unter Erfassung → Übergabe an den Agenten — und der Schalter „Sprachtranskriptionen bereinigen“ in Einstellungen → „KI-Nutzung“ in Pinar Cloud — geben die Transkription zuerst durch das KI-Modell, sodass der Pin den Kommentar erhält, den du beabsichtigt hast: Füllwörter und Fehlstarts werden entfernt, und das Modell kann kurze Akzeptanzkriterien neben den Kommentar setzen.",
             "Ist der Schalter aus, wird die Transkription direkt zum Kommentar, bis zur Längengrenze des Kommentars, ohne Umschreiben durch KI. In der lokalen App nutzt die Bereinigung das Modell, das du in Einstellungen → KI-Assistent eingerichtet hast. In Pinar Cloud läuft sie mit denselben KI-Credits, die die Sprachtranskription bereits verwendet.",
           ],
           bullets: [
-            "Bevor du den Pin speicherst, prüfe die ursprüngliche Transkription im Sprachbereich oder wähle „Transkription verwenden“, um sie in den Kommentar einzufügen. Die ursprüngliche Transkription wird außerdem in die Zwischenablage kopiert; sie wird nicht separat mit dem Pin gespeichert.",
-            "Die Bereinigung ist standardmäßig aus. Schalte sie in den Erweiterungsoptionen für lokale Aufnahmen ein, oder in Einstellungen → „KI-Nutzung“ für Pinar Cloud.",
+            "Das Ergebnis wird direkt in das Kommentarfeld eingefügt. Prüfe es und wähle Hinzufügen, um den Pin zu speichern. Die ursprüngliche Transkription wird außerdem in die Zwischenablage kopiert; sie wird nicht separat mit dem Pin gespeichert.",
+            "Die Bereinigung ist standardmäßig aus. Schalte sie in den Erweiterungsoptionen unter Erfassung → Übergabe an den Agenten für lokale Aufnahmen ein, oder in Einstellungen → „KI-Nutzung“ für Pinar Cloud.",
           ],
         },
       ],

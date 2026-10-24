@@ -28,10 +28,13 @@ provider's `POST /v1/audio/transcriptions` endpoint as multipart form data
 (`file`, `model`, and `language`). Recordings are limited to 120 seconds and
 5 MiB, are kept in request memory only, and are never written to disk.
 
-When **Clean up transcription with AI** is on in the extension options, the
+When **Clean up transcription with AI** is on in the extension options under
+**Capture → Agent handoff**, the
 transcript is then rewritten into a comment and acceptance criteria by the
 chat model. Otherwise the raw transcript becomes the comment. Local voice
-comments do not use Pinar credits.
+comments do not use Pinar credits. Stop recording with ■ to insert the result
+directly into the comment field, review it, then choose **Add** to save the pin.
+The original transcript is still copied to the clipboard.
 
 ## Privacy and credentials
 

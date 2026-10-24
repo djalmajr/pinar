@@ -118,11 +118,11 @@ describe("voice pin recording helpers", () => {
     assert.match(contentSource, /voice:copy-transcript"[\s\S]*?\.catch\(\(\) => null\)/);
     assert.match(contentSource, /sanitizeCapture\(\{[\s\S]*pins: \[\{ comment: structured \}\]/);
     assert.match(contentSource, /pins: \[\{ comment: transcript \}\]/);
-    assert.match(contentSource, /voiceUseTranscript\.addEventListener/);
+    assert.doesNotMatch(contentSource, /voiceUseTranscript|voiceReview|voiceTranscriptLabel/);
     assert.match(contentSource, /class="voice-session"/);
     assert.match(contentSource, /class="voice-wave"/);
     assert.match(contentSource, /data-ref="voiceCancel"/);
-    assert.match(contentSource, /data-ref="voiceSend"/);
+    assert.doesNotMatch(contentSource, /voiceSend/);
     assert.match(contentSource, /getByteTimeDomainData\(voiceWaveData\)/);
     assert.match(contentSource, /appendVoiceWaveLevel\(voiceWaveHistory/);
     assert.match(contentSource, /requestAnimationFrame\(sample\)/);
@@ -130,11 +130,11 @@ describe("voice pin recording helpers", () => {
     assert.doesNotMatch(contentSource, /class="voice-processing-label"/);
     assert.match(contentSource, /insertVoiceComment\([\s\S]*ui\.input\.selectionStart/);
     assert.match(contentSource, /data-ref="voiceStop"/);
-    assert.match(contentSource, /submittedVoiceRecorders\.add\(voiceRecorder\)/);
-    assert.match(contentSource, /if \(submitAfterTranscription\)[\s\S]*saveDraft\(\)/);
+    assert.doesNotMatch(contentSource, /submittedVoiceRecorders|submitAfterTranscription/);
+    assert.doesNotMatch(contentSource.slice(contentSource.indexOf("async function finishVoiceRecording("), contentSource.indexOf("function claimComposerFocus()")), /saveDraft\(/);
     assert.doesNotMatch(contentSource, /setVoiceStatus\(t\("overlay_voice_ready"\)\)/);
     assert.match(contentSource, /return t\(voiceErrorKey\(response\)\);/);
-    assert.match(contentSource, /ui\.voiceReview\.hidden = transcript === structured/);
+    assert.match(contentSource, /ui\.voiceStop\.focus\(\{ preventScroll: true \}\)/);
     // The voice endpoint is routed by storage mode instead of refusing local mode.
     assert.doesNotMatch(backgroundSource, /Voice comments require the Pinar cloud server/);
     assert.match(backgroundSource, /localAi = settings\.storageMode === "local" \? await localAiAvailability\(\) : undefined/);

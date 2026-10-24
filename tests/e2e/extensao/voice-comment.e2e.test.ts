@@ -30,8 +30,39 @@ async function installVoiceHarness(
   }));
   await page.goto("/voice-comment-fixture");
   await page.evaluate(({ availability, deferVoiceAvailability }) => {
-    const runtimeState = { clipboard: "", messages: [] as any[], pins: [] as any[] };
+    const runtimeState = {
+      clipboard: "",
+      completedTranscriptions: 0,
+      copyRequests: 0,
+      messages: [] as any[],
+      pins: [] as any[],
+    };
     (globalThis as any).__pinarRuntimeState = runtimeState;
+    // Each transcription waits for its own release from the test, so the
+    // processing state lasts exactly as long as the assertions need it.
+    let releasedTranscriptions = 0;
+    let requestedTranscriptions = 0;
+    const pendingTranscriptions: { index: number; resolve: () => void }[] = [];
+    const flushTranscriptions = () => {
+      for (const pending of pendingTranscriptions.filter(({ index }) => index < releasedTranscriptions)) {
+        pendingTranscriptions.splice(pendingTranscriptions.indexOf(pending), 1);
+        pending.resolve();
+      }
+    };
+    (globalThis as any).__releaseTranscription = () => {
+      releasedTranscriptions += 1;
+      flushTranscriptions();
+    };
+    // The clipboard copy answers at once unless the test holds it.
+    let copyHold: Promise<void> | null = null;
+    let releaseCopyHold = () => {};
+    (globalThis as any).__holdCopyTranscript = () => {
+      copyHold = new Promise((resolve) => { releaseCopyHold = resolve; });
+    };
+    (globalThis as any).__releaseCopyTranscript = () => {
+      copyHold = null;
+      releaseCopyHold();
+    };
     (globalThis as any).chrome = {
       runtime: {
         sendMessage: async (message: any) => {
@@ -45,17 +76,25 @@ async function installVoiceHarness(
             return availability;
           }
           if (message.type === "voice:transcribe") {
-            await new Promise((resolvePromise) => setTimeout(resolvePromise, 350));
+            const index = requestedTranscriptions;
+            requestedTranscriptions += 1;
+            await new Promise<void>((resolve) => {
+              pendingTranscriptions.push({ index, resolve });
+              flushTranscriptions();
+            });
+            runtimeState.completedTranscriptions += 1;
             return {
               ok: true,
               result: {
                 acceptanceCriteria: [],
                 comment: "Align the button",
-                transcript: "Align the button",
+                transcript: "Please align the button",
               },
             };
           }
           if (message.type === "voice:copy-transcript") {
+            runtimeState.copyRequests += 1;
+            if (copyHold) await copyHold;
             runtimeState.clipboard = message.text;
             return { ok: true };
           }
@@ -120,6 +159,10 @@ async function installVoiceHarness(
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
 }
 
+async function releaseTranscription(page: Page) {
+  await page.evaluate(() => (globalThis as any).__releaseTranscription());
+}
+
 async function openComposer(page: Page, selector: string) {
   const bounds = await page.locator(selector).boundingBox();
   expect(bounds).not.toBeNull();
@@ -182,7 +225,7 @@ test("local storage explains why the microphone is disabled", async ({ page }) =
 });
 
 // Mutation captured: leaving the standard actions visible makes the recorder overlap the composer footer.
-test("voice timeline supports review, direct send and cancellation without redundant status", async ({ page }) => {
+test("voice timeline inserts for review and saves only with Add, with button and Escape cancellation", async ({ page }) => {
   await installVoiceHarness(page);
   await openComposer(page, "#first");
   const composer = page.locator('[data-pinar="host"] [data-ref="composer"]');
@@ -197,6 +240,9 @@ test("voice timeline supports review, direct send and cancellation without redun
   await input.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(6, 6));
   await composer.getByRole("button", { name: "Speak comment" }).click();
   await expect(session).toBeVisible();
+  await expect(session.locator('[data-ref="voiceStop"]')).toBeFocused();
+  await expect(session.locator("button")).toHaveCount(2);
+  await expect(composer.locator('[data-ref="voiceSend"], [data-ref="voiceReview"], [data-ref="voiceUseTranscript"]')).toHaveCount(0);
   await expect(actions).toBeHidden();
   await expect(composer.locator('[data-ref="voiceElapsed"]')).toHaveText(/\d+s \/ 120s/);
   const recordingComposerBox = await composer.locator(".composer-card").boundingBox();
@@ -210,8 +256,6 @@ test("voice timeline supports review, direct send and cancellation without redun
     const cancelIcon = element.querySelector("[data-ref=voiceCancel] svg")?.getBoundingClientRect();
     const microphone = element.querySelector("[data-ref=voiceMeta] svg")?.getBoundingClientRect();
     const elapsed = element.querySelector("[data-ref=voiceElapsed]")?.getBoundingClientRect();
-    const send = element.querySelector("[data-ref=voiceSend]")?.getBoundingClientRect();
-    const sendIcon = element.querySelector("[data-ref=voiceSend] svg")?.getBoundingClientRect();
     const sessionBox = element.getBoundingClientRect();
     const stop = element.querySelector("[data-ref=voiceStop]")?.getBoundingClientRect();
     const stopButton = element.querySelector("[data-ref=voiceStop]");
@@ -219,15 +263,15 @@ test("voice timeline supports review, direct send and cancellation without redun
     const stopGlyph = element.querySelector("[data-ref=voiceStop] rect")?.getBoundingClientRect();
     const wave = element.querySelector("[data-ref=voiceWave]")?.getBoundingClientRect();
     return {
-      actionSizes: [cancel, stop, send].map((box) => box ? [box.width, box.height] : null),
+      actionSizes: [cancel, stop].map((box) => box ? [box.width, box.height] : null),
       cancelRadius: cancel ? getComputedStyle(element.querySelector("[data-ref=voiceCancel]") as Element).borderRadius : "",
-      edgeInsets: cancel && send ? {
+      edgeInsets: cancel && stop ? {
         left: cancel.left - sessionBox.left,
-        right: sessionBox.right - send.right,
+        right: sessionBox.right - stop.right,
       } : null,
       elapsedAfterMicrophone: Boolean(microphone && elapsed && elapsed.left >= microphone.right),
-      iconSizes: [cancelIcon, stopIcon, sendIcon].map((box) => box ? [box.width, box.height] : null),
-      sendRadius: send ? getComputedStyle(element.querySelector("[data-ref=voiceSend]") as Element).borderRadius : "",
+      iconSizes: [cancelIcon, stopIcon].map((box) => box ? [box.width, box.height] : null),
+      stopRadius: stopButton ? getComputedStyle(stopButton).borderRadius : "",
       stopGlyphSize: stopGlyph ? [stopGlyph.width, stopGlyph.height] : null,
       stopPadding: stopButton ? getComputedStyle(stopButton).padding : "",
       waveRatio: wave ? wave.width / sessionBox.width : 0,
@@ -238,7 +282,7 @@ test("voice timeline supports review, direct send and cancellation without redun
   expect(geometry.edgeInsets?.right).toBeGreaterThanOrEqual(4);
   // Mutation captured: fully rounded controls ignore the extension's established six-pixel button radius.
   expect(geometry.cancelRadius).toBe("6px");
-  expect(geometry.sendRadius).toBe("6px");
+  expect(geometry.stopRadius).toBe("6px");
   for (const size of geometry.actionSizes) {
     expect(size?.[0]).toBeCloseTo(32, 2);
     expect(size?.[1]).toBeCloseTo(32, 2);
@@ -274,6 +318,8 @@ test("voice timeline supports review, direct send and cancellation without redun
 
   await composer.getByRole("button", { name: "Stop recording" }).click();
   await expect(session).toHaveClass(/is-processing/);
+  await expect(session.locator('[data-ref="voiceStop"]')).toBeDisabled();
+  await expect(actions).toBeHidden();
   await expect(composer.getByText("Transcribing and organizing…")).toHaveCount(0);
   // Mutation captured: opacity-only processing leaves the waveform shape visibly frozen.
   const processingWave = await composer.locator("[data-ref=voiceWaveTrack]").evaluate((track) => {
@@ -307,21 +353,32 @@ test("voice timeline supports review, direct send and cancellation without redun
   for (const axis of ["x", "y", "width", "height"] as const) {
     expect(processingComposerBox[axis]).toBeCloseTo(idleComposerBox[axis], 1);
   }
+  await expect(input).toHaveValue("Start end");
+  await releaseTranscription(page);
   await expect(input).toHaveValue("Start Align the button end");
-  await expect.poll(() => page.evaluate(() => (globalThis as any).__pinarRuntimeState.clipboard)).toBe("Align the button");
+  await expect.poll(() => page.evaluate(() => (globalThis as any).__pinarRuntimeState.clipboard)).toBe("Please align the button");
   await expect(session).toBeHidden();
   await expect(actions).toBeVisible();
+  await expect(input).toBeFocused();
+  await expect(page.locator('[data-pinar="host"] [data-pin]')).toHaveCount(0);
   await expect(composer.getByText("Voice comment ready to review")).toHaveCount(0);
 
   await composer.getByRole("button", { name: "Speak comment" }).click();
   await composer.getByRole("button", { name: "Stop recording" }).click();
+  await expect(session).toHaveClass(/is-processing/);
+  await releaseTranscription(page);
   await expect(input).toHaveValue("Start Align the button Align the button end");
   await composer.getByRole("button", { name: "Add" }).click();
 
   await openComposer(page, "#second");
   await composer.getByRole("button", { name: "Speak comment" }).click();
-  await session.locator('[data-ref="voiceSend"]').click();
+  await session.locator('[data-ref="voiceStop"]').click();
   await expect(session).toHaveClass(/is-processing/);
+  await releaseTranscription(page);
+  await expect(input).toHaveValue("Align the button");
+  await expect(composer).toBeVisible();
+  await expect(page.locator('[data-pinar="host"] [data-pin]')).toHaveCount(1);
+  await composer.getByRole("button", { name: "Add" }).click();
   await expect(composer).toBeHidden();
   await expect(page.locator('[data-pinar="host"] [data-pin]')).toHaveCount(2);
 
@@ -332,10 +389,68 @@ test("voice timeline supports review, direct send and cancellation without redun
   await expect(actions).toBeVisible();
   await expect(composer.locator("textarea")).toHaveValue("");
 
+  await composer.getByRole("button", { name: "Speak comment" }).click();
+  await expect(session).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(session).toBeHidden();
+  await expect(composer).toBeVisible();
+  await expect(input).toHaveValue("");
+  await expect(input).toBeFocused();
+  await expect(actions).toBeVisible();
+
+  await composer.getByRole("button", { name: "Speak comment" }).click();
+  await composer.getByRole("button", { name: "Stop recording" }).click();
+  await expect(session).toHaveClass(/is-processing/);
+  await page.keyboard.press("Escape");
+  await expect(session).toBeHidden();
+  await expect(composer).toBeVisible();
+  // The cancelled request still answers afterwards; its text must be dropped.
+  await releaseTranscription(page);
+  await expect.poll(() => page.evaluate(() => (globalThis as any).__pinarRuntimeState.completedTranscriptions)).toBe(4);
+  await expect(input).toHaveValue("");
+  await expect(input).toBeFocused();
+
   const state = await page.evaluate(() => (globalThis as any).__pinarRuntimeState);
   expect(state.pins.map((pin: any) => pin.comment)).toEqual([
     "Start Align the button Align the button end",
     "Align the button",
   ]);
-  expect(state.messages.filter((message: any) => message.type === "voice:transcribe")).toHaveLength(3);
+  expect(state.messages.filter((message: any) => message.type === "voice:transcribe")).toHaveLength(4);
+});
+
+// Mutation captured: skipping the generation check after the clipboard copy
+// inserts a cancelled transcript into the text typed after Escape.
+test("cancelling while the transcript is copied keeps the edited field and saves nothing", async ({ page }) => {
+  await installVoiceHarness(page);
+  await openComposer(page, "#first");
+  const composer = page.locator('[data-pinar="host"] [data-ref="composer"]');
+  const actions = composer.locator('[data-ref="composerActions"]');
+  const session = composer.locator('[data-ref="voiceSession"]');
+  const input = composer.locator("textarea");
+
+  await page.evaluate(() => (globalThis as any).__holdCopyTranscript());
+  await composer.getByRole("button", { name: "Speak comment" }).click();
+  await composer.getByRole("button", { name: "Stop recording" }).click();
+  await expect(session).toHaveClass(/is-processing/);
+  await releaseTranscription(page);
+  await expect.poll(() => page.evaluate(() => (globalThis as any).__pinarRuntimeState.copyRequests)).toBe(1);
+  await expect(session).toHaveClass(/is-processing/);
+  await page.keyboard.press("Escape");
+  await expect(session).toBeHidden();
+  await expect(composer).toBeVisible();
+
+  await input.fill("Typed while copying");
+  await input.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 5));
+  await page.evaluate(() => (globalThis as any).__releaseCopyTranscript());
+  await expect.poll(() => page.evaluate(() => (globalThis as any).__pinarRuntimeState.clipboard)).toBe("Please align the button");
+
+  await expect(input).toHaveValue("Typed while copying");
+  expect(await input.evaluate((element: HTMLTextAreaElement) => [element.selectionStart, element.selectionEnd])).toEqual([0, 5]);
+  await expect(composer).toBeVisible();
+  await expect(actions).toBeVisible();
+  await expect(input).toBeEditable();
+  await expect(page.locator('[data-pinar="host"] [data-pin]')).toHaveCount(0);
+  const state = await page.evaluate(() => (globalThis as any).__pinarRuntimeState);
+  expect(state.pins).toEqual([]);
+  expect(state.messages.filter((message: any) => message.type === "voice:transcribe")).toHaveLength(1);
 });

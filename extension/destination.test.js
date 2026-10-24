@@ -146,8 +146,10 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /const \[voiceAvailable, setVoiceAvailable\] = useState\(false\)/);
     assert.match(optionsSrc, /type: "voice:availability"/);
     assert.match(optionsSrc, /response\.ok === true && response\.available === true/);
-    assert.match(optionsSrc, /authReady && voiceAvailable \? \(/);
-    assert.match(optionsSrc, /settings\.storageMode === "local" && authReady && voiceAvailable \? \(/);
+    // The voice cleanup toggle lives once, in the Capture tab's handoff section.
+    assert.match(optionsSrc, /\{t\.section_handoff_desc\}<\/p>\s*<div className="flex flex-col gap-3">\s*\{authReady && voiceAvailable \? \(/);
+    assert.doesNotMatch(optionsSrc, /settings\.storageMode === "local" && authReady && voiceAvailable/);
+    assert.equal(optionsSrc.match(/title=\{t\.voice_post_processing_label\}/g)?.length, 1);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);

@@ -747,7 +747,7 @@ const locale = {
         {
           heading: "Transcribe a voice comment",
           paragraphs: [
-            "Start a pin comment and choose the microphone. Record for up to 120 seconds, then stop to place the transcription in the comment, or send it directly. In Pinar Cloud, voice transcription needs a Pro account and uses AI credits; the Pinar Cloud AI credits for voice and the assistant guide explains the charging tiers and refunds. In the local app, voice uses the transcription model set in Settings → AI Assistant on your own OpenAI-compatible endpoint, without credits. The endpoint's API key must allow audio transcription.",
+            "Start a pin comment and choose the microphone. Record for up to 120 seconds, then choose ■ to place the transcription in the comment. Review the text and choose Add to save the pin; ✕ discards the recording. In Pinar Cloud, voice transcription needs a Pro account and uses AI credits; the Pinar Cloud AI credits for voice and the assistant guide explains the charging tiers and refunds. In the local app, voice uses the transcription model set in Settings → AI Assistant on your own OpenAI-compatible endpoint, without credits. The endpoint's API key must allow audio transcription.",
           ],
         },
         {
@@ -776,12 +776,12 @@ const locale = {
         {
           heading: "Clean up transcription with AI",
           paragraphs: [
-            "By default, a recorded voice comment places the raw transcript into the pin. The “Clean up transcription with AI” switch in the extension options — and the “Clean up voice transcriptions” switch in Settings → “AI usage” in Pinar Cloud — send the transcript through the AI model first, so the pin receives the comment you intended: fillers and false starts are removed, and the model may add short acceptance criteria beside the comment.",
+            "By default, a recorded voice comment places the raw transcript into the pin. The “Clean up transcription with AI” switch in the extension options under Capture → Agent handoff — and the “Clean up voice transcriptions” switch in Settings → “AI usage” in Pinar Cloud — send the transcript through the AI model first, so the pin receives the comment you intended: fillers and false starts are removed, and the model may add short acceptance criteria beside the comment.",
             "With the switch off, the transcript is used directly as the comment, up to the comment length limit, without AI rewriting. In the local app the cleanup uses the model you configured in Settings → AI Assistant. In Pinar Cloud it runs with the same AI credits that voice transcription already uses.",
           ],
           bullets: [
-            "Before you save the pin, review the original transcript in the voice panel or choose “Use transcription” to insert it into the comment. The original transcript is also copied to your clipboard; it is not saved separately with the pin.",
-            "Cleanup is off by default. Turn it on in the extension options for local captures, or in Settings → “AI usage” for Pinar Cloud.",
+            "The result is inserted directly into the comment field. Review it, then choose Add to save the pin. The original transcript is also copied to your clipboard; it is not saved separately with the pin.",
+            "Cleanup is off by default. Turn it on in the extension options under Capture → Agent handoff for local captures, or in Settings → “AI usage” for Pinar Cloud.",
           ],
         },
       ],
